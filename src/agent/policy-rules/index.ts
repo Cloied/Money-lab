@@ -13,6 +13,7 @@ import { createPathProtectionRules } from "./path-protection.js";
 import { createFinancialRules } from "./financial.js";
 import { createAuthorityRules } from "./authority.js";
 import { createRateLimitRules } from "./rate-limits.js";
+import { createMoneyLabRules } from "../../money-lab/guard.js";
 
 /**
  * Create the default set of policy rules.
@@ -28,5 +29,7 @@ export function createDefaultRules(
     ...createFinancialRules(treasuryPolicy),
     ...createAuthorityRules(),
     ...createRateLimitRules(),
+    // No-op unless the configuration carries the Money Lab profile.
+    ...createMoneyLabRules(),
   ];
 }

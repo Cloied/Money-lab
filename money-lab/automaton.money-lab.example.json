@@ -1,0 +1,34 @@
+{
+  "_comment": "Merge into ~/.automaton/automaton.json after the setup wizard. The moneyLab block is strict: unknown or missing keys stop startup. All amounts are USD cents and PROVISIONAL until checked against actual Conway pricing.",
+  "genesisPrompt": "Owner's optional starting hypotheses (you may ignore all of them): small browser-side file utilities, practical calculators, printable generators, developer tools, digital templates, narrow APIs, or original niche resources. No revenue model is mandatory.",
+  "socialRelayUrl": "",
+  "maxChildren": 0,
+  "moneyLab": {
+    "enabled": true,
+    "profile": "first-run",
+    "inference": {
+      "model": "gpt-5-mini",
+      "perCallCents": 5,
+      "hourlyCents": 10,
+      "dailyCents": 30,
+      "maxOutputTokens": 1024
+    },
+    "maxTurnsPerCycle": 8,
+    "noProgressCycles": 3,
+    "noProgressSleepMinutes": 360,
+    "publishSandboxId": "REPLACE_WITH_EXISTING_SANDBOX_ID_OR_null",
+    "resources": [
+      {
+        "id": "REPLACE_WITH_EXISTING_SANDBOX_ID",
+        "kind": "sandbox",
+        "description": "Existing Conway sandbox running the Money Lab build",
+        "expectedDailyCostCents": null
+      }
+    ],
+    "funding": {
+      "currency": "USD",
+      "provisionedCents": 1500,
+      "heldBackCents": 500
+    }
+  }
+}

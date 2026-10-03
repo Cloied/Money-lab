@@ -65,6 +65,10 @@ import { createWorkerInferenceBridge } from "./worker-inference-bridge.js";
 import { ProviderRegistry } from "../inference/provider-registry.js";
 import { UnifiedInferenceClient } from "../inference/inference-client.js";
 import { isIdleOnlyTool } from "./idle-only-tools.js";
+import { MONEY_LAB_ALLOWED_TOOLS } from "../money-lab/profile.js";
+import { createMoneyLabTools } from "../money-lab/tools.js";
+import { paidCallBlockReason } from "../money-lab/guard.js";
+import { ensureMoneyLabSchema, pause as pauseMoneyLab } from "../money-lab/journal.js";
 
 const logger = createLogger("loop");
 const MAX_TOOL_CALLS_PER_TURN = 10;
@@ -96,9 +100,15 @@ export async function runAgentLoop(
   const { identity, config, db, conway, inference, social, skills, policyEngine, spendTracker, onStateChange, onTurnComplete, ollamaBaseUrl } =
     options;
 
+  const moneyLab = config.moneyLab?.enabled ? config.moneyLab : undefined;
+  if (moneyLab) ensureMoneyLabSchema(db.raw);
+
   const builtinTools = createBuiltinTools(identity.sandboxId);
-  const installedTools = loadInstalledTools(db);
-  const tools = [...builtinTools, ...installedTools];
+  // Money Lab: only allowlisted builtin tools plus the journal tools are
+  // offered; runtime-installed tools are not loaded.
+  const tools = moneyLab
+    ? [...builtinTools, ...createMoneyLabTools()].filter((t) => MONEY_LAB_ALLOWED_TOOLS.has(t.name))
+    : [...builtinTools, ...loadInstalledTools(db)];
   const toolContext: ToolContext = {
     identity,
     config,
@@ -121,6 +131,16 @@ export async function runAgentLoop(
     const { discoverOllamaModels } = await import("../ollama/discover.js");
     await discoverOllamaModels(ollamaBaseUrl, db.raw);
   }
+  // Money Lab: a pinned model that is missing or has no known price would
+  // make every budget pass at 0c. Pause instead of spending unmetered.
+  if (moneyLab) {
+    const pinned = modelRegistry.get(moneyLab.inference.model);
+    if (!pinned || !pinned.enabled) {
+      pauseMoneyLab(db.raw, `modèle ${moneyLab.inference.model} absent ou désactivé dans le registre`, "runtime");
+    } else if (pinned.costPer1kInput <= 0 || pinned.costPer1kOutput <= 0) {
+      pauseMoneyLab(db.raw, `prix inconnu pour le modèle ${moneyLab.inference.model} ; renseigner le tarif avant de reprendre`, "runtime");
+    }
+  }
   const budgetTracker = new InferenceBudgetTracker(db.raw, modelStrategyConfig);
   const inferenceRouter = new InferenceRouter(db.raw, modelRegistry, budgetTracker);
 
@@ -129,7 +149,9 @@ export async function runAgentLoop(
   let orchestrator: Orchestrator | undefined;
   let workerPool: LocalWorkerPool | undefined;
 
-  if (hasTable(db.raw, "goals")) {
+  // Orchestration spawns workers and uses a separate inference client that
+  // bypasses the router budgets, so it is disabled under Money Lab.
+  if (!moneyLab && hasTable(db.raw, "goals")) {
     try {
       planModeController = new PlanModeController(db.raw);
 
@@ -441,7 +463,7 @@ export async function runAgentLoop(
         // available, buy credits NOW — before attempting inference.
         // This prevents the agent from dying mid-loop while waiting for
         // the heartbeat to fire. Uses a 60s cooldown to avoid hammering.
-        if ((tier === "critical" || tier === "low_compute") && financial.usdcBalance >= 5) {
+        if (!moneyLab && (tier === "critical" || tier === "low_compute") && financial.usdcBalance >= 5) {
           const INLINE_TOPUP_COOLDOWN_MS = 60_000;
           const lastInlineTopup = db.getKV("last_inline_topup_attempt");
           const cooldownExpired = !lastInlineTopup ||
@@ -595,6 +617,18 @@ export async function runAgentLoop(
       // Clear pending input after use
       pendingInput = undefined;
 
+      // ── Money Lab: no paid call while paused ──
+      if (moneyLab) {
+        const blocked = paidCallBlockReason(db.raw);
+        if (blocked) {
+          log(config, `[MONEY LAB] Inference blocked (${blocked}). Sleeping.`);
+          db.setAgentState("sleeping");
+          onStateChange?.("sleeping");
+          running = false;
+          break;
+        }
+      }
+
       // ── Inference Call (via router when available) ──
       const survivalTier = getSurvivalTier(financial.creditsCents);
       log(config, `[THINK] Routing inference (tier: ${survivalTier}, model: ${inference.getDefaultModel()})...`);
@@ -608,9 +642,40 @@ export async function runAgentLoop(
           sessionId: db.getKV("session_id") || "default",
           turnId: ulid(),
           tools: inferenceTools,
+          // Money Lab bounds output tokens so the per-call estimate holds.
+          ...(moneyLab ? { maxTokens: config.maxTokensPerTurn } : {}),
         },
         (msgs, opts) => inference.chat(msgs, { ...opts, tools: inferenceTools }),
       );
+
+      if (moneyLab) {
+        if (routerResult.costEstimated) {
+          // Unknown cost blocks further paid calls until the operator reconciles.
+          pauseMoneyLab(db.raw, "coût d'inférence inconnu (usage absent ou délai dépassé) ; rapprocher avec la facturation avant de reprendre", "runtime");
+          log(config, "[MONEY LAB] Inference cost unknown; paused pending operator reconciliation.");
+        }
+        if (routerResult.finishReason === "budget_exceeded") {
+          // No paid turn to discuss the budget. Hourly/daily limits reset by
+          // themselves; a per-call or session rejection would repeat forever,
+          // so it pauses for the operator instead.
+          const limit = routerResult.budgetLimit;
+          if (limit === "hourly" || limit === "daily") {
+            const reset = new Date();
+            if (limit === "daily") reset.setUTCHours(24, 0, 0, 0);
+            else reset.setUTCHours(reset.getUTCHours() + 1, 0, 0, 0);
+            log(config, `[MONEY LAB] ${routerResult.content}. Sleeping until ${reset.toISOString()}.`);
+            db.setKV("sleep_until", reset.toISOString());
+            db.setKV("sleep_reason", `plafond ${limit === "daily" ? "journalier" : "horaire"} atteint`);
+          } else {
+            pauseMoneyLab(db.raw, `limite ${limit ?? "inconnue"} : ${routerResult.content}`, "runtime");
+            log(config, `[MONEY LAB] ${routerResult.content}. Paused for operator review.`);
+          }
+          db.setAgentState("sleeping");
+          onStateChange?.("sleeping");
+          running = false;
+          break;
+        }
+      }
 
       // Build a compatible response for the rest of the loop
       const response = {

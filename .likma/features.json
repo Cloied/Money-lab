@@ -1,0 +1,85 @@
+{
+  "schema": 1,
+  "first_slice_id": "first-run-guards",
+  "features": [
+    {
+      "id": "first-run-guards",
+      "title": "First-run spend guards",
+      "criteria": [
+        "Missing policy context fails closed and disabled replication, funding, payment and self-modification tools are denied",
+        "Pause blocks paid inference and every top-up/x402 path without any network request",
+        "Per-call, hourly and daily inference limits use correct cent units and persist across restart",
+        "Upstream tool policy is unchanged when no moneyLab profile is configured",
+        "The project typechecks and builds"
+      ],
+      "status": "verified",
+      "implementation": {
+        "at": "2026-10-03T22:42:02.163754+00:00",
+        "note": "Implemented in src/money-lab and narrow upstream patches; see money-lab/INTEGRATION.md"
+      },
+      "verification": {
+        "at": "2026-10-03T22:56:16.437915+00:00",
+        "fingerprint": "3422553346dea5e5154a12fe40390b1cffd20beb6089a0ee48c28ae67226ea4a",
+        "criterion_checks": {
+          "1": "money-lab",
+          "2": "money-lab",
+          "3": "money-lab",
+          "4": "money-lab",
+          "5": "build"
+        },
+        "report": ".likma/checks/98d4ac437e9642ffb8eb357c543aa7e0.json",
+        "contract": "2d77fe602583b0876e9882751d779001f2d95e77a93848a883fda37f346e7aa9"
+      }
+    },
+    {
+      "id": "experiment-help-journal",
+      "title": "Experiment and help journal",
+      "criteria": [
+        "Only one experiment can be building at a time",
+        "Help requests survive restart; repeated or unrelated resolutions cannot unblock or re-wake",
+        "Funding, credit purchases, consumed costs, estimated revenue, confirmed revenue and cash stay separate",
+        "Repeated no-progress cycles trigger a long sleep while experiment context is kept"
+      ],
+      "status": "verified",
+      "implementation": {
+        "at": "2026-10-03T22:42:31.861234+00:00",
+        "note": "Implemented in src/money-lab (journal, cli, status, cycle); see money-lab/INTEGRATION.md"
+      },
+      "verification": {
+        "at": "2026-10-03T22:56:20.086946+00:00",
+        "fingerprint": "3422553346dea5e5154a12fe40390b1cffd20beb6089a0ee48c28ae67226ea4a",
+        "criterion_checks": {
+          "1": "money-lab",
+          "2": "money-lab",
+          "3": "money-lab",
+          "4": "money-lab"
+        },
+        "report": ".likma/checks/7d4ed03eda8a4f86bb3999e9cfae386f.json",
+        "contract": "597e8bfc094f9f6ed0c213282e82b30e9420e17cf54bdf403e9fcd951bc06bb2"
+      }
+    },
+    {
+      "id": "operator-cli",
+      "title": "Operator status, pause and resume",
+      "criteria": [
+        "Operator can pause and resume; status states that Conway hosting is still billed while paused",
+        "Malformed ledger input is rejected"
+      ],
+      "status": "verified",
+      "implementation": {
+        "at": "2026-10-03T22:42:31.963814+00:00",
+        "note": "Implemented in src/money-lab (journal, cli, status, cycle); see money-lab/INTEGRATION.md"
+      },
+      "verification": {
+        "at": "2026-10-03T22:56:23.641662+00:00",
+        "fingerprint": "3422553346dea5e5154a12fe40390b1cffd20beb6089a0ee48c28ae67226ea4a",
+        "criterion_checks": {
+          "1": "money-lab",
+          "2": "money-lab"
+        },
+        "report": ".likma/checks/53aa4f2496ea46d2ba316e6e0c6b837a.json",
+        "contract": "fc02da285bb11e2e132cc0b425712257590dbe827ea112ebfac23d3268f5b43b"
+      }
+    }
+  ]
+}

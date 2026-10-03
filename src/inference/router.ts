@@ -61,8 +61,12 @@ export class InferenceRouter {
       };
     }
 
-    // 2. Estimate cost and check budget
-    const estimatedTokens = messages.reduce((sum, m) => sum + (m.content?.length || 0) / 4, 0);
+    // 2. Estimate cost and check budget. Under strict accounting the tool
+    // schemas, which are sent with every call, count toward the input.
+    const strict = this.budget.config.strictCostAccounting === true;
+    const toolChars = strict && tools ? JSON.stringify(tools).length : 0;
+    const estimatedTokens =
+      messages.reduce((sum, m) => sum + (m.content?.length || 0) / 4, 0) + toolChars / 4;
     const estimatedCostCents = Math.ceil(
       (estimatedTokens / 1000) * model.costPer1kInput / 100 +
       (request.maxTokens || 1000) / 1000 * model.costPer1kOutput / 100,
@@ -79,6 +83,7 @@ export class InferenceRouter {
         costCents: 0,
         latencyMs: 0,
         finishReason: "budget_exceeded",
+        budgetLimit: budgetCheck.limit,
       };
     }
 
@@ -95,6 +100,7 @@ export class InferenceRouter {
           costCents: 0,
           latencyMs: 0,
           finishReason: "budget_exceeded",
+          budgetLimit: "session",
         };
       }
     }
@@ -129,28 +135,43 @@ export class InferenceRouter {
       const latencyMs = Date.now() - startTime;
       // If fallback is enabled, try next candidate
       if (error.name === "AbortError") {
+        // The request was sent and may have been billed. Strict accounting
+        // records the estimate instead of treating the call as free.
+        if (strict) {
+          this.budget.recordCost({
+            sessionId, turnId: turnId || null, model: model.modelId, provider: model.provider,
+            inputTokens: 0, outputTokens: 0, costCents: estimatedCostCents, latencyMs,
+            tier, taskType, cacheHit: false,
+          });
+        }
         return {
           content: `Inference timeout after ${timeout}ms`,
           model: model.modelId,
           provider: model.provider,
           inputTokens: 0,
           outputTokens: 0,
-          costCents: 0,
+          costCents: strict ? estimatedCostCents : 0,
           latencyMs,
           finishReason: "timeout",
+          ...(strict ? { costEstimated: true } : {}),
         };
       }
       throw error;
     }
     const latencyMs = Date.now() - startTime;
 
-    // 7. Calculate actual cost
+    // 7. Calculate actual cost. Under strict accounting, missing usage is
+    // not free: clients fill absent usage with zeros, and a real completion
+    // always has prompt tokens, so zero prompt tokens means unknown usage.
+    const costEstimated = strict && !(response.usage?.promptTokens > 0);
     const inputTokens = response.usage?.promptTokens || 0;
     const outputTokens = response.usage?.completionTokens || 0;
-    const actualCostCents = Math.ceil(
-      (inputTokens / 1000) * model.costPer1kInput / 100 +
-      (outputTokens / 1000) * model.costPer1kOutput / 100,
-    );
+    const actualCostCents = costEstimated
+      ? estimatedCostCents
+      : Math.ceil(
+        (inputTokens / 1000) * model.costPer1kInput / 100 +
+        (outputTokens / 1000) * model.costPer1kOutput / 100,
+      );
 
     // 8. Record cost
     this.budget.recordCost({
@@ -178,6 +199,7 @@ export class InferenceRouter {
       latencyMs,
       toolCalls: response.toolCalls,
       finishReason: response.finishReason || "stop",
+      ...(costEstimated ? { costEstimated: true } : {}),
     };
   }
 
@@ -195,6 +217,13 @@ export class InferenceRouter {
     };
 
     const tierRank = TIER_ORDER[tier] ?? 0;
+
+    // 0. A pinned model replaces matrix and fallback selection entirely.
+    const pinned = this.budget.config.pinnedModel;
+    if (pinned) {
+      const entry = this.registry.get(pinned);
+      return entry && entry.enabled ? entry : null;
+    }
 
     // 1. Try routing-matrix candidates
     const preference = this.getPreference(tier, taskType);

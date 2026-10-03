@@ -75,6 +75,8 @@ export interface AutomatonConfig {
   rpcUrl?: string;
   /** Chain type for this automaton. Defaults to "evm" if absent. */
   chainType?: ChainType;
+  /** Money Lab first-run profile (validated by src/money-lab/profile.ts). */
+  moneyLab?: import("./money-lab/profile.js").MoneyLabConfig;
 }
 
 export const DEFAULT_CONFIG: Partial<AutomatonConfig> = {
@@ -1197,7 +1199,13 @@ export interface InferenceResult {
   latencyMs: number;
   toolCalls?: unknown[];
   finishReason: string;
+  /** True when the provider returned no usable usage and costCents is an estimate. */
+  costEstimated?: boolean;
+  /** Which limit rejected the call when finishReason is "budget_exceeded". */
+  budgetLimit?: BudgetLimitKind;
 }
+
+export type BudgetLimitKind = "per_call" | "hourly" | "daily" | "session";
 
 export interface InferenceCostRow {
   id: string; // ULID
@@ -1240,6 +1248,14 @@ export interface ModelStrategyConfig {
   hourlyBudgetCents: number; // default: 0 (no limit)
   sessionBudgetCents: number; // default: 0 (no limit)
   perCallCeilingCents: number; // default: 0 (no limit)
+  dailyBudgetCents?: number; // default: 0/absent (no limit)
+  /** When set, the router uses only this model (no matrix/fallback selection). */
+  pinnedModel?: string;
+  /**
+   * Opt-in conservative accounting (Money Lab): tool schemas count toward the
+   * estimate, and missing/zero usage or a timeout records the estimate.
+   */
+  strictCostAccounting?: boolean;
   enableModelFallback: boolean; // default: true
   anthropicApiVersion: string; // default: "2023-06-01"
 }

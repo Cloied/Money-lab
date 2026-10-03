@@ -1,0 +1,113 @@
+{
+  "schema": 1,
+  "name": "money-lab",
+  "commands": {
+    "start": [],
+    "check": {
+      "types": [
+        "pnpm",
+        "run",
+        "typecheck"
+      ],
+      "money-lab": [
+        "pnpm",
+        "exec",
+        "vitest",
+        "run",
+        "src/__tests__/money-lab"
+      ],
+      "build": [
+        "pnpm",
+        "run",
+        "build"
+      ]
+    }
+  },
+  "required_env": [],
+  "required_paths": [
+    "package.json",
+    "pnpm-lock.yaml",
+    "node_modules"
+  ],
+  "check_timeout_seconds": 300,
+  "budget": {
+    "max_failed_attempts": 3,
+    "max_minutes": 60,
+    "max_cost": null,
+    "currency": "EUR"
+  },
+  "code_map": [
+    {
+      "area": "Money Lab profile",
+      "path": "src/money-lab/profile.ts",
+      "purpose": "Strict first-run config validation, tool allowlist and runtime overrides",
+      "edit_when": "First-run limits, allowed tools or config keys change"
+    },
+    {
+      "area": "Money Lab journal",
+      "path": "src/money-lab/journal.ts",
+      "purpose": "Experiments, help requests, operator ledger, pause and no-progress state in state.db",
+      "edit_when": "Record fields, statuses or financial categories change"
+    },
+    {
+      "area": "Money Lab guards",
+      "path": "src/money-lab/guard.ts",
+      "purpose": "Policy rule (allowlist, pause, runtime paths) and x402 payment gate",
+      "edit_when": "A spend path or protected resource changes"
+    },
+    {
+      "area": "Money Lab operator CLI",
+      "path": "src/money-lab/cli.ts",
+      "purpose": "automaton --money-lab status/pause/resume/help/ledger commands",
+      "edit_when": "Operator actions change"
+    },
+    {
+      "area": "Money Lab status",
+      "path": "src/money-lab/status.ts",
+      "purpose": "French operator status and daily summary from local state",
+      "edit_when": "Operator reporting changes"
+    },
+    {
+      "area": "Money Lab prompt",
+      "path": "src/money-lab/prompt.ts",
+      "purpose": "Mission text and enforced envelope block for the system prompt",
+      "edit_when": "The mission or stated envelope changes"
+    },
+    {
+      "area": "Agent loop integration",
+      "path": "src/agent/loop.ts",
+      "purpose": "Upstream loop with Money Lab tool filtering, pause, budget sleep and unknown-cost pause",
+      "edit_when": "Turn-level spending or sleep behaviour changes"
+    },
+    {
+      "area": "Inference budget",
+      "path": "src/inference/router.ts",
+      "purpose": "Model selection, cost estimate and per-call/hourly/daily budget enforcement",
+      "edit_when": "Model pricing, pinning or budget rules change"
+    },
+    {
+      "area": "Entrypoint",
+      "path": "src/index.ts",
+      "purpose": "Profile validation at startup, payment gate, pause-aware run loop and --money-lab CLI",
+      "edit_when": "Startup or run-loop behaviour changes"
+    },
+    {
+      "area": "Money Lab tests",
+      "path": "src/__tests__/money-lab/money-lab.test.ts",
+      "purpose": "Mocked first-run tests with network disabled",
+      "edit_when": "Any Money Lab behaviour changes"
+    },
+    {
+      "area": "Deployment checklist",
+      "path": "money-lab/CONWAY-CHECKLIST.md",
+      "purpose": "Install, backup, supervised run and resource-stop procedure",
+      "edit_when": "Deployment or shutdown steps change"
+    },
+    {
+      "area": "Integration note",
+      "path": "money-lab/INTEGRATION.md",
+      "purpose": "Pinned upstream SHA, spend paths, units and known limitations",
+      "edit_when": "Upstream base, spend paths or limitations change"
+    }
+  ]
+}

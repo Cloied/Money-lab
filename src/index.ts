@@ -36,6 +36,11 @@ import { prettySink } from "./observability/pretty-sink.js";
 import { bootstrapTopup } from "./conway/topup.js";
 import { randomUUID } from "crypto";
 import { keccak256, toHex } from "viem";
+import { applyMoneyLabProfile, MoneyLabConfigError } from "./money-lab/profile.js";
+import { installMoneyLabPaymentGuard } from "./money-lab/guard.js";
+import { ensureMoneyLabSchema, getPauseState, journalFingerprint } from "./money-lab/journal.js";
+import { afterWakeCycle, isOperatorWake } from "./money-lab/cycle.js";
+import type { AutomatonConfig } from "./types.js";
 
 const logger = createLogger("main");
 const VERSION = "0.2.1";
@@ -63,6 +68,8 @@ Usage:
   automaton --init         Initialize wallet and config directory
   automaton --provision    Provision Conway API key via SIWE
   automaton --status       Show current automaton status
+  automaton --money-lab    Money Lab operator commands (status, summary, pause, resume,
+                           help-list, help-resolve, help-reject, ledger-add)
   automaton --version      Show version
   automaton --help         Show this help
 
@@ -104,6 +111,10 @@ Environment:
       process.exit(1);
     }
     process.exit(0);
+  }
+
+  if (args[0] === "--money-lab") {
+    process.exit(await moneyLabCommand(args.slice(1)));
   }
 
   if (args.includes("--status")) {
@@ -181,6 +192,41 @@ Version:    ${config.version}
   db.close();
 }
 
+// ─── Money Lab ─────────────────────────────────────────────────
+
+/** Validate and apply the Money Lab profile; an invalid profile is fatal. */
+function withMoneyLabProfile(config: AutomatonConfig): AutomatonConfig {
+  try {
+    return applyMoneyLabProfile(config);
+  } catch (err) {
+    if (err instanceof MoneyLabConfigError) {
+      logger.error(err.message);
+      process.exit(1);
+    }
+    throw err;
+  }
+}
+
+async function moneyLabCommand(argv: string[]): Promise<number> {
+  const loaded = loadConfig();
+  if (!loaded) {
+    logger.error("Automaton n'est pas configuré (automaton.json introuvable).");
+    return 1;
+  }
+  const config = withMoneyLabProfile(loaded);
+  if (!config.moneyLab) {
+    logger.error("Aucun bloc moneyLab dans automaton.json.");
+    return 1;
+  }
+  const { runMoneyLabCommand } = await import("./money-lab/cli.js");
+  const db = createDatabase(resolvePath(config.dbPath));
+  try {
+    return runMoneyLabCommand(argv, db.raw, config);
+  } finally {
+    db.close();
+  }
+}
+
 // ─── Main Run ──────────────────────────────────────────────────
 
 async function run(): Promise<void> {
@@ -191,6 +237,14 @@ async function run(): Promise<void> {
   if (!config) {
     const { runSetupWizard } = await import("./setup/wizard.js");
     config = await runSetupWizard();
+  }
+  config = withMoneyLabProfile(config);
+  const moneyLab = config.moneyLab;
+  if (moneyLab) {
+    // Before any client is created: no x402 payment or credit purchase
+    // can be signed by this process.
+    installMoneyLabPaymentGuard();
+    logger.info("[MONEY LAB] Profil first-run actif : paiements désactivés, liste d'outils autorisés appliquée.");
   }
 
   // Load wallet (chain-aware)
@@ -205,6 +259,7 @@ async function run(): Promise<void> {
   // Initialize database
   const dbPath = resolvePath(config.dbPath);
   const db = createDatabase(dbPath);
+  if (moneyLab) ensureMoneyLabSchema(db.raw);
 
   // Persist createdAt: only set if not already stored (never overwrite)
   const existingCreatedAt = db.getIdentity("createdAt");
@@ -338,7 +393,8 @@ async function run(): Promise<void> {
 
   // Bootstrap topup: buy minimum credits ($5) from USDC so the agent can start.
   // The agent decides larger topups itself via the topup_credits tool.
-  try {
+  // Money Lab: skipped; initial credits are provisioned by the operator.
+  if (!moneyLab) try {
     let bootstrapTimer: ReturnType<typeof setTimeout>;
     const bootstrapTimeout = new Promise<null>((_, reject) => {
       bootstrapTimer = setTimeout(() => reject(new Error("bootstrap topup timed out")), 15_000);
@@ -412,6 +468,14 @@ async function run(): Promise<void> {
         logger.error("Skills reload failed", error instanceof Error ? error : undefined);
       }
 
+      // Money Lab: a paused instance does not start a wake cycle.
+      if (moneyLab && getPauseState(db.raw)) {
+        db.setAgentState("sleeping");
+        await sleep(30_000);
+        continue;
+      }
+      const fingerprintBefore = moneyLab ? journalFingerprint(db.raw) : "";
+
       // Run the agent loop
       await runAgentLoop({
         identity,
@@ -433,6 +497,15 @@ async function run(): Promise<void> {
           );
         },
       });
+
+      if (moneyLab) {
+        const cycle = afterWakeCycle(db.raw, moneyLab, fingerprintBefore);
+        if (cycle.longSleepUntil) {
+          logger.info(
+            `[MONEY LAB] ${cycle.noProgressCycles} cycles sans progrès du journal : sommeil jusqu'à ${cycle.longSleepUntil}.`,
+          );
+        }
+      }
 
       // Agent loop exited (sleeping or dead)
       const state = db.getAgentState();
@@ -464,6 +537,12 @@ async function run(): Promise<void> {
 
           // Phase 1.1: Check for wake events from wake_events table (atomic consume)
           const wakeEvent = consumeNextWakeEvent(db.raw);
+          // Money Lab: only the operator can cut a sleep short. Heartbeat
+          // distress/inbox wakes would otherwise start paid cycles.
+          if (wakeEvent && moneyLab && !isOperatorWake(wakeEvent)) {
+            logger.info(`[MONEY LAB] Réveil ignoré pendant le sommeil (${wakeEvent.source}) : ${wakeEvent.reason}`);
+            continue;
+          }
           if (wakeEvent) {
             logger.info(
               `[${new Date().toISOString()}] Woken by ${wakeEvent.source}: ${wakeEvent.reason}`,
@@ -475,6 +554,7 @@ async function run(): Promise<void> {
 
         // Clear sleep state
         db.deleteKV("sleep_until");
+        if (moneyLab) db.deleteKV("sleep_reason");
         continue;
       }
     } catch (err: any) {

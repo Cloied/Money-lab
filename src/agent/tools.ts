@@ -3316,6 +3316,18 @@ export async function executeTool(
     };
   }
 
+  // Money Lab: a missing policy engine or turn context fails closed.
+  if (context.config.moneyLab?.enabled && (!policyEngine || !turnContext)) {
+    return {
+      id: ulid(),
+      name: toolName,
+      arguments: args,
+      result: "",
+      durationMs: 0,
+      error: "Policy denied: MONEY_LAB_POLICY_MISSING — tool execution requires a policy engine and turn context",
+    };
+  }
+
   // Policy evaluation (if engine is provided)
   if (policyEngine && turnContext) {
     const request: PolicyRequest = {
