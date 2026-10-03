@@ -89,11 +89,14 @@ rejected rather than meaning "unlimited".
 4. Inbound social messages: set `socialRelayUrl` to `""` so no relay messages wake the agent.
    Heartbeat wake events can still interrupt a long no-progress sleep; each such wake costs one
    bounded cycle.
-5. Money Lab tables are created with `CREATE TABLE IF NOT EXISTS`, outside upstream schema versions.
-6. Telegram notifications are not implemented; the CLI is the help/notification channel.
-7. Web research: no search adapter was added. The agent can use `exec` (curl) for permitted HTTP
+5. A process restart clears `sleep_until` (upstream behaviour), so the first cycle after a restart
+   runs even during a long no-progress sleep. Budgets, pause and the no-progress counter are
+   persisted and still apply; a cycle blocked by a budget makes no paid call.
+6. Money Lab tables are created with `CREATE TABLE IF NOT EXISTS`, outside upstream schema versions.
+7. Telegram notifications are not implemented; the CLI is the help/notification channel.
+8. Web research: no search adapter was added. The agent can use `exec` (curl) for permitted HTTP
    retrieval only; a search API would need a scoped extension and a cost allowance.
-8. `check_for_updates` still runs `git fetch` against the configured remote (no wake, no pull).
+9. `check_for_updates` still runs `git fetch` against the configured remote (no wake, no pull).
 
 ## Tests
 

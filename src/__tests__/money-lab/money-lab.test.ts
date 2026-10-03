@@ -55,6 +55,7 @@ import { afterWakeCycle } from "../../money-lab/cycle.js";
 import { createMoneyLabTools } from "../../money-lab/tools.js";
 import { buildMoneyLabPromptBlock } from "../../money-lab/prompt.js";
 import { runMoneyLabCommand } from "../../money-lab/cli.js";
+import { formatStatus } from "../../money-lab/status.js";
 import {
   MockConwayClient,
   MockInferenceClient,
@@ -438,6 +439,7 @@ describe("Money Lab agent loop", () => {
     expect(inference.calls).toHaveLength(0);
     expect(db.getAgentState()).toBe("sleeping");
     expect(new Date(db.getKV("sleep_until")!).getTime()).toBeGreaterThan(Date.now());
+    expect(formatStatus(db.raw, labConfig())).toMatch(/Sommeil jusqu'à .*budget exhausted/);
   });
 
   it("pauses when the provider returns no usage (unknown cost)", async () => {

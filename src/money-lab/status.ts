@@ -35,13 +35,15 @@ export function formatStatus(
   }
 
   const paused = getPauseState(db);
-  const agentState = (db.prepare("SELECT value FROM kv WHERE key = 'agent_state'").get() as { value: string } | undefined)?.value;
   out.push(
     paused
       ? `Pause : OUI depuis ${paused.at} (${paused.by === "operator" ? "opérateur" : "runtime"}) — ${paused.reason}`
       : "Pause : non",
   );
-  out.push(`État de l'agent : ${agentState ?? "inconnu"}`);
+  const kv = (key: string) => (db.prepare("SELECT value FROM kv WHERE key = ?").get(key) as { value: string } | undefined)?.value;
+  out.push(`État de l'agent : ${kv("agent_state") ?? "inconnu"}`);
+  const sleepUntil = kv("sleep_until");
+  if (sleepUntil) out.push(`Sommeil jusqu'à : ${sleepUntil}${kv("sleep_reason") ? ` — ${kv("sleep_reason")}` : ""}`);
   out.push(`Cycles sans progrès : ${getNoProgressCycles(db)} / ${lab.noProgressCycles}`);
 
   out.push("", "Inférence (UTC) :");
