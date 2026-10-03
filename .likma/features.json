@@ -18,8 +18,8 @@
         "note": "Implemented in src/money-lab and narrow upstream patches; see money-lab/INTEGRATION.md"
       },
       "verification": {
-        "at": "2026-10-03T22:42:27.044704+00:00",
-        "fingerprint": "c9795491abe4060a9d8af395d00a888fa12604688b22ee32e2c650a749d38336",
+        "at": "2026-10-03T22:43:23.072399+00:00",
+        "fingerprint": "8c00bbe14d03d951010c79a4840bf1216fc994f1cfea7f85906d78b0db6bbcd7",
         "criterion_checks": {
           "1": "money-lab",
           "2": "money-lab",
@@ -27,7 +27,7 @@
           "4": "money-lab",
           "5": "build"
         },
-        "report": ".likma/checks/fdf5d63e13d94816ab1e36928517a44a.json",
+        "report": ".likma/checks/6c4c10923a864a0798791f5778181933.json",
         "contract": "2d77fe602583b0876e9882751d779001f2d95e77a93848a883fda37f346e7aa9"
       }
     },
@@ -46,15 +46,15 @@
         "note": "Implemented in src/money-lab (journal, cli, status, cycle); see money-lab/INTEGRATION.md"
       },
       "verification": {
-        "at": "2026-10-03T22:42:35.518032+00:00",
-        "fingerprint": "c9795491abe4060a9d8af395d00a888fa12604688b22ee32e2c650a749d38336",
+        "at": "2026-10-03T22:43:26.575419+00:00",
+        "fingerprint": "8c00bbe14d03d951010c79a4840bf1216fc994f1cfea7f85906d78b0db6bbcd7",
         "criterion_checks": {
           "1": "money-lab",
           "2": "money-lab",
           "3": "money-lab",
           "4": "money-lab"
         },
-        "report": ".likma/checks/acb9d4d7366c40e2a8bbcdfd533422ed.json",
+        "report": ".likma/checks/36c4c382307241d9b7932707fea7a11c.json",
         "contract": "597e8bfc094f9f6ed0c213282e82b30e9420e17cf54bdf403e9fcd951bc06bb2"
       }
     },
@@ -71,13 +71,13 @@
         "note": "Implemented in src/money-lab (journal, cli, status, cycle); see money-lab/INTEGRATION.md"
       },
       "verification": {
-        "at": "2026-10-03T22:42:38.957708+00:00",
-        "fingerprint": "c9795491abe4060a9d8af395d00a888fa12604688b22ee32e2c650a749d38336",
+        "at": "2026-10-03T22:43:30.226911+00:00",
+        "fingerprint": "8c00bbe14d03d951010c79a4840bf1216fc994f1cfea7f85906d78b0db6bbcd7",
         "criterion_checks": {
           "1": "money-lab",
           "2": "money-lab"
         },
-        "report": ".likma/checks/dc527dfe43a44ad3a6a32bb173e67c02.json",
+        "report": ".likma/checks/2adece233c8b4f8c8ed747720a551470.json",
         "contract": "fc02da285bb11e2e132cc0b425712257590dbe827ea112ebfac23d3268f5b43b"
       }
     }
