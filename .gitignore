@@ -11,3 +11,13 @@ dist
 .automaton/wallet.json
 .automaton/state.db
 
+# Likma local execution records
+**/.likma/session.json
+**/.likma/sessions/
+**/.likma/checks/
+**/.likma/*.sqlite
+**/.likma/knowledge.json
+**/.likma/knowledge-history/
+
+# Likma private agent history
+**/.likma/agent-runtime.json
