@@ -11,7 +11,7 @@
   status/summary, no-progress sleep, integration note, Conway checklist (features verified in docs/FEATURES.md).
 - Checks run (command, result, date):
   - likma project feature verify (types/money-lab/build): pass, 2026-10-03
-  - pnpm exec vitest run --exclude src/__tests__/context-hardening.test.ts: 1644/1644 pass, 2026-10-03
+  - pnpm exec vitest run --exclude src/__tests__/context-hardening.test.ts: 1649/1649 pass after review fixes, 2026-10-03
     (upstream d8f8168 baseline: 1614/1614)
 - Blockers and known regressions:
   - Upstream context-hardening.test.ts hangs on unmodified upstream; upstream CI masks it as a warning.
