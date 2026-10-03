@@ -61,8 +61,11 @@ export class InferenceRouter {
       };
     }
 
-    // 2. Estimate cost and check budget
-    const estimatedTokens = messages.reduce((sum, m) => sum + (m.content?.length || 0) / 4, 0);
+    // 2. Estimate cost and check budget. Tool schemas are sent with every
+    // call, so they count toward the input estimate.
+    const toolChars = tools ? JSON.stringify(tools).length : 0;
+    const estimatedTokens =
+      messages.reduce((sum, m) => sum + (m.content?.length || 0) / 4, 0) + toolChars / 4;
     const estimatedCostCents = Math.ceil(
       (estimatedTokens / 1000) * model.costPer1kInput / 100 +
       (request.maxTokens || 1000) / 1000 * model.costPer1kOutput / 100,
@@ -144,13 +147,17 @@ export class InferenceRouter {
     }
     const latencyMs = Date.now() - startTime;
 
-    // 7. Calculate actual cost
+    // 7. Calculate actual cost. Missing usage is not free: record the
+    // pre-call estimate and flag the result so callers can reconcile.
+    const costEstimated = !response.usage;
     const inputTokens = response.usage?.promptTokens || 0;
     const outputTokens = response.usage?.completionTokens || 0;
-    const actualCostCents = Math.ceil(
-      (inputTokens / 1000) * model.costPer1kInput / 100 +
-      (outputTokens / 1000) * model.costPer1kOutput / 100,
-    );
+    const actualCostCents = costEstimated
+      ? estimatedCostCents
+      : Math.ceil(
+        (inputTokens / 1000) * model.costPer1kInput / 100 +
+        (outputTokens / 1000) * model.costPer1kOutput / 100,
+      );
 
     // 8. Record cost
     this.budget.recordCost({
@@ -178,6 +185,7 @@ export class InferenceRouter {
       latencyMs,
       toolCalls: response.toolCalls,
       finishReason: response.finishReason || "stop",
+      ...(costEstimated ? { costEstimated: true } : {}),
     };
   }
 
@@ -195,6 +203,13 @@ export class InferenceRouter {
     };
 
     const tierRank = TIER_ORDER[tier] ?? 0;
+
+    // 0. A pinned model replaces matrix and fallback selection entirely.
+    const pinned = this.budget.config.pinnedModel;
+    if (pinned) {
+      const entry = this.registry.get(pinned);
+      return entry && entry.enabled ? entry : null;
+    }
 
     // 1. Try routing-matrix candidates
     const preference = this.getPreference(tier, taskType);

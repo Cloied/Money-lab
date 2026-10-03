@@ -309,6 +309,21 @@ export async function checkX402(
  * Fetch a URL with automatic x402 payment.
  * If the endpoint returns 402, sign and pay, then retry.
  */
+/**
+ * Process-wide payment gate. When a guard is installed and returns a
+ * reason, x402Fetch refuses before any request or signature. Used by the
+ * Money Lab profile to disable credit purchases and x402 payments.
+ */
+let paymentGuard: (() => string | null) | null = null;
+
+export function setX402PaymentGuard(guard: (() => string | null) | null): void {
+  paymentGuard = guard;
+}
+
+export function getX402PaymentBlockReason(): string | null {
+  return paymentGuard ? paymentGuard() : null;
+}
+
 export async function x402Fetch(
   url: string,
   account: PrivateKeyAccount,
@@ -318,6 +333,11 @@ export async function x402Fetch(
   maxPaymentCents?: number,
   chainType?: ChainType,
 ): Promise<X402PaymentResult> {
+  const blocked = getX402PaymentBlockReason();
+  if (blocked) {
+    return { success: false, error: `x402 payment blocked: ${blocked}` };
+  }
+
   // Solana wallets cannot sign EVM x402 payments
   if (chainType === "solana") {
     return {

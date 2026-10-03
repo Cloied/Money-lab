@@ -22,6 +22,7 @@ import type {
   Skill,
 } from "../types.js";
 import { getActiveSkillInstructions } from "../skills/loader.js";
+import { MONEY_LAB_GENESIS_PROMPT, buildMoneyLabPromptBlock } from "../money-lab/prompt.js";
 import { getLineageSummary } from "../replication/lineage.js";
 import { sanitizeInput } from "./injection-defense.js";
 import { loadCurrentSoul } from "../soul/model.js";
@@ -649,6 +650,13 @@ Your chain type is ${chainType}.`,
     const truncated = sanitized.content.slice(0, 2000);
     sections.push(
       `## Genesis Purpose [AGENT-EVOLVED CONTENT]\n${truncated}\n## End Genesis`,
+    );
+  }
+
+  // Layer 4b: Money Lab mission and enforced envelope (code-owned, not agent-evolved)
+  if (config.moneyLab?.enabled) {
+    sections.push(
+      `## Money Lab Mission\n${MONEY_LAB_GENESIS_PROMPT}\n## End Money Lab Mission\n\n${buildMoneyLabPromptBlock(db.raw, config.moneyLab)}`,
     );
   }
 

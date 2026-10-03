@@ -156,6 +156,11 @@ export const BUILTIN_TASKS: Record<string, HeartbeatTaskFn> = {
       timestamp: new Date().toISOString(),
     }));
 
+    // Money Lab: no background purchase and no paid wake cycle to discuss it.
+    if (taskCtx.config.moneyLab?.enabled) {
+      return { shouldWake: false };
+    }
+
     const MIN_TOPUP_USD = 5;
     if (balance >= MIN_TOPUP_USD && (ctx.survivalTier === "critical" || ctx.survivalTier === "dead")) {
       // Cooldown: don't attempt more than once every 5 minutes to avoid
@@ -283,7 +288,8 @@ export const BUILTIN_TASKS: Record<string, HeartbeatTaskFn> = {
         ...repo,
         checkedAt: new Date().toISOString(),
       }));
-      if (upstream.behind > 0) {
+      // Money Lab runs a pinned build; upstream changes never wake the agent.
+      if (upstream.behind > 0 && !taskCtx.config.moneyLab?.enabled) {
         // Only wake if the commit count changed since last check
         const prevBehind = taskCtx.db.getKV("upstream_prev_behind");
         const behindStr = String(upstream.behind);

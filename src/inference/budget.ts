@@ -54,6 +54,17 @@ export class InferenceBudgetTracker {
       }
     }
 
+    // Daily budget check (persisted costs, so a restart cannot reset it)
+    if ((this.config.dailyBudgetCents ?? 0) > 0) {
+      const dailyCost = this.getDailyCost();
+      if (dailyCost + estimatedCostCents > this.config.dailyBudgetCents!) {
+        return {
+          allowed: false,
+          reason: `Daily budget exhausted: ${dailyCost}c spent + ${estimatedCostCents}c estimated > ${this.config.dailyBudgetCents}c limit`,
+        };
+      }
+    }
+
     // Session budget check
     if (this.config.sessionBudgetCents > 0) {
       // Session budget is enforced via getSessionCost when sessionId is known
