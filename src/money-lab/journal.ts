@@ -464,18 +464,18 @@ export interface PauseState {
   by: "operator" | "runtime";
 }
 
-function getKV(db: DB, key: string): string | undefined {
+export function getKV(db: DB, key: string): string | undefined {
   const row = db.prepare("SELECT value FROM kv WHERE key = ?").get(key) as { value: string } | undefined;
   return row?.value;
 }
 
-function setKV(db: DB, key: string, value: string): void {
+export function setKV(db: DB, key: string, value: string): void {
   db.prepare(
     "INSERT INTO kv (key, value, updated_at) VALUES (?, ?, datetime('now')) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
   ).run(key, value);
 }
 
-function deleteKV(db: DB, key: string): void {
+export function deleteKV(db: DB, key: string): void {
   db.prepare("DELETE FROM kv WHERE key = ?").run(key);
 }
 
@@ -501,6 +501,7 @@ export function resume(db: DB): boolean {
     deleteKV(db, KV_PAUSED);
     deleteKV(db, KV_NO_PROGRESS);
     deleteKV(db, "sleep_until");
+    deleteKV(db, "sleep_reason");
     if (wasPaused) {
       db.prepare("INSERT INTO wake_events (source, reason, payload) VALUES ('money_lab_operator', 'Operator resumed Money Lab', '{}')").run();
     }
@@ -519,10 +520,18 @@ export function setNoProgressCycles(db: DB, cycles: number): void {
 
 /**
  * Fingerprint of journal state. A wake cycle that leaves it unchanged
- * made no recorded progress.
+ * made no recorded progress. Opening a help request is not progress (it
+ * cannot be used to dodge the no-progress sleep); an operator resolution is.
  */
 export function journalFingerprint(db: DB): string {
   const exp = db.prepare("SELECT COUNT(*) AS n, COALESCE(MAX(updated_at), '') AS t FROM money_lab_experiments").get() as any;
-  const help = db.prepare("SELECT COUNT(*) AS n, COALESCE(MAX(COALESCE(resolved_at, created_at)), '') AS t FROM money_lab_help_requests").get() as any;
-  return `${exp.n}|${exp.t}|${help.n}|${help.t}`;
+  const help = db.prepare("SELECT COALESCE(MAX(resolved_at), '') AS t FROM money_lab_help_requests").get() as any;
+  return `${exp.n}|${exp.t}|${help.t}`;
+}
+
+/** Closed help requests, most recently resolved first. */
+export function listRecentlyClosedHelp(db: DB, limit: number): HelpRequest[] {
+  return (db.prepare(
+    "SELECT * FROM money_lab_help_requests WHERE status != 'open' ORDER BY resolved_at DESC, id DESC LIMIT ?",
+  ).all(limit) as any[]).map(rowToHelp);
 }

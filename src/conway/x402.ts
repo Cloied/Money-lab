@@ -305,15 +305,9 @@ export async function checkX402(
   }
 }
 
-/**
- * Fetch a URL with automatic x402 payment.
- * If the endpoint returns 402, sign and pay, then retry.
- */
-/**
- * Process-wide payment gate. When a guard is installed and returns a
- * reason, x402Fetch refuses before any request or signature. Used by the
- * Money Lab profile to disable credit purchases and x402 payments.
- */
+// Process-wide payment gate. When a guard is installed and returns a
+// reason, x402Fetch refuses before any request or signature. Used by the
+// Money Lab profile to disable credit purchases and x402 payments.
 let paymentGuard: (() => string | null) | null = null;
 
 export function setX402PaymentGuard(guard: (() => string | null) | null): void {
@@ -324,6 +318,10 @@ export function getX402PaymentBlockReason(): string | null {
   return paymentGuard ? paymentGuard() : null;
 }
 
+/**
+ * Fetch a URL with automatic x402 payment.
+ * If the endpoint returns 402, sign and pay, then retry.
+ */
 export async function x402Fetch(
   url: string,
   account: PrivateKeyAccount,

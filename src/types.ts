@@ -1199,9 +1199,13 @@ export interface InferenceResult {
   latencyMs: number;
   toolCalls?: unknown[];
   finishReason: string;
-  /** True when the provider returned no usage and costCents is an estimate. */
+  /** True when the provider returned no usable usage and costCents is an estimate. */
   costEstimated?: boolean;
+  /** Which limit rejected the call when finishReason is "budget_exceeded". */
+  budgetLimit?: BudgetLimitKind;
 }
+
+export type BudgetLimitKind = "per_call" | "hourly" | "daily" | "session";
 
 export interface InferenceCostRow {
   id: string; // ULID
@@ -1247,6 +1251,11 @@ export interface ModelStrategyConfig {
   dailyBudgetCents?: number; // default: 0/absent (no limit)
   /** When set, the router uses only this model (no matrix/fallback selection). */
   pinnedModel?: string;
+  /**
+   * Opt-in conservative accounting (Money Lab): tool schemas count toward the
+   * estimate, and missing/zero usage or a timeout records the estimate.
+   */
+  strictCostAccounting?: boolean;
   enableModelFallback: boolean; // default: true
   anthropicApiVersion: string; // default: "2023-06-01"
 }

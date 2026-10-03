@@ -88,7 +88,7 @@ export const MONEY_LAB_ALLOWED_TOOLS: ReadonlySet<string> = new Set([
 
 export class MoneyLabConfigError extends Error {
   constructor(message: string) {
-    super(`Invalid moneyLab profile: ${message}`);
+    super(`Profil moneyLab invalide : ${message}`);
     this.name = "MoneyLabConfigError";
   }
 }
@@ -107,24 +107,24 @@ function isObject(value: unknown): value is Record<string, unknown> {
 
 function checkKeys(obj: Record<string, unknown>, allowed: string[], where: string): void {
   for (const key of Object.keys(obj)) {
-    if (!allowed.includes(key)) throw new MoneyLabConfigError(`unknown key ${where}.${key}`);
+    if (!allowed.includes(key)) throw new MoneyLabConfigError(`clé inconnue ${where}.${key}`);
   }
   for (const key of allowed) {
-    if (!(key in obj)) throw new MoneyLabConfigError(`missing ${where}.${key}`);
+    if (!(key in obj)) throw new MoneyLabConfigError(`clé manquante ${where}.${key}`);
   }
 }
 
 /** Positive integer. Zero is rejected so it can never mean "unlimited". */
 function positiveInt(value: unknown, where: string, max: number): number {
   if (typeof value !== "number" || !Number.isInteger(value) || value <= 0 || value > max) {
-    throw new MoneyLabConfigError(`${where} must be an integer between 1 and ${max}`);
+    throw new MoneyLabConfigError(`${where} doit être un entier entre 1 et ${max}`);
   }
   return value;
 }
 
 function nonEmptyString(value: unknown, where: string): string {
   if (typeof value !== "string" || value.trim() === "") {
-    throw new MoneyLabConfigError(`${where} must be a non-empty string`);
+    throw new MoneyLabConfigError(`${where} doit être une chaîne non vide`);
   }
   return value.trim();
 }
@@ -135,17 +135,17 @@ function nonEmptyString(value: unknown, where: string): string {
  */
 export function parseMoneyLabConfig(raw: unknown, sandboxId: string): MoneyLabConfig | null {
   if (raw === undefined) return null;
-  if (!isObject(raw)) throw new MoneyLabConfigError("moneyLab must be an object");
+  if (!isObject(raw)) throw new MoneyLabConfigError("moneyLab doit être un objet");
   checkKeys(raw, TOP_LEVEL_KEYS, "moneyLab");
 
   if (raw.enabled !== true) {
-    throw new MoneyLabConfigError("enabled must be true; remove the block to run upstream Automaton");
+    throw new MoneyLabConfigError("enabled doit valoir true ; retirer le bloc pour lancer Automaton standard");
   }
   if (raw.profile !== "first-run") {
-    throw new MoneyLabConfigError('profile must be "first-run"');
+    throw new MoneyLabConfigError('profile doit valoir "first-run"');
   }
 
-  if (!isObject(raw.inference)) throw new MoneyLabConfigError("inference must be an object");
+  if (!isObject(raw.inference)) throw new MoneyLabConfigError("inference doit être un objet");
   checkKeys(raw.inference, INFERENCE_KEYS, "moneyLab.inference");
   const inference = {
     model: nonEmptyString(raw.inference.model, "inference.model"),
@@ -155,24 +155,24 @@ export function parseMoneyLabConfig(raw: unknown, sandboxId: string): MoneyLabCo
     maxOutputTokens: positiveInt(raw.inference.maxOutputTokens, "inference.maxOutputTokens", 8192),
   };
   if (inference.perCallCents > inference.hourlyCents || inference.hourlyCents > inference.dailyCents) {
-    throw new MoneyLabConfigError("inference limits must satisfy perCallCents <= hourlyCents <= dailyCents");
+    throw new MoneyLabConfigError("les limites doivent respecter perCallCents <= hourlyCents <= dailyCents");
   }
 
   let publishSandboxId: string | null = null;
   if (raw.publishSandboxId !== null) {
     publishSandboxId = nonEmptyString(raw.publishSandboxId, "publishSandboxId");
     if (publishSandboxId !== sandboxId) {
-      throw new MoneyLabConfigError("publishSandboxId must equal the configured sandboxId or be null");
+      throw new MoneyLabConfigError("publishSandboxId doit être égal au sandboxId configuré ou null");
     }
   }
 
-  if (!Array.isArray(raw.resources)) throw new MoneyLabConfigError("resources must be an array");
+  if (!Array.isArray(raw.resources)) throw new MoneyLabConfigError("resources doit être un tableau");
   const resources = raw.resources.map((entry, i): MoneyLabResource => {
-    if (!isObject(entry)) throw new MoneyLabConfigError(`resources[${i}] must be an object`);
+    if (!isObject(entry)) throw new MoneyLabConfigError(`resources[${i}] doit être un objet`);
     checkKeys(entry, RESOURCE_KEYS, `moneyLab.resources[${i}]`);
     const cost = entry.expectedDailyCostCents;
     if (cost !== null && (typeof cost !== "number" || !Number.isInteger(cost) || cost < 0)) {
-      throw new MoneyLabConfigError(`resources[${i}].expectedDailyCostCents must be a non-negative integer or null`);
+      throw new MoneyLabConfigError(`resources[${i}].expectedDailyCostCents doit être un entier positif ou nul, ou null`);
     }
     return {
       id: nonEmptyString(entry.id, `resources[${i}].id`),
@@ -182,12 +182,12 @@ export function parseMoneyLabConfig(raw: unknown, sandboxId: string): MoneyLabCo
     };
   });
 
-  if (!isObject(raw.funding)) throw new MoneyLabConfigError("funding must be an object");
+  if (!isObject(raw.funding)) throw new MoneyLabConfigError("funding doit être un objet");
   checkKeys(raw.funding, FUNDING_KEYS, "moneyLab.funding");
-  if (raw.funding.currency !== "USD") throw new MoneyLabConfigError('funding.currency must be "USD"');
+  if (raw.funding.currency !== "USD") throw new MoneyLabConfigError('funding.currency doit valoir "USD"');
   const heldBack = raw.funding.heldBackCents;
   if (typeof heldBack !== "number" || !Number.isInteger(heldBack) || heldBack < 0) {
-    throw new MoneyLabConfigError("funding.heldBackCents must be a non-negative integer");
+    throw new MoneyLabConfigError("funding.heldBackCents doit être un entier positif ou nul");
   }
 
   return {
@@ -235,6 +235,7 @@ export function applyMoneyLabProfile(config: AutomatonConfig): AutomatonConfig {
     hourlyBudgetCents: tighter(base.hourlyBudgetCents, lab.inference.hourlyCents),
     dailyBudgetCents: tighter(base.dailyBudgetCents, lab.inference.dailyCents),
     enableModelFallback: false,
+    strictCostAccounting: true,
   };
 
   return {

@@ -8,7 +8,7 @@
 
 import type Database from "better-sqlite3";
 import type { MoneyLabConfig } from "./profile.js";
-import { listExperiments, listHelpRequests, getNoProgressCycles } from "./journal.js";
+import { listExperiments, listHelpRequests, listRecentlyClosedHelp, getNoProgressCycles } from "./journal.js";
 
 export const MONEY_LAB_GENESIS_PROMPT = `You operate Money Lab, a small economic experiment built on Automaton.
 Create useful outputs, find genuine users, and investigate legitimate revenue
@@ -44,9 +44,7 @@ function cents(value: number | null): string {
 export function buildMoneyLabPromptBlock(db: Database.Database, lab: MoneyLabConfig): string {
   const experiments = listExperiments(db).filter((e) => e.status !== "finished");
   const openHelp = listHelpRequests(db, "open");
-  const recentlyClosed = listHelpRequests(db)
-    .filter((h) => h.status !== "open")
-    .slice(-3);
+  const recentlyClosed = listRecentlyClosedHelp(db, 3);
 
   const lines = [
     "--- MONEY LAB FIRST-RUN ENVELOPE (enforced by the runtime) ---",

@@ -31,21 +31,20 @@ Specification: `MONEY_LAB_CORE_SPEC_v0.1.md` (lean first-run scope).
 New: `src/money-lab/{profile,journal,guard,prompt,tools,status,cli,cycle}.ts`,
 `src/__tests__/money-lab/money-lab.test.ts`, this `money-lab/` folder.
 
-Upstream patches (all narrow; behaviour unchanged when no `moneyLab` block is configured, except
-the two generic inference fixes marked ★):
+Upstream patches (all narrow; behaviour unchanged when no `moneyLab` block is configured):
 
 | File | Change |
 | --- | --- |
-| `src/types.ts` | `moneyLab?` on config; `dailyBudgetCents?`, `pinnedModel?` on model strategy; `costEstimated?` on inference result |
-| `src/inference/budget.ts` | Daily budget check from persisted costs (absent/0 keeps upstream "no limit") |
-| `src/inference/router.ts` | Pinned model bypasses matrix/fallback; ★ tool schemas counted in the estimate; ★ missing provider usage records the estimate instead of 0 and flags it |
+| `src/types.ts` | `moneyLab?` on config; `dailyBudgetCents?`, `pinnedModel?`, `strictCostAccounting?` on model strategy; `costEstimated?`, `budgetLimit?` on inference result |
+| `src/inference/budget.ts` | Daily budget check from persisted costs (absent/0 keeps upstream "no limit"); rejections name the limit |
+| `src/inference/router.ts` | Pinned model bypasses matrix/fallback. Opt-in strict accounting: tool schemas counted in the estimate; missing or zeroed usage and timeouts record the estimate and are flagged |
 | `src/conway/x402.ts` | Process-wide payment gate checked before any x402 request/signature |
 | `src/agent/tools.ts` | `executeTool` fails closed without policy engine/turn context under Money Lab |
 | `src/agent/policy-rules/index.ts` | Registers `money_lab.first_run` rule |
-| `src/agent/loop.ts` | Allowlisted tools only; orchestration off; no inline top-up; pause check before inference; bounded output tokens; sleep on budget exhaustion; pause on unknown cost |
+| `src/agent/loop.ts` | Allowlisted tools only; orchestration off; no inline top-up; pause if the pinned model is missing or unpriced; pause check before inference; bounded output tokens; sleep on hourly/daily exhaustion, pause on per-call/session rejection; pause on unknown cost |
 | `src/agent/system-prompt.ts` | Money Lab mission + enforced envelope block |
 | `src/heartbeat/tasks.ts` | No USDC auto-top-up/wake; no upstream-update wake |
-| `src/index.ts` | Strict profile validation (invalid = exit 1); payment gate; no bootstrap top-up; pause-aware run loop; no-progress tracking; `--money-lab` CLI |
+| `src/index.ts` | Strict profile validation (invalid = exit 1); payment gate; no bootstrap top-up; pause-aware run loop; only operator events cut a sleep short; no-progress tracking; `--money-lab` CLI |
 
 ## Spend paths checked
 
@@ -57,7 +56,8 @@ the two generic inference fixes marked ★):
 | `create_sandbox` / spawn 402 retry | Top-up then retry | Tools denied; gate blocks |
 | `topup_credits`, `x402_fetch`, `transfer_credits`, `fund_child` | Agent tools | Denied by allowlist; x402 gate as second layer |
 | `executeTool` without policy context | **Executes with no policy** | Denied (`MONEY_LAB_POLICY_MISSING`) |
-| Router inference | Hourly/session/per-call only, matrix may select `gpt-5.2` regardless of config, output estimate assumes 1000 tokens | Pinned model, per-call/hourly/daily limits, output bounded to `maxOutputTokens` |
+| Router inference | Hourly/session/per-call only, matrix may select `gpt-5.2` regardless of config, output estimate assumes 1000 tokens, client turns missing usage into 0 tokens (0c) | Pinned priced model, per-call/hourly/daily limits, output bounded to `maxOutputTokens`, zero/missing usage and timeouts charged at the estimate and paused for reconciliation |
+| Heartbeat wakes (distress when credits are critical, inbox, reflection) | Wake the agent and start paid cycles | Ignored during a sleep; only operator resume/help resolution wakes it |
 | Orchestrator / local workers | `UnifiedInferenceClient`, **bypasses router budgets** | Not initialised |
 | Replication, domains, messaging, git push, self-mod, heartbeat/genesis edits | Agent tools | Denied by allowlist |
 | Runtime-installed tools | Loaded from DB | Not loaded; denied by allowlist |
@@ -84,19 +84,22 @@ rejected rather than meaning "unlimited".
    keeping the agent wallet without spendable USDC and provisioning only finite Conway credits.
 2. The per-call ceiling uses a pre-call estimate (chars/4). The real cost is recorded afterwards
    and counts towards hourly/daily limits, so one call can exceed the per-call estimate slightly.
+   A provider error thrown after the request was sent (other than a timeout) records no cost;
+   reconcile with Conway billing when errors appear in the logs.
 3. Pause is checked before each inference call and each tool. A call already in flight completes.
    **Pause does not stop Conway hosting billing.**
-4. Inbound social messages: set `socialRelayUrl` to `""` so no relay messages wake the agent.
-   Heartbeat wake events can still interrupt a long no-progress sleep; each such wake costs one
-   bounded cycle.
+4. Inbound social messages: set `socialRelayUrl` to `""`. While awake (not sleeping) the agent still
+   processes queued inbox messages; while sleeping, only operator events wake it.
 5. A process restart clears `sleep_until` (upstream behaviour), so the first cycle after a restart
    runs even during a long no-progress sleep. Budgets, pause and the no-progress counter are
    persisted and still apply; a cycle blocked by a budget makes no paid call.
-6. Money Lab tables are created with `CREATE TABLE IF NOT EXISTS`, outside upstream schema versions.
-7. Telegram notifications are not implemented; the CLI is the help/notification channel.
-8. Web research: no search adapter was added. The agent can use `exec` (curl) for permitted HTTP
+6. Use a fresh `state.db` for the run: the finance summary includes every row of
+   `inference_costs`, including any from before the profile was enabled.
+7. Money Lab tables are created with `CREATE TABLE IF NOT EXISTS`, outside upstream schema versions.
+8. Telegram notifications are not implemented; the CLI is the help/notification channel.
+9. Web research: no search adapter was added. The agent can use `exec` (curl) for permitted HTTP
    retrieval only; a search API would need a scoped extension and a cost allowance.
-9. `check_for_updates` still runs `git fetch` against the configured remote (no wake, no pull).
+10. `check_for_updates` still runs `git fetch` against the configured remote (no wake, no pull).
 
 ## Tests (2026-10-03, Node 22, pnpm 10.28.1)
 
@@ -104,13 +107,13 @@ rejected rather than meaning "unlimited".
 | --- | --- | --- |
 | `pnpm typecheck` | pass | pass |
 | `pnpm build` | not run | pass |
-| `vitest run --exclude src/__tests__/context-hardening.test.ts` | 63 files, 1614/1614 pass | 64 files, 1644/1644 pass |
+| `vitest run --exclude src/__tests__/context-hardening.test.ts` | 63 files, 1614/1614 pass | 64 files, 1649/1649 pass (after review fixes) |
 | `context-hardening.test.ts` | **hangs** (no result after 150 s; `buildContextMessages` blocks) | same hang; its other blocks, incl. `buildSystemPrompt` (8 tests), pass |
 
 The `context-hardening` hang is a pre-existing upstream baseline failure in code this branch does
 not touch (`src/agent/context.ts`); it is why a plain `pnpm test` never finishes.
 
-`src/__tests__/money-lab/money-lab.test.ts`: 30 tests. Global `fetch` is replaced by a spy that
+`src/__tests__/money-lab/money-lab.test.ts`: 35 tests. Global `fetch` is replaced by a spy that
 throws, USDC balance reads are mocked, and no test starts a funded loop. Coverage maps to
 specification section 10: mocked mode has no network/payment effects and missing policy fails
 closed; pause blocks paid calls and top-ups while status reports hosting as separately billed;

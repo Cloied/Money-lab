@@ -39,7 +39,7 @@ import { keccak256, toHex } from "viem";
 import { applyMoneyLabProfile, MoneyLabConfigError } from "./money-lab/profile.js";
 import { installMoneyLabPaymentGuard } from "./money-lab/guard.js";
 import { ensureMoneyLabSchema, getPauseState, journalFingerprint } from "./money-lab/journal.js";
-import { afterWakeCycle } from "./money-lab/cycle.js";
+import { afterWakeCycle, isOperatorWake } from "./money-lab/cycle.js";
 import type { AutomatonConfig } from "./types.js";
 
 const logger = createLogger("main");
@@ -68,7 +68,8 @@ Usage:
   automaton --init         Initialize wallet and config directory
   automaton --provision    Provision Conway API key via SIWE
   automaton --status       Show current automaton status
-  automaton --money-lab    Money Lab operator commands (status, pause, resume, help, ledger)
+  automaton --money-lab    Money Lab operator commands (status, summary, pause, resume,
+                           help-list, help-resolve, help-reject, ledger-add)
   automaton --version      Show version
   automaton --help         Show this help
 
@@ -209,12 +210,12 @@ function withMoneyLabProfile(config: AutomatonConfig): AutomatonConfig {
 async function moneyLabCommand(argv: string[]): Promise<number> {
   const loaded = loadConfig();
   if (!loaded) {
-    logger.error("Automaton is not configured.");
+    logger.error("Automaton n'est pas configuré (automaton.json introuvable).");
     return 1;
   }
   const config = withMoneyLabProfile(loaded);
   if (!config.moneyLab) {
-    logger.error("No moneyLab block in automaton.json.");
+    logger.error("Aucun bloc moneyLab dans automaton.json.");
     return 1;
   }
   const { runMoneyLabCommand } = await import("./money-lab/cli.js");
@@ -243,7 +244,7 @@ async function run(): Promise<void> {
     // Before any client is created: no x402 payment or credit purchase
     // can be signed by this process.
     installMoneyLabPaymentGuard();
-    logger.info("[MONEY LAB] First-run profile active: payments disabled, tool allowlist enforced.");
+    logger.info("[MONEY LAB] Profil first-run actif : paiements désactivés, liste d'outils autorisés appliquée.");
   }
 
   // Load wallet (chain-aware)
@@ -536,6 +537,12 @@ async function run(): Promise<void> {
 
           // Phase 1.1: Check for wake events from wake_events table (atomic consume)
           const wakeEvent = consumeNextWakeEvent(db.raw);
+          // Money Lab: only the operator can cut a sleep short. Heartbeat
+          // distress/inbox wakes would otherwise start paid cycles.
+          if (wakeEvent && moneyLab && !isOperatorWake(wakeEvent)) {
+            logger.info(`[MONEY LAB] Réveil ignoré pendant le sommeil (${wakeEvent.source}) : ${wakeEvent.reason}`);
+            continue;
+          }
           if (wakeEvent) {
             logger.info(
               `[${new Date().toISOString()}] Woken by ${wakeEvent.source}: ${wakeEvent.reason}`,
@@ -547,6 +554,7 @@ async function run(): Promise<void> {
 
         // Clear sleep state
         db.deleteKV("sleep_until");
+        if (moneyLab) db.deleteKV("sleep_reason");
         continue;
       }
     } catch (err: any) {

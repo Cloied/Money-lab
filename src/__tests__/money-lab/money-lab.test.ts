@@ -50,8 +50,9 @@ import {
   getExperiment,
   journalFingerprint,
   getNoProgressCycles,
+  listRecentlyClosedHelp,
 } from "../../money-lab/journal.js";
-import { afterWakeCycle } from "../../money-lab/cycle.js";
+import { afterWakeCycle, isOperatorWake } from "../../money-lab/cycle.js";
 import { createMoneyLabTools } from "../../money-lab/tools.js";
 import { buildMoneyLabPromptBlock } from "../../money-lab/prompt.js";
 import { runMoneyLabCommand } from "../../money-lab/cli.js";
@@ -132,7 +133,7 @@ describe("Money Lab profile", () => {
     expect(() => parseMoneyLabConfig(rawProfile({ extra: 1 }), SANDBOX)).toThrow(MoneyLabConfigError);
     const missing = rawProfile();
     delete missing.funding;
-    expect(() => parseMoneyLabConfig(missing, SANDBOX)).toThrow(/missing moneyLab.funding/);
+    expect(() => parseMoneyLabConfig(missing, SANDBOX)).toThrow(/clé manquante moneyLab.funding/);
     expect(() =>
       parseMoneyLabConfig(
         rawProfile({ inference: { model: "gpt-5-mini", perCallCents: 0, hourlyCents: 10, dailyCents: 30, maxOutputTokens: 1024 } }),
@@ -360,6 +361,7 @@ describe("Money Lab inference limits", () => {
     const dailyOnly = new InferenceBudgetTracker(db.raw, { ...DEFAULT_MODEL_STRATEGY_CONFIG, dailyBudgetCents: 30 });
     expect(dailyOnly.checkBudget(1, "gpt-5-mini")).toEqual({
       allowed: false,
+      limit: "daily",
       reason: "Daily budget exhausted: 30c spent + 1c estimated > 30c limit",
     });
     // Upstream default (absent/0) keeps its "no limit" meaning.
@@ -378,13 +380,49 @@ describe("Money Lab inference limits", () => {
     db.close();
   });
 
-  it("records an estimate instead of zero when usage is missing", async () => {
+  it("records an estimate instead of zero when usage is missing or zeroed", async () => {
     const db = openDb();
     const { router: r, budget } = router(db);
-    const result = await r.route(request(), async () => ({ message: { content: "ok" }, finishReason: "stop" }));
+    // The real client fills a missing usage block with zeros.
+    const zeroed = await r.route(request(), async () => ({
+      message: { content: "ok" }, usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 }, finishReason: "stop",
+    }));
+    expect(zeroed.costEstimated).toBe(true);
+    expect(zeroed.costCents).toBeGreaterThan(0);
+    const missing = await r.route(request(), async () => ({ message: { content: "ok" }, finishReason: "stop" }));
+    expect(missing.costEstimated).toBe(true);
+    expect(budget.getDailyCost()).toBe(zeroed.costCents + missing.costCents);
+    db.close();
+  });
+
+  it("records the estimate for a timed-out call", async () => {
+    const db = openDb();
+    const { router: r, budget } = router(db);
+    const result = await r.route(request(), async () => {
+      const err = new Error("aborted");
+      err.name = "AbortError";
+      throw err;
+    });
+    expect(result.finishReason).toBe("timeout");
     expect(result.costEstimated).toBe(true);
-    expect(result.costCents).toBeGreaterThan(0);
     expect(budget.getDailyCost()).toBe(result.costCents);
+    expect(result.costCents).toBeGreaterThan(0);
+    db.close();
+  });
+
+  it("keeps upstream accounting unchanged without the profile", async () => {
+    const db = openDb();
+    const registry = new ModelRegistry(db.raw);
+    registry.initialize();
+    const budget = new InferenceBudgetTracker(db.raw, { ...DEFAULT_MODEL_STRATEGY_CONFIG, perCallCeilingCents: 2 });
+    const r = new InferenceRouter(db.raw, registry, budget);
+    const bigTools = [{ type: "function", function: { name: "x", description: "y".repeat(400_000), parameters: {} } }];
+    const result = await r.route({ ...request(), tools: bigTools }, async () => ({
+      message: { content: "ok" }, usage: { promptTokens: 0, completionTokens: 0 }, finishReason: "stop",
+    }));
+    expect(result.finishReason).toBe("stop");
+    expect(result.costEstimated).toBeUndefined();
+    expect(result.costCents).toBe(0);
     db.close();
   });
 });
@@ -439,14 +477,37 @@ describe("Money Lab agent loop", () => {
     expect(inference.calls).toHaveLength(0);
     expect(db.getAgentState()).toBe("sleeping");
     expect(new Date(db.getKV("sleep_until")!).getTime()).toBeGreaterThan(Date.now());
-    expect(formatStatus(db.raw, labConfig())).toMatch(/Sommeil jusqu'à .*budget exhausted/);
+    expect(formatStatus(db.raw, labConfig())).toMatch(/Sommeil jusqu'à .*plafond horaire atteint/);
   });
 
   it("pauses when the provider returns no usage (unknown cost)", async () => {
-    const inference = new MockInferenceClient([{ ...noToolResponse("x"), usage: undefined as any }]);
+    const inference = new MockInferenceClient([
+      { ...noToolResponse("x"), usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 } },
+    ]);
     await run(inference);
-    expect(getPauseState(db.raw)?.reason).toMatch(/unknown/);
+    expect(getPauseState(db.raw)?.reason).toMatch(/coût d'inférence inconnu/);
     expect(inference.calls).toHaveLength(1);
+  });
+
+  it("pauses instead of retrying forever when the per-call ceiling rejects the call", async () => {
+    const config = labConfig({
+      inference: { model: "gpt-5-mini", perCallCents: 1, hourlyCents: 10, dailyCents: 30, maxOutputTokens: 8192 },
+    });
+    const inference = new MockInferenceClient([noToolResponse("should not run")]);
+    await run(inference, config);
+    expect(inference.calls).toHaveLength(0);
+    expect(getPauseState(db.raw)?.reason).toMatch(/per_call/);
+    expect(db.getKV("sleep_until")).toBeUndefined();
+  });
+
+  it("pauses without inference when the pinned model is unknown", async () => {
+    const config = labConfig({
+      inference: { model: "no-such-model", perCallCents: 5, hourlyCents: 10, dailyCents: 30, maxOutputTokens: 1024 },
+    });
+    const inference = new MockInferenceClient([noToolResponse("should not run")]);
+    await run(inference, config);
+    expect(inference.calls).toHaveLength(0);
+    expect(getPauseState(db.raw)?.reason).toMatch(/no-such-model/);
   });
 
   it("records experiments and help requests through agent tools", async () => {
@@ -499,6 +560,20 @@ describe("Money Lab journal", () => {
     db.close();
   });
 
+  it("lists closed help by resolution time and wakes only on operator events", () => {
+    const db = openDb();
+    const mk = () => createHelpRequest(db.raw, { experimentId: null, reason: "r", humanAction: "a", resumeCondition: "c" });
+    const [oldest, a, b, c] = [mk(), mk(), mk(), mk()];
+    for (const h of [a, b, c]) resolveHelpRequest(db.raw, h.id, "resolved", "x");
+    db.raw.prepare("UPDATE money_lab_help_requests SET resolved_at = '2000-01-01T00:00:00.000Z'").run();
+    resolveHelpRequest(db.raw, oldest.id, "resolved", "latest");
+    expect(listRecentlyClosedHelp(db.raw, 3)[0].id).toBe(oldest.id);
+
+    expect(isOperatorWake({ source: "money_lab_operator" })).toBe(true);
+    expect(isOperatorWake({ source: "heartbeat" })).toBe(false);
+    db.close();
+  });
+
   it("agent tools cannot resolve help or write the ledger", () => {
     const names = createMoneyLabTools().map((t) => t.name);
     expect(names).toEqual(["record_experiment", "request_help", "money_lab_status"]);
@@ -542,6 +617,14 @@ describe("Money Lab journal", () => {
     }
     const third = afterWakeCycle(db.raw, lab, journalFingerprint(db.raw), t0);
     expect(third.longSleepUntil).toBe(new Date(t0 + 360 * 60_000).toISOString());
+
+    expect(db.getKV("sleep_reason")).toMatch(/sans progrès/);
+
+    const beforeHelp = journalFingerprint(db.raw);
+    const help = createHelpRequest(db.raw, { experimentId: null, reason: "r", humanAction: "a", resumeCondition: "c" });
+    expect(journalFingerprint(db.raw)).toBe(beforeHelp);
+    resolveHelpRequest(db.raw, help.id, "resolved", "ok");
+    expect(journalFingerprint(db.raw)).not.toBe(beforeHelp);
 
     const before = journalFingerprint(db.raw);
     upsertExperiment(db.raw, { id: exp.id, status: "observing", metrics: { visits: 3 } });

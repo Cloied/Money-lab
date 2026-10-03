@@ -9,6 +9,7 @@ import type Database from "better-sqlite3";
 import type { AutomatonConfig } from "../types.js";
 import { inferenceGetDailyCost, inferenceGetHourlyCost } from "../state/database.js";
 import {
+  getKV,
   getPauseState,
   getNoProgressCycles,
   listExperiments,
@@ -40,7 +41,7 @@ export function formatStatus(
       ? `Pause : OUI depuis ${paused.at} (${paused.by === "operator" ? "opérateur" : "runtime"}) — ${paused.reason}`
       : "Pause : non",
   );
-  const kv = (key: string) => (db.prepare("SELECT value FROM kv WHERE key = ?").get(key) as { value: string } | undefined)?.value;
+  const kv = (key: string) => getKV(db, key);
   out.push(`État de l'agent : ${kv("agent_state") ?? "inconnu"}`);
   const sleepUntil = kv("sleep_until");
   if (sleepUntil) out.push(`Sommeil jusqu'à : ${sleepUntil}${kv("sleep_reason") ? ` — ${kv("sleep_reason")}` : ""}`);

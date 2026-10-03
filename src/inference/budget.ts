@@ -7,7 +7,7 @@
 
 import type BetterSqlite3 from "better-sqlite3";
 import { ulid } from "ulid";
-import type { InferenceCostRow, ModelStrategyConfig } from "../types.js";
+import type { BudgetLimitKind, InferenceCostRow, ModelStrategyConfig } from "../types.js";
 import {
   inferenceInsertCost,
   inferenceGetSessionCosts,
@@ -34,11 +34,12 @@ export class InferenceBudgetTracker {
   checkBudget(
     estimatedCostCents: number,
     model: string,
-  ): { allowed: boolean; reason?: string } {
+  ): { allowed: boolean; reason?: string; limit?: BudgetLimitKind } {
     // Per-call ceiling check
     if (this.config.perCallCeilingCents > 0 && estimatedCostCents > this.config.perCallCeilingCents) {
       return {
         allowed: false,
+        limit: "per_call",
         reason: `Per-call cost ${estimatedCostCents}c exceeds ceiling of ${this.config.perCallCeilingCents}c`,
       };
     }
@@ -49,6 +50,7 @@ export class InferenceBudgetTracker {
       if (hourlyCost + estimatedCostCents > this.config.hourlyBudgetCents) {
         return {
           allowed: false,
+          limit: "hourly",
           reason: `Hourly budget exhausted: ${hourlyCost}c spent + ${estimatedCostCents}c estimated > ${this.config.hourlyBudgetCents}c limit`,
         };
       }
@@ -60,6 +62,7 @@ export class InferenceBudgetTracker {
       if (dailyCost + estimatedCostCents > this.config.dailyBudgetCents!) {
         return {
           allowed: false,
+          limit: "daily",
           reason: `Daily budget exhausted: ${dailyCost}c spent + ${estimatedCostCents}c estimated > ${this.config.dailyBudgetCents}c limit`,
         };
       }

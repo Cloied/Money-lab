@@ -131,6 +131,16 @@ export async function runAgentLoop(
     const { discoverOllamaModels } = await import("../ollama/discover.js");
     await discoverOllamaModels(ollamaBaseUrl, db.raw);
   }
+  // Money Lab: a pinned model that is missing or has no known price would
+  // make every budget pass at 0c. Pause instead of spending unmetered.
+  if (moneyLab) {
+    const pinned = modelRegistry.get(moneyLab.inference.model);
+    if (!pinned || !pinned.enabled) {
+      pauseMoneyLab(db.raw, `modèle ${moneyLab.inference.model} absent ou désactivé dans le registre`, "runtime");
+    } else if (pinned.costPer1kInput <= 0 || pinned.costPer1kOutput <= 0) {
+      pauseMoneyLab(db.raw, `prix inconnu pour le modèle ${moneyLab.inference.model} ; renseigner le tarif avant de reprendre`, "runtime");
+    }
+  }
   const budgetTracker = new InferenceBudgetTracker(db.raw, modelStrategyConfig);
   const inferenceRouter = new InferenceRouter(db.raw, modelRegistry, budgetTracker);
 
@@ -641,20 +651,25 @@ export async function runAgentLoop(
       if (moneyLab) {
         if (routerResult.costEstimated) {
           // Unknown cost blocks further paid calls until the operator reconciles.
-          pauseMoneyLab(db.raw, "inference cost unknown (provider returned no usage); reconcile before resuming", "runtime");
+          pauseMoneyLab(db.raw, "coût d'inférence inconnu (usage absent ou délai dépassé) ; rapprocher avec la facturation avant de reprendre", "runtime");
           log(config, "[MONEY LAB] Inference cost unknown; paused pending operator reconciliation.");
         }
         if (routerResult.finishReason === "budget_exceeded") {
-          // No paid turn to discuss the budget: sleep until the window resets.
-          const reset = new Date();
-          if (routerResult.content.includes("Daily") || routerResult.content.includes("Session")) {
-            reset.setUTCHours(24, 0, 0, 0);
+          // No paid turn to discuss the budget. Hourly/daily limits reset by
+          // themselves; a per-call or session rejection would repeat forever,
+          // so it pauses for the operator instead.
+          const limit = routerResult.budgetLimit;
+          if (limit === "hourly" || limit === "daily") {
+            const reset = new Date();
+            if (limit === "daily") reset.setUTCHours(24, 0, 0, 0);
+            else reset.setUTCHours(reset.getUTCHours() + 1, 0, 0, 0);
+            log(config, `[MONEY LAB] ${routerResult.content}. Sleeping until ${reset.toISOString()}.`);
+            db.setKV("sleep_until", reset.toISOString());
+            db.setKV("sleep_reason", `plafond ${limit === "daily" ? "journalier" : "horaire"} atteint`);
           } else {
-            reset.setUTCHours(reset.getUTCHours() + 1, 0, 0, 0);
+            pauseMoneyLab(db.raw, `limite ${limit ?? "inconnue"} : ${routerResult.content}`, "runtime");
+            log(config, `[MONEY LAB] ${routerResult.content}. Paused for operator review.`);
           }
-          log(config, `[MONEY LAB] ${routerResult.content}. Sleeping until ${reset.toISOString()}.`);
-          db.setKV("sleep_until", reset.toISOString());
-          db.setKV("sleep_reason", routerResult.content);
           db.setAgentState("sleeping");
           onStateChange?.("sleeping");
           running = false;

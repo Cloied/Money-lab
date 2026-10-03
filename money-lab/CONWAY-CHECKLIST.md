@@ -94,7 +94,7 @@ tar czf ~/money-lab-backups/config-$(date -u +%Y%m%dT%H%M%SZ).tgz -C ~ .automato
 - [ ] Import provider-confirmed revenue only from provider reports
       (`ledger-add confirmed_revenue <cents> <provider-ref> --provider-import`), and cash only when
       received (`cash_received`). Estimated ad income stays `estimated_revenue`.
-- [ ] If the runtime pauses with "inference cost unknown", reconcile against Conway billing,
+- [ ] If the runtime pauses ("coût d'inférence inconnu", "limite per_call", "prix inconnu"), reconcile against Conway billing or fix the profile,
       record the amount, then `resume`.
 
 ## 6. Shutdown and resource stop [owner]

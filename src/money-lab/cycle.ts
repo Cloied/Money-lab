@@ -10,7 +10,12 @@
 
 import type Database from "better-sqlite3";
 import type { MoneyLabConfig } from "./profile.js";
-import { getNoProgressCycles, journalFingerprint, setNoProgressCycles } from "./journal.js";
+import { getKV, getNoProgressCycles, journalFingerprint, setKV, setNoProgressCycles } from "./journal.js";
+
+/** During a Money Lab sleep only operator actions (resume, help resolution) wake the agent. */
+export function isOperatorWake(event: { source: string }): boolean {
+  return event.source === "money_lab_operator";
+}
 
 export interface CycleOutcome {
   progressed: boolean;
@@ -36,11 +41,10 @@ export function afterWakeCycle(
   }
 
   const until = new Date(nowMs + lab.noProgressSleepMinutes * 60_000).toISOString();
-  const existing = (db.prepare("SELECT value FROM kv WHERE key = 'sleep_until'").get() as { value: string } | undefined)?.value;
+  const existing = getKV(db, "sleep_until");
   if (!existing || existing < until) {
-    db.prepare(
-      "INSERT INTO kv (key, value, updated_at) VALUES ('sleep_until', ?, datetime('now')) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
-    ).run(until);
+    setKV(db, "sleep_until", until);
+    setKV(db, "sleep_reason", `${cycles} cycles sans progrès du journal`);
   }
   return { progressed: false, noProgressCycles: cycles, longSleepUntil: until };
 }
