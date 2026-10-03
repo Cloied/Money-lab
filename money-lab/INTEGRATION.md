@@ -98,9 +98,28 @@ rejected rather than meaning "unlimited".
    retrieval only; a search API would need a scoped extension and a cost allowance.
 9. `check_for_updates` still runs `git fetch` against the configured remote (no wake, no pull).
 
-## Tests
+## Tests (2026-10-03, Node 22, pnpm 10.28.1)
 
-- `pnpm typecheck`: passes.
-- `src/__tests__/money-lab/money-lab.test.ts`: 30 tests, fetch replaced by a failing spy, USDC
-  balance mocked. Covers every essential test listed in section 10 of the specification.
-- Upstream suite: see the baseline/after comparison in the delivery report.
+| Check | Pinned upstream `d8f8168` | Money Lab branch |
+| --- | --- | --- |
+| `pnpm typecheck` | pass | pass |
+| `pnpm build` | not run | pass |
+| `vitest run --exclude src/__tests__/context-hardening.test.ts` | 63 files, 1614/1614 pass | 64 files, 1644/1644 pass |
+| `context-hardening.test.ts` | **hangs** (no result after 150 s; `buildContextMessages` blocks) | same hang; its other blocks, incl. `buildSystemPrompt` (8 tests), pass |
+
+The `context-hardening` hang is a pre-existing upstream baseline failure in code this branch does
+not touch (`src/agent/context.ts`); it is why a plain `pnpm test` never finishes.
+
+`src/__tests__/money-lab/money-lab.test.ts`: 30 tests. Global `fetch` is replaced by a spy that
+throws, USDC balance reads are mocked, and no test starts a funded loop. Coverage maps to
+specification section 10: mocked mode has no network/payment effects and missing policy fails
+closed; pause blocks paid calls and top-ups while status reports hosting as separately billed;
+per-call/hourly/daily limits use correct units and persist across restart; replication, recovery
+funding and runtime/safeguard edits are denied through enabled tools; help requests survive
+restart, repeated or unrelated resolutions are harmless, agent tools cannot resolve them;
+funding is not revenue, estimated ads are not cash, credit purchases are not double-counted;
+no-progress cycles trigger a long sleep while keeping experiment context.
+
+Not tested: `check_for_updates` (runs `git fetch`), a real Conway sandbox, real provider usage
+reporting, or the CLI against the compiled `dist/` (the CLI was smoke-tested via `tsx` with a
+temporary `HOME`).
