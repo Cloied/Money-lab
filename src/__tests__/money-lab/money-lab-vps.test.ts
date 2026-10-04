@@ -43,6 +43,7 @@ import { createMoneyLabTools } from "../../money-lab/tools.js";
 import { TelegramChannel, parseDollars } from "../../money-lab/telegram.js";
 import { ledgerEntriesFor, syncStripe } from "../../money-lab/stripe.js";
 import { formatStatus } from "../../money-lab/status.js";
+import { buildMoneyLabPromptBlock } from "../../money-lab/prompt.js";
 import {
   MockConwayClient,
   MockInferenceClient,
@@ -168,12 +169,14 @@ describe("Self-hosted environment", () => {
     expect(local.execCalls).toHaveLength(1);
     await expect(client.createSandbox({ name: "x" } as any)).rejects.toThrow(/self-hosted/);
     await expect(client.registerDomain("x.com")).rejects.toThrow(/self-hosted/);
+    // No proxy on a VPS: never report a localhost URL as published.
+    await expect(client.exposePort(8080)).rejects.toThrow(/self-hosted/);
   });
 
   it("hides Conway-only tools and keeps secrets out of the shell", async () => {
     const config = vpsConfig();
     const denied = moneyLabDeniedTools(config.moneyLab!);
-    for (const t of ["create_sandbox", "register_domain", "topup_credits", "spawn_child"]) expect(denied.has(t), t).toBe(true);
+    for (const t of ["create_sandbox", "register_domain", "topup_credits", "spawn_child", "expose_port"]) expect(denied.has(t), t).toBe(true);
     for (const t of ["exec", "write_file", "install_skill", "git_push", "message_owner"]) expect(denied.has(t), t).toBe(false);
 
     const env = scrubbedEnv({ PATH: "/bin", ANTHROPIC_API_KEY: "a", TELEGRAM_BOT_TOKEN: "t", STRIPE_API_KEY: "s" });
@@ -193,6 +196,11 @@ describe("Self-hosted environment", () => {
     const msg = await executeTool("message_owner", { text: "Premier client !" }, tools, ctx, engine, turn);
     expect(msg.error).toBeUndefined();
     expect(pendingOwnerNotifications(db.raw).map((n) => n.text)).toContain("🤖 Premier client !");
+
+    const prompt = buildMoneyLabPromptBlock(db.raw, config.moneyLab!);
+    expect(prompt).toContain("no expose_port");
+    expect(prompt).toContain("request_help to open that port");
+    expect(prompt).not.toContain("new sandboxes");
     db.close();
   });
 });
@@ -245,10 +253,31 @@ describe("Anthropic backend (official SDK)", () => {
     expect(body.fallbacks).toBe("default");
     expect(body.output_config).toEqual({ effort: "medium" });
     expect(body.tool_choice).toEqual({ type: "auto" });
-    expect(body.system).toBe("Tu es Money Lab.");
+    expect(body.system).toEqual([{ type: "text", text: "Tu es Money Lab." }]);
+    expect(body.tools.at(-1).cache_control).toEqual({ type: "ephemeral" });
     expect(body.thinking).toBeUndefined();
     expect(body.temperature).toBeUndefined();
     expect(JSON.stringify(body.messages)).not.toContain("thinking");
+  });
+
+  it("caches the stable system prefix and reports cache usage", async () => {
+    fetchSpy.mockResolvedValueOnce(anthropicResponse({
+      content: [{ type: "text", text: "ok" }],
+      stop_reason: "end_turn",
+      usage: { input_tokens: 500, cache_read_input_tokens: 9000, cache_creation_input_tokens: 1000, output_tokens: 10 },
+    }));
+    const system = "Core rules.\n\n--- WORKLOG.md (ctx) ---\nnotes\n\n--- MONEY LAB RULES (enforced by the runtime) ---\nbalance $14.53";
+    const res = await client().chat([{ role: "system", content: system }, { role: "user", content: "x" }]);
+    expect(res.usage).toMatchObject({ promptTokens: 10_500, cacheReadTokens: 9000, cacheWriteTokens: 1000 });
+
+    const body = JSON.parse(String((fetchSpy.mock.calls[0] as [string, RequestInit])[1].body));
+    expect(body.system.map((b: any) => b.text).join("")).toBe(system);
+    expect(body.system).toHaveLength(3);
+    expect(body.system[0]).toMatchObject({ text: "Core rules.\n\n", cache_control: { type: "ephemeral" } });
+    expect(body.system[1].cache_control).toEqual({ type: "ephemeral" });
+    // The live balance is in the last, uncached block.
+    expect(body.system[2].text).toContain("balance $14.53");
+    expect(body.system[2].cache_control).toBeUndefined();
   });
 
   it("reports a refusal instead of failing the turn", async () => {

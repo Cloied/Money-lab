@@ -298,14 +298,16 @@ async function chatViaAnthropic(params: {
     max_tokens: params.tokenLimit,
     messages: transformed.messages,
   };
-  if (transformed.system) body.system = transformed.system;
+  if (transformed.system) body.system = anthropicSystemBlocks(transformed.system);
   if (params.temperature !== undefined) body.temperature = params.temperature;
   if (params.effort) body.output_config = { effort: params.effort };
   if (params.tools && params.tools.length > 0) {
-    body.tools = params.tools.map((tool) => ({
+    body.tools = params.tools.map((tool, index, all) => ({
       name: tool.function.name,
       description: tool.function.description,
       input_schema: tool.function.parameters,
+      // The tool list is identical on every turn: cache it.
+      ...(index === all.length - 1 ? { cache_control: { type: "ephemeral" } } : {}),
     }));
     body.tool_choice = { type: "auto" };
   }
@@ -351,14 +353,16 @@ async function chatViaAnthropic(params: {
     .trim();
 
   const usageData = data.usage ?? {};
-  const promptTokens = (usageData.input_tokens || 0)
-    + (usageData.cache_read_input_tokens || 0)
-    + (usageData.cache_creation_input_tokens || 0);
+  const cacheReadTokens = usageData.cache_read_input_tokens || 0;
+  const cacheWriteTokens = usageData.cache_creation_input_tokens || 0;
+  const promptTokens = (usageData.input_tokens || 0) + cacheReadTokens + cacheWriteTokens;
   const completionTokens = usageData.output_tokens || 0;
   const usage: TokenUsage = {
     promptTokens,
     completionTokens,
     totalTokens: promptTokens + completionTokens,
+    cacheReadTokens,
+    cacheWriteTokens,
   };
 
   if (data.stop_reason === "refusal") {
@@ -388,6 +392,27 @@ async function chatViaAnthropic(params: {
     usage,
     finishReason: normalizeAnthropicFinishReason(data.stop_reason),
   };
+}
+
+/**
+ * Section markers of the agent system prompt (system-prompt.ts) after which
+ * the content changes more often: the worklog is rewritten by the agent, and
+ * the Money Lab rules carry the live balance. Everything before each marker
+ * is cached; a prompt without markers is sent as one uncached block.
+ */
+const SYSTEM_CACHE_BOUNDARIES = ["--- WORKLOG.md", "--- MONEY LAB RULES"];
+
+export function anthropicSystemBlocks(system: string): Array<Record<string, unknown>> {
+  const blocks: Array<Record<string, unknown>> = [];
+  let start = 0;
+  for (const marker of SYSTEM_CACHE_BOUNDARIES) {
+    const at = system.indexOf(marker, start);
+    if (at <= start) continue;
+    blocks.push({ type: "text", text: system.slice(start, at), cache_control: { type: "ephemeral" } });
+    start = at;
+  }
+  blocks.push({ type: "text", text: system.slice(start) });
+  return blocks;
 }
 
 function transformMessagesForAnthropic(

@@ -67,13 +67,18 @@ export function buildMoneyLabPromptBlock(db: Database.Database, lab: MoneyLabCon
         " Below zero you die. Only confirmed revenue extends your life."
       : "",
     lab.runtime === "self-hosted"
-      ? "Environment: your own Linux server (VPS). Build, run and serve software here; publishing needs a host or domain " +
-        "the owner sets up (ask with request_help). The owner reads you on Telegram: use message_owner for news, " +
+      ? "Environment: your own Linux server (VPS), unprivileged user (no root, no sudo). Build and run software here. " +
+        "Nothing you run is reachable from the internet until the owner opens it: there is no proxy and no expose_port. " +
+        "To publish, start a web server on a port above 1024 that survives your command " +
+        "(e.g. nohup python3 -m http.server 8080 --directory ~/site > ~/site.log 2>&1 &), check it with curl localhost, " +
+        "then ask the owner once with request_help to open that port in the firewall or to set up a host or domain, and " +
+        "sleep until answered instead of re-checking. The owner reads you on Telegram: use message_owner for news, " +
         "request_help for actions. Install or create skills when they make you more capable."
       : "",
     "You are free to choose your activity and to use every available tool, including payments " +
       (lab.payments === "allowed" ? "(credit top-ups, x402, transfers are enabled), " : "(disabled by the owner for this run), ") +
-      "new sandboxes, domains, skills, messaging and git, within the finite credits you have.",
+      (lab.runtime === "self-hosted" ? "skills, messaging and git" : "new sandboxes, domains, skills, messaging and git") +
+      ", within the finite credits you have.",
     "Not allowed: replication (children, workers, orchestrator) and editing the runtime code, configuration, " +
       "wallet, state database or constitution. Never reveal the API key or wallet keys.",
     `Inference: model ${i.model ?? "chosen by the runtime"}; ` +

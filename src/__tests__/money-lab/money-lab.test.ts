@@ -431,6 +431,27 @@ describe("Money Lab inference limits", () => {
     db.close();
   });
 
+  it("bills prompt-cache reads at a tenth and writes at 1.25x of the input price", async () => {
+    const db = openDb();
+    const { router: r } = router(db);
+    // 100k prompt tokens on gpt-5-mini would be 8c; 90k of them are cache reads:
+    // 10k + 90k x 0.1 = 19k billed tokens = 1.52c, rounded up to 2c.
+    const read = await r.route(request(), async () => ({
+      message: { content: "ok" },
+      usage: { promptTokens: 100_000, completionTokens: 0, cacheReadTokens: 90_000, cacheWriteTokens: 0 },
+      finishReason: "stop",
+    }));
+    expect(read.costCents).toBe(2);
+    // 80k written: 20k + 80k x 1.25 = 120k billed tokens = 9.6c -> 10c.
+    const write = await r.route(request(), async () => ({
+      message: { content: "ok" },
+      usage: { promptTokens: 100_000, completionTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 80_000 },
+      finishReason: "stop",
+    }));
+    expect(write.costCents).toBe(10);
+    db.close();
+  });
+
   it("uses only the pinned model, ignoring the routing matrix", () => {
     const db = openDb();
     const { router: r } = router(db);

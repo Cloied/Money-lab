@@ -99,6 +99,9 @@ export const SELF_HOSTED_UNAVAILABLE_TOOLS: ReadonlySet<string> = new Set([
   "register_domain",
   "manage_dns",
   "check_credits",
+  // No proxy on a VPS: these only returned a misleading localhost URL.
+  "expose_port",
+  "remove_port",
 ]);
 
 function unavailable(name: string): never {
@@ -117,8 +120,8 @@ export function createSelfHostedClient(
     exec: (command, timeout) => local.exec(command, timeout),
     writeFile: (p, content) => local.writeFile(p, content),
     readFile: (p) => local.readFile(p),
-    exposePort: (port) => local.exposePort(port),
-    removePort: (port) => local.removePort(port),
+    exposePort: async () => unavailable("exposePort"),
+    removePort: async () => unavailable("removePort"),
     // Upstream uses -1 as the "balance API unreachable" sentinel; a real
     // balance of exactly -1 cent is reported as -2 so it still reads as dead.
     getCreditsBalance: async () => {
