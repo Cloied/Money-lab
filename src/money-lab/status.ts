@@ -8,6 +8,7 @@
 import type Database from "better-sqlite3";
 import type { AutomatonConfig } from "../types.js";
 import { inferenceGetDailyCost, inferenceGetHourlyCost } from "../state/database.js";
+import { paymentsSpentTodayCents } from "./guard.js";
 import {
   getKV,
   getPauseState,
@@ -45,12 +46,18 @@ export function formatStatus(
   out.push(`État de l'agent : ${kv("agent_state") ?? "inconnu"}`);
   const sleepUntil = kv("sleep_until");
   if (sleepUntil) out.push(`Sommeil jusqu'à : ${sleepUntil}${kv("sleep_reason") ? ` — ${kv("sleep_reason")}` : ""}`);
-  out.push(`Cycles sans progrès : ${getNoProgressCycles(db)} / ${lab.noProgressCycles}`);
+  out.push(`Cycles sans progrès : ${getNoProgressCycles(db)} / ${lab.noProgressCycles ?? "désactivé"}`);
 
+  const limit = (v: number | null) => (v === null ? "aucune limite" : usd(v));
   out.push("", "Inférence (UTC) :");
-  out.push(`  Aujourd'hui : ${usd(inferenceGetDailyCost(db))} / ${usd(lab.inference.dailyCents)}`);
-  out.push(`  Heure en cours : ${usd(inferenceGetHourlyCost(db))} / ${usd(lab.inference.hourlyCents)}`);
-  out.push(`  Plafond par appel : ${usd(lab.inference.perCallCents)} — modèle ${lab.inference.model}`);
+  out.push(`  Aujourd'hui : ${usd(inferenceGetDailyCost(db))} / ${limit(lab.inference.dailyCents)}`);
+  out.push(`  Heure en cours : ${usd(inferenceGetHourlyCost(db))} / ${limit(lab.inference.hourlyCents)}`);
+  out.push(`  Plafond par appel : ${limit(lab.inference.perCallCents)} — modèle ${lab.inference.model ?? "choisi par le runtime"}`);
+  out.push("", `Paiements par l'agent (achats de crédits, x402, transferts) : ${lab.payments === "allowed" ? "AUTORISÉS" : "désactivés"}`);
+  if (lab.payments === "allowed") {
+    out.push(`  Payé aujourd'hui : ${usd(paymentsSpentTodayCents(db))} / ${limit(lab.paymentLimits.dailyCents)} — par paiement : ${limit(lab.paymentLimits.perPaymentCents)}`);
+  }
+  out.push(`Réplication : interdite${lab.deniedTools.length ? ` — autres outils refusés : ${lab.deniedTools.join(", ")}` : ""}`);
 
   out.push("", "Ressources Conway (facturées MÊME EN PAUSE — à arrêter séparément, voir la checklist) :");
   out.push(`  Sandbox configurée : ${config.sandboxId || "aucune"}`);

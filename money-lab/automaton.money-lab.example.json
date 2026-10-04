@@ -1,22 +1,31 @@
 {
-  "_comment": "Merge into ~/.automaton/automaton.json after the setup wizard. The moneyLab block is strict: unknown or missing keys stop startup. All amounts are USD cents and PROVISIONAL until checked against actual Conway pricing.",
+  "_comment": "Merge into ~/.automaton/automaton.json after the setup wizard. The moneyLab block is strict: unknown or missing keys stop startup. Amounts are USD cents; null means no limit. Values below cap spending only: every capability except replication stays available. Check them against current Conway prices and the approved budget. treasuryPolicy.x402AllowedDomains lists the domains the agent may pay via x402 (upstream default: conway.tech); add domains to widen it.",
   "genesisPrompt": "Owner's optional starting hypotheses (you may ignore all of them): small browser-side file utilities, practical calculators, printable generators, developer tools, digital templates, narrow APIs, or original niche resources. No revenue model is mandatory.",
-  "socialRelayUrl": "",
   "maxChildren": 0,
+  "treasuryPolicy": {
+    "x402AllowedDomains": [
+      "conway.tech"
+    ]
+  },
   "moneyLab": {
     "enabled": true,
     "profile": "first-run",
     "inference": {
-      "model": "gpt-5-mini",
-      "perCallCents": 5,
-      "hourlyCents": 10,
-      "dailyCents": 30,
-      "maxOutputTokens": 1024
+      "model": null,
+      "perCallCents": null,
+      "hourlyCents": 100,
+      "dailyCents": 300,
+      "maxOutputTokens": null
     },
-    "maxTurnsPerCycle": 8,
-    "noProgressCycles": 3,
-    "noProgressSleepMinutes": 360,
-    "publishSandboxId": "REPLACE_WITH_EXISTING_SANDBOX_ID_OR_null",
+    "payments": "allowed",
+    "paymentLimits": {
+      "perPaymentCents": 500,
+      "dailyCents": 1000
+    },
+    "deniedTools": [],
+    "maxTurnsPerCycle": null,
+    "noProgressCycles": 5,
+    "noProgressSleepMinutes": 120,
     "resources": [
       {
         "id": "REPLACE_WITH_EXISTING_SANDBOX_ID",

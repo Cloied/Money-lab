@@ -2779,6 +2779,17 @@ Model: ${ctx.inference.getDefaultModel()}
           maxPayment,
         );
 
+        // Money Lab: record the amount actually signed so payment caps see it.
+        if (ctx.config.moneyLab?.enabled && result.paidCents && result.paidCents > 0) {
+          const { SpendTracker } = await import("./spend-tracker.js");
+          new SpendTracker(ctx.db.raw).recordSpend({
+            toolName: "x402_fetch",
+            amountCents: Math.ceil(result.paidCents),
+            domain: (() => { try { return new URL(url).hostname; } catch { return undefined; } })(),
+            category: "x402",
+          });
+        }
+
         if (!result.success) {
           return `x402 fetch failed: ${result.error || "Unknown error"}`;
         }
@@ -3378,9 +3389,24 @@ export async function executeTool(
             );
           }
         }
+      } else if (toolName === "topup_credits" && context.config.moneyLab?.enabled) {
+        // Money Lab: count credit purchases toward the owner's payment caps.
+        const amountUsd = Number(args.amount_usd);
+        if (result.startsWith("Credit topup successful") && amountUsd > 0) {
+          try {
+            turnContext.sessionSpend.recordSpend({
+              toolName: "topup_credits",
+              amountCents: Math.round(amountUsd * 100),
+              category: "other",
+            });
+          } catch (error) {
+            logger.error("Spend tracking failed for topup_credits", error instanceof Error ? error : undefined);
+          }
+        }
       } else if (toolName === "x402_fetch") {
         // x402 payment amounts are determined by the server response,
-        // but we record a nominal entry for tracking purposes
+        // but we record a nominal entry for tracking purposes (Money Lab
+        // records the signed amount inside the x402_fetch tool).
         try {
           turnContext.sessionSpend.recordSpend({
             toolName: "x402_fetch",

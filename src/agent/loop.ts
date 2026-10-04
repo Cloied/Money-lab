@@ -65,7 +65,7 @@ import { createWorkerInferenceBridge } from "./worker-inference-bridge.js";
 import { ProviderRegistry } from "../inference/provider-registry.js";
 import { UnifiedInferenceClient } from "../inference/inference-client.js";
 import { isIdleOnlyTool } from "./idle-only-tools.js";
-import { MONEY_LAB_ALLOWED_TOOLS } from "../money-lab/profile.js";
+import { automaticTopupsAllowed, hasInferenceLimits, moneyLabDeniedTools } from "../money-lab/profile.js";
 import { createMoneyLabTools } from "../money-lab/tools.js";
 import { paidCallBlockReason } from "../money-lab/guard.js";
 import { ensureMoneyLabSchema, pause as pauseMoneyLab } from "../money-lab/journal.js";
@@ -104,10 +104,11 @@ export async function runAgentLoop(
   if (moneyLab) ensureMoneyLabSchema(db.raw);
 
   const builtinTools = createBuiltinTools(identity.sandboxId);
-  // Money Lab: only allowlisted builtin tools plus the journal tools are
-  // offered; runtime-installed tools are not loaded.
+  // Money Lab: every tool (including runtime-installed ones and the journal
+  // tools) except replication and owner-denied tools.
+  const deniedTools = moneyLab ? moneyLabDeniedTools(moneyLab) : undefined;
   const tools = moneyLab
-    ? [...builtinTools, ...createMoneyLabTools()].filter((t) => MONEY_LAB_ALLOWED_TOOLS.has(t.name))
+    ? [...builtinTools, ...createMoneyLabTools(), ...loadInstalledTools(db)].filter((t) => !deniedTools!.has(t.name))
     : [...builtinTools, ...loadInstalledTools(db)];
   const toolContext: ToolContext = {
     identity,
@@ -133,7 +134,7 @@ export async function runAgentLoop(
   }
   // Money Lab: a pinned model that is missing or has no known price would
   // make every budget pass at 0c. Pause instead of spending unmetered.
-  if (moneyLab) {
+  if (moneyLab?.inference.model) {
     const pinned = modelRegistry.get(moneyLab.inference.model);
     if (!pinned || !pinned.enabled) {
       pauseMoneyLab(db.raw, `modèle ${moneyLab.inference.model} absent ou désactivé dans le registre`, "runtime");
@@ -463,7 +464,7 @@ export async function runAgentLoop(
         // available, buy credits NOW — before attempting inference.
         // This prevents the agent from dying mid-loop while waiting for
         // the heartbeat to fire. Uses a 60s cooldown to avoid hammering.
-        if (!moneyLab && (tier === "critical" || tier === "low_compute") && financial.usdcBalance >= 5) {
+        if (automaticTopupsAllowed(moneyLab) && (tier === "critical" || tier === "low_compute") && financial.usdcBalance >= 5) {
           const INLINE_TOPUP_COOLDOWN_MS = 60_000;
           const lastInlineTopup = db.getKV("last_inline_topup_attempt");
           const cooldownExpired = !lastInlineTopup ||
@@ -649,8 +650,9 @@ export async function runAgentLoop(
       );
 
       if (moneyLab) {
-        if (routerResult.costEstimated) {
-          // Unknown cost blocks further paid calls until the operator reconciles.
+        if (routerResult.costEstimated && hasInferenceLimits(moneyLab)) {
+          // With owner-set limits, an unknown cost blocks further paid calls
+          // until the operator reconciles (it is always recorded at the estimate).
           pauseMoneyLab(db.raw, "coût d'inférence inconnu (usage absent ou délai dépassé) ; rapprocher avec la facturation avant de reprendre", "runtime");
           log(config, "[MONEY LAB] Inference cost unknown; paused pending operator reconciliation.");
         }

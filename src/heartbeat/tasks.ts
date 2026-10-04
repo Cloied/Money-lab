@@ -9,6 +9,7 @@
  * This eliminates 4x redundant getCreditsBalance() calls per tick.
  */
 
+import { automaticTopupsAllowed } from "../money-lab/profile.js";
 import type {
   TickContext,
   HeartbeatLegacyContext,
@@ -156,8 +157,9 @@ export const BUILTIN_TASKS: Record<string, HeartbeatTaskFn> = {
       timestamp: new Date().toISOString(),
     }));
 
-    // Money Lab: no background purchase and no paid wake cycle to discuss it.
-    if (taskCtx.config.moneyLab?.enabled) {
+    // Money Lab with payments disabled or price-capped: no background
+    // purchase (it would bypass the caps) and no paid wake cycle about it.
+    if (taskCtx.config.moneyLab && !automaticTopupsAllowed(taskCtx.config.moneyLab)) {
       return { shouldWake: false };
     }
 

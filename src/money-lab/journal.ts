@@ -212,8 +212,7 @@ export function listExperiments(db: DB): Experiment[] {
 }
 
 /**
- * Create or update an experiment. Only one experiment may be in
- * `building` at a time. Evidence is appended, metrics are merged.
+ * Create or update an experiment. Evidence is appended, metrics are merged.
  */
 export function upsertExperiment(db: DB, input: ExperimentInput): Experiment {
   if (!EXPERIMENT_STATUSES.includes(input.status)) {
@@ -227,15 +226,6 @@ export function upsertExperiment(db: DB, input: ExperimentInput): Experiment {
   }
 
   return db.transaction(() => {
-    if (input.status === "building") {
-      const other = db
-        .prepare("SELECT id FROM money_lab_experiments WHERE status = 'building' AND id != ?")
-        .get(input.id ?? "") as { id: string } | undefined;
-      if (other) {
-        throw new Error(`Experiment ${other.id} is already building; only one active build is allowed`);
-      }
-    }
-
     const existing = input.id ? getExperiment(db, input.id) : undefined;
     const ts = now();
 

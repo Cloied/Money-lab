@@ -64,6 +64,8 @@ interface X402PaymentResult {
   response?: any;
   error?: string;
   status?: number;
+  /** Cents authorised in a signed payment; absent when nothing was paid. */
+  paidCents?: number;
 }
 
 export interface UsdcBalanceResult {
@@ -386,6 +388,11 @@ export async function x402Fetch(
       }
     }
 
+    const paidCents = Number(parseMaxAmountRequired(
+      parsed.requirement.maxAmountRequired,
+      parsed.x402Version,
+    )) / 10_000;
+
     // Sign payment
     let payment: any;
     try {
@@ -419,7 +426,8 @@ export async function x402Fetch(
     });
 
     const data = await paidResp.json().catch(() => paidResp.text());
-    return { success: paidResp.ok, response: data, status: paidResp.status };
+    // A signed payment may be settled even if the response is an error.
+    return { success: paidResp.ok, response: data, status: paidResp.status, paidCents };
   } catch (err: any) {
     return { success: false, error: err.message };
   }

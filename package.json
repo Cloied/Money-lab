@@ -1,7 +1,7 @@
 {
   "name": "@conway/automaton",
   "version": "0.2.1",
-  "description": "Conway Automaton - Sovereign AI Agent Runtime",
+  "description": "Money Lab - supervised economic experiment built on Conway Automaton",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -25,9 +25,9 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/Conway-Research/automaton.git"
+    "url": "https://github.com/Cloied/Money-lab.git"
   },
-  "homepage": "https://conway.tech",
+  "homepage": "https://github.com/Cloied/Money-lab",
   "keywords": [
     "autonomous-agent",
     "sovereign-ai",

@@ -4,10 +4,10 @@
   "features": [
     {
       "id": "first-run-guards",
-      "title": "First-run spend guards",
+      "title": "Freedom model and spend guards",
       "criteria": [
-        "Missing policy context fails closed and disabled replication, funding, payment and self-modification tools are denied",
-        "Pause blocks paid inference and every top-up/x402 path without any network request",
+        "Missing policy context fails closed; replication and runtime self-modification are always denied while other tools follow owner settings",
+        "Pause, disabled payments and payment price caps block paid inference, top-ups and x402 without any network request",
         "Per-call, hourly and daily inference limits use correct cent units and persist across restart",
         "Upstream tool policy is unchanged when no moneyLab profile is configured",
         "The project typechecks and builds"
@@ -18,8 +18,8 @@
         "note": "Implemented in src/money-lab and narrow upstream patches; see money-lab/INTEGRATION.md"
       },
       "verification": {
-        "at": "2026-10-03T22:56:16.437915+00:00",
-        "fingerprint": "3422553346dea5e5154a12fe40390b1cffd20beb6089a0ee48c28ae67226ea4a",
+        "at": "2026-10-04T06:46:26.648452+00:00",
+        "fingerprint": "32a397b87113eb74e2ea51597151a3002bd108ec7eeb13dff82af4d7bc7fa7f4",
         "criterion_checks": {
           "1": "money-lab",
           "2": "money-lab",
@@ -27,15 +27,15 @@
           "4": "money-lab",
           "5": "build"
         },
-        "report": ".likma/checks/98d4ac437e9642ffb8eb357c543aa7e0.json",
-        "contract": "2d77fe602583b0876e9882751d779001f2d95e77a93848a883fda37f346e7aa9"
+        "report": ".likma/checks/4e9eb0c46a644348a5b64902e95444de.json",
+        "contract": "f2ba70949e82ab8b80068b65e184e4a9751f1bf694e8b38652a43fc96921b11b"
       }
     },
     {
       "id": "experiment-help-journal",
       "title": "Experiment and help journal",
       "criteria": [
-        "Only one experiment can be building at a time",
+        "Experiments can be created and updated in parallel with merged evidence and metrics",
         "Help requests survive restart; repeated or unrelated resolutions cannot unblock or re-wake",
         "Funding, credit purchases, consumed costs, estimated revenue, confirmed revenue and cash stay separate",
         "Repeated no-progress cycles trigger a long sleep while experiment context is kept"
@@ -46,16 +46,16 @@
         "note": "Implemented in src/money-lab (journal, cli, status, cycle); see money-lab/INTEGRATION.md"
       },
       "verification": {
-        "at": "2026-10-03T22:56:20.086946+00:00",
-        "fingerprint": "3422553346dea5e5154a12fe40390b1cffd20beb6089a0ee48c28ae67226ea4a",
+        "at": "2026-10-04T06:46:31.421204+00:00",
+        "fingerprint": "32a397b87113eb74e2ea51597151a3002bd108ec7eeb13dff82af4d7bc7fa7f4",
         "criterion_checks": {
           "1": "money-lab",
           "2": "money-lab",
           "3": "money-lab",
           "4": "money-lab"
         },
-        "report": ".likma/checks/7d4ed03eda8a4f86bb3999e9cfae386f.json",
-        "contract": "597e8bfc094f9f6ed0c213282e82b30e9420e17cf54bdf403e9fcd951bc06bb2"
+        "report": ".likma/checks/39d28860d8884fc29c1c4737787734fb.json",
+        "contract": "fee726a8c44025a2064f695527db4b4e9e68432016462edbe4dbc87bbd386565"
       }
     },
     {
@@ -71,13 +71,13 @@
         "note": "Implemented in src/money-lab (journal, cli, status, cycle); see money-lab/INTEGRATION.md"
       },
       "verification": {
-        "at": "2026-10-03T22:56:23.641662+00:00",
-        "fingerprint": "3422553346dea5e5154a12fe40390b1cffd20beb6089a0ee48c28ae67226ea4a",
+        "at": "2026-10-04T06:46:36.321334+00:00",
+        "fingerprint": "32a397b87113eb74e2ea51597151a3002bd108ec7eeb13dff82af4d7bc7fa7f4",
         "criterion_checks": {
           "1": "money-lab",
           "2": "money-lab"
         },
-        "report": ".likma/checks/53aa4f2496ea46d2ba316e6e0c6b837a.json",
+        "report": ".likma/checks/1e5417efe62b4eeba1cd85bcdbbb070a.json",
         "contract": "fc02da285bb11e2e132cc0b425712257590dbe827ea112ebfac23d3268f5b43b"
       }
     }
