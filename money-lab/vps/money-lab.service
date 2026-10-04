@@ -1,0 +1,27 @@
+[Unit]
+Description=Money Lab autonomous agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=moneylab
+Group=moneylab
+WorkingDirectory=/opt/money-lab
+# Root-owned, mode 600: systemd reads it before dropping privileges, so the
+# bot's own shell cannot read this file. Keys: ANTHROPIC_API_KEY,
+# TELEGRAM_BOT_TOKEN, STRIPE_API_KEY.
+EnvironmentFile=/etc/money-lab.env
+Environment=HOME=/home/moneylab
+Environment=NPM_CONFIG_PREFIX=/home/moneylab/.npm-global
+Environment=PATH=/home/moneylab/.npm-global/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/bin/node /opt/money-lab/dist/index.js --run
+Restart=always
+RestartSec=30
+# Basic hardening; the bot keeps write access to its home directory.
+NoNewPrivileges=true
+ProtectSystem=full
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

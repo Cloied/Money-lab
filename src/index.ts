@@ -40,6 +40,13 @@ import { applyMoneyLabProfile, automaticTopupsAllowed, MoneyLabConfigError } fro
 import { installMoneyLabPaymentGuard } from "./money-lab/guard.js";
 import { ensureMoneyLabSchema, getPauseState, journalFingerprint } from "./money-lab/journal.js";
 import { afterWakeCycle, isOperatorWake } from "./money-lab/cycle.js";
+import {
+  createSelfHostedClient,
+  markRunStarted,
+  scrubbedEnv,
+  seedAnthropicModels,
+  survivalBalance,
+} from "./money-lab/selfhosted.js";
 import type { AutomatonConfig } from "./types.js";
 
 const logger = createLogger("main");
@@ -254,8 +261,15 @@ async function run(): Promise<void> {
   // Load wallet (chain-aware)
   const { account, chainIdentity, chainType: walletChainType } = await getWallet();
   const resolvedChainType = config.chainType || walletChainType || "evm";
-  const apiKey = config.conwayApiKey || loadApiKeyFromConfig();
-  if (!apiKey) {
+  // Self-hosted Money Lab runs without Conway Cloud: no Conway API key.
+  const selfHosted = moneyLab?.runtime === "self-hosted";
+  const apiKey = selfHosted ? "" : (config.conwayApiKey || loadApiKeyFromConfig() || "");
+  const anthropicApiKey = config.anthropicApiKey || process.env.ANTHROPIC_API_KEY;
+  if (selfHosted && !anthropicApiKey) {
+    logger.error("Mode self-hosted : clé Anthropic manquante (ANTHROPIC_API_KEY ou anthropicApiKey).");
+    process.exit(1);
+  }
+  if (!selfHosted && !apiKey) {
     logger.error("No API key found. Run: automaton --provision");
     process.exit(1);
   }
@@ -278,7 +292,7 @@ async function run(): Promise<void> {
     address: chainIdentity.address,
     account,
     creatorAddress: config.creatorAddress,
-    sandboxId: config.sandboxId,
+    sandboxId: selfHosted ? "" : config.sandboxId,
     apiKey,
     createdAt,
     chainType: resolvedChainType,
@@ -297,16 +311,23 @@ async function run(): Promise<void> {
     db.setIdentity("automatonId", automatonId);
   }
 
-  // Create Conway client
-  const conway = createConwayClient({
-    apiUrl: config.conwayApiUrl,
-    apiKey,
-    sandboxId: config.sandboxId,
-  });
+  // Create Conway client. Self-hosted: local commands/files on this server,
+  // secrets removed from the shell environment, balance from the journal.
+  const conway = selfHosted
+    ? createSelfHostedClient(
+      createConwayClient({ apiUrl: config.conwayApiUrl, apiKey: "", sandboxId: "", localExecEnv: scrubbedEnv() }),
+      () => survivalBalance(db.raw, moneyLab!).balanceCents,
+    )
+    : createConwayClient({
+      apiUrl: config.conwayApiUrl,
+      apiKey,
+      sandboxId: config.sandboxId,
+    });
+  if (selfHosted) markRunStarted(db.raw);
 
   // Register automaton identity (one-time, immutable)
   const registrationState = db.getIdentity("conwayRegistrationStatus");
-  if (registrationState !== "registered") {
+  if (!selfHosted && registrationState !== "registered") {
     try {
       const genesisPromptHash = config.genesisPrompt
         ? keccak256(toHex(config.genesisPrompt))
@@ -343,6 +364,7 @@ async function run(): Promise<void> {
   // "gpt-oss:120b" route to Ollama based on their registered provider, not heuristics.
   const modelRegistry = new ModelRegistry(db.raw);
   modelRegistry.initialize();
+  if (selfHosted) seedAnthropicModels(modelRegistry);
   const inference = createInferenceClient({
     apiUrl: config.conwayApiUrl,
     apiKey,
@@ -350,9 +372,10 @@ async function run(): Promise<void> {
     maxTokens: config.maxTokensPerTurn,
     lowComputeModel: config.modelStrategy?.lowComputeModel || "gpt-5-mini",
     openaiApiKey: config.openaiApiKey,
-    anthropicApiKey: config.anthropicApiKey,
+    anthropicApiKey,
     ollamaBaseUrl,
     getModelProvider: (modelId) => modelRegistry.get(modelId)?.provider,
+    ...(moneyLab?.inference.effort ? { anthropicEffort: moneyLab.inference.effort } : {}),
   });
 
   if (ollamaBaseUrl) {
@@ -361,7 +384,7 @@ async function run(): Promise<void> {
 
   // Create social client (chain-aware: pass ChainIdentity for Solana signing)
   let social: SocialClientInterface | undefined;
-  if (config.socialRelayUrl) {
+  if (config.socialRelayUrl && !selfHosted) {
     social = createSocialClient(config.socialRelayUrl, resolvedChainType === "solana" ? chainIdentity : account);
     logger.info(`[${new Date().toISOString()}] Social relay: ${config.socialRelayUrl}`);
   }
@@ -447,9 +470,51 @@ async function run(): Promise<void> {
   heartbeat.start();
   logger.info(`[${new Date().toISOString()}] Heartbeat daemon started.`);
 
+  // Money Lab: owner channel (Telegram) and Stripe revenue sync. Both run
+  // outside the agent loop and never expose their secrets to the agent.
+  const backgroundTimers: ReturnType<typeof setInterval>[] = [];
+  const every = (ms: number, label: string, fn: () => Promise<unknown>) => {
+    let busy = false;
+    const run = async () => {
+      if (busy) return;
+      busy = true;
+      try {
+        await fn();
+      } catch (err: any) {
+        logger.warn(`[MONEY LAB] ${label} : ${err?.message ?? err}`);
+      } finally {
+        busy = false;
+      }
+    };
+    void run();
+    backgroundTimers.push(setInterval(run, ms));
+  };
+  if (moneyLab?.telegram) {
+    const { createTelegramChannel } = await import("./money-lab/telegram.js");
+    const channel = createTelegramChannel(db, config);
+    if (channel) {
+      every(10_000, "Telegram", () => channel.tick());
+      logger.info("[MONEY LAB] Canal Telegram actif.");
+    } else {
+      logger.warn(`[MONEY LAB] Telegram configuré mais ${moneyLab.telegram.botTokenEnv} est absent.`);
+    }
+  }
+  if (moneyLab?.stripe) {
+    const stripeCfg = moneyLab.stripe;
+    const stripeKey = process.env[stripeCfg.apiKeyEnv];
+    if (stripeKey) {
+      const { syncStripe } = await import("./money-lab/stripe.js");
+      every(stripeCfg.syncMinutes * 60_000, "Stripe", () => syncStripe(db.raw, stripeCfg, stripeKey));
+      logger.info("[MONEY LAB] Synchronisation Stripe active.");
+    } else {
+      logger.warn(`[MONEY LAB] Stripe configuré mais ${stripeCfg.apiKeyEnv} est absent.`);
+    }
+  }
+
   // Handle graceful shutdown
   const shutdown = () => {
     logger.info(`[${new Date().toISOString()}] Shutting down...`);
+    for (const timer of backgroundTimers) clearInterval(timer);
     heartbeat.stop();
     db.setAgentState("sleeping");
     db.close();

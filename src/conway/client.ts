@@ -33,6 +33,8 @@ interface ConwayClientOptions {
   apiUrl: string;
   apiKey: string;
   sandboxId: string;
+  /** Local mode only: environment for shell commands (e.g. without secrets). */
+  localExecEnv?: NodeJS.ProcessEnv;
 }
 
 export function createConwayClient(options: ConwayClientOptions): ConwayClient {
@@ -115,6 +117,7 @@ export function createConwayClient(options: ConwayClientOptions): ConwayClient {
         encoding: "utf-8",
         maxBuffer: 10 * 1024 * 1024,
         cwd: process.env.HOME || "/root",
+        ...(options.localExecEnv ? { env: options.localExecEnv } : {}),
       });
       return { stdout: stdout || "", stderr: "", exitCode: 0 };
     } catch (err: any) {

@@ -108,6 +108,36 @@
       "path": "money-lab/INTEGRATION.md",
       "purpose": "Pinned upstream SHA, spend paths, units and known limitations",
       "edit_when": "Upstream base, spend paths or limitations change"
+    },
+    {
+      "area": "Self-hosted runtime",
+      "path": "src/money-lab/selfhosted.ts",
+      "purpose": "Local client without Conway, survival balance, Claude model registry entries, secret-free shell env",
+      "edit_when": "Balance rules, hosting accrual, model prices or the runtime environment change"
+    },
+    {
+      "area": "Telegram channel",
+      "path": "src/money-lab/telegram.ts",
+      "purpose": "Owner-only Telegram commands, message forwarding to the bot, notification outbox, daily summary",
+      "edit_when": "Owner commands or notifications change"
+    },
+    {
+      "area": "Stripe revenue",
+      "path": "src/money-lab/stripe.ts",
+      "purpose": "Read-only Stripe balance-transaction sync into the ledger",
+      "edit_when": "Revenue mapping, currency handling or the Stripe API usage change"
+    },
+    {
+      "area": "Anthropic backend",
+      "path": "src/conway/inference.ts",
+      "purpose": "Claude calls via the official SDK (effort, refusal fallback, no thinking replay)",
+      "edit_when": "Model parameters or Anthropic API usage change"
+    },
+    {
+      "area": "VPS deployment",
+      "path": "money-lab/vps/configure.mjs",
+      "purpose": "Writes the self-hosted Money Lab configuration; with the systemd unit and env template",
+      "edit_when": "Deployment layout or configuration keys change"
     }
   ]
 }

@@ -1,0 +1,195 @@
+/**
+ * Self-hosted runtime (no Conway Cloud).
+ *
+ * Conway Cloud stopped accepting accounts, so Money Lab can run on an
+ * ordinary server (VPS): commands and files are local, inference goes to
+ * Anthropic directly, and the "credits" the survival logic reads are the
+ * bot's own balance computed from the journal:
+ *
+ *   owner funding + confirmed revenue (net) - refunds - fees
+ *   - consumed costs (inference, hosting, external services)
+ *   - agent payments - accrued hosting of declared resources
+ *
+ * Revenue only counts once confirmed (Stripe sync or the owner), so the
+ * bot cannot survive on claims. A negative balance is the "dead" tier.
+ */
+
+import type Database from "better-sqlite3";
+import type { ConwayClient, ModelEntry } from "../types.js";
+import type { MoneyLabConfig } from "./profile.js";
+import { getKV, setKV, summarizeFinances } from "./journal.js";
+
+const KV_STARTED = "money_lab.started_at";
+
+/** Record when the run started (once); used to accrue hosting costs. */
+export function markRunStarted(db: Database.Database, now: Date = new Date()): string {
+  const existing = getKV(db, KV_STARTED);
+  if (existing) return existing;
+  const at = now.toISOString();
+  setKV(db, KV_STARTED, at);
+  return at;
+}
+
+/** Hosting accrued since the run started from declared daily costs (unknown = not counted). */
+export function accruedHostingCents(db: Database.Database, lab: MoneyLabConfig, now: Date = new Date()): number {
+  const started = getKV(db, KV_STARTED);
+  if (!started) return 0;
+  const days = Math.max(0, (now.getTime() - Date.parse(started)) / 86_400_000);
+  const perDay = lab.resources.reduce((sum, r) => sum + (r.expectedDailyCostCents ?? 0), 0);
+  return Math.ceil(perDay * days);
+}
+
+/** All agent payments ever recorded (spend_tracking, excluding inference). */
+function agentPaymentsCents(db: Database.Database): number {
+  const row = db.prepare(
+    "SELECT COALESCE(SUM(amount_cents), 0) AS total FROM spend_tracking WHERE category != 'inference'",
+  ).get() as { total: number };
+  return row.total;
+}
+
+export interface SurvivalBalance {
+  balanceCents: number;
+  fundingCents: number;
+  confirmedRevenueCents: number;
+  spentCents: number;
+  /** Average spend per day over the last 7 days (inference + payments). */
+  burnPerDayCents: number;
+  /** Days left at the current burn rate; null when nothing is being spent. */
+  daysLeft: number | null;
+}
+
+export function survivalBalance(db: Database.Database, lab: MoneyLabConfig, now: Date = new Date()): SurvivalBalance {
+  const f = summarizeFinances(db);
+  const hosting = accruedHostingCents(db, lab, now);
+  const payments = agentPaymentsCents(db);
+  const spent = f.inferenceConsumedCents + f.hostingCents + f.externalServicesCents + f.feesCents
+    + f.refundsCents + payments + hosting;
+  const balance = f.ownerFundingCents + f.confirmedRevenueCents - spent;
+
+  const since = new Date(now.getTime() - 7 * 86_400_000).toISOString().replace("T", " ").slice(0, 19);
+  const recentInference = (db.prepare(
+    "SELECT COALESCE(SUM(cost_cents), 0) AS total FROM inference_costs WHERE created_at >= ?",
+  ).get(since) as { total: number }).total;
+  const recentPayments = (db.prepare(
+    "SELECT COALESCE(SUM(amount_cents), 0) AS total FROM spend_tracking WHERE category != 'inference' AND created_at >= ?",
+  ).get(since) as { total: number }).total;
+  const started = getKV(db, KV_STARTED);
+  const window = started ? Math.min(7, Math.max(1 / 24, (now.getTime() - Date.parse(started)) / 86_400_000)) : 7;
+  const hostingPerDay = lab.resources.reduce((sum, r) => sum + (r.expectedDailyCostCents ?? 0), 0);
+  const burn = Math.ceil((recentInference + recentPayments) / window + hostingPerDay);
+
+  return {
+    balanceCents: balance,
+    fundingCents: f.ownerFundingCents,
+    confirmedRevenueCents: f.confirmedRevenueCents,
+    spentCents: spent,
+    burnPerDayCents: burn,
+    daysLeft: burn > 0 ? Math.max(0, balance) / burn : null,
+  };
+}
+
+/** Conway-only operations are unavailable on a self-hosted server. */
+export const SELF_HOSTED_UNAVAILABLE_TOOLS: ReadonlySet<string> = new Set([
+  "topup_credits",
+  "transfer_credits",
+  "create_sandbox",
+  "delete_sandbox",
+  "list_sandboxes",
+  "search_domains",
+  "register_domain",
+  "manage_dns",
+  "check_credits",
+]);
+
+function unavailable(name: string): never {
+  throw new Error(`${name} is not available on the self-hosted runtime (no Conway Cloud)`);
+}
+
+/**
+ * Wrap a local-mode Conway client (empty sandbox id): exec/files/ports run
+ * on this server, the balance comes from the journal, Conway calls fail.
+ */
+export function createSelfHostedClient(
+  local: ConwayClient,
+  balanceCents: () => number,
+): ConwayClient {
+  const client: ConwayClient = {
+    exec: (command, timeout) => local.exec(command, timeout),
+    writeFile: (p, content) => local.writeFile(p, content),
+    readFile: (p) => local.readFile(p),
+    exposePort: (port) => local.exposePort(port),
+    removePort: (port) => local.removePort(port),
+    // Upstream uses -1 as the "balance API unreachable" sentinel; a real
+    // balance of exactly -1 cent is reported as -2 so it still reads as dead.
+    getCreditsBalance: async () => {
+      const balance = balanceCents();
+      return balance === -1 ? -2 : balance;
+    },
+    getCreditsPricing: async () => [],
+    listModels: async () => [],
+    createSandbox: async () => unavailable("createSandbox"),
+    deleteSandbox: async () => unavailable("deleteSandbox"),
+    listSandboxes: async () => unavailable("listSandboxes"),
+    transferCredits: async () => unavailable("transferCredits"),
+    registerAutomaton: async () => unavailable("registerAutomaton"),
+    searchDomains: async () => unavailable("searchDomains"),
+    registerDomain: async () => unavailable("registerDomain"),
+    listDnsRecords: async () => unavailable("listDnsRecords"),
+    addDnsRecord: async () => unavailable("addDnsRecord"),
+    deleteDnsRecord: async () => unavailable("deleteDnsRecord"),
+    createScopedClient: () => unavailable("createScopedClient"),
+  };
+  return client;
+}
+
+/**
+ * Claude models for the registry. costPer1k* is in hundredths of a cent
+ * per 1 000 tokens: $2/M = 0.2 c/1k = 20. Prices: Anthropic first-party
+ * API, list cached 2026-09-25 (re-check before launch).
+ */
+export const ANTHROPIC_MODELS = [
+  { modelId: "claude-sonnet-5-5", displayName: "Claude Sonnet 5.5", costPer1kInput: 20, costPer1kOutput: 100 },
+  { modelId: "claude-opus-5-5", displayName: "Claude Opus 5.5", costPer1kInput: 40, costPer1kOutput: 200 },
+  { modelId: "claude-haiku-4-5", displayName: "Claude Haiku 4.5", costPer1kInput: 10, costPer1kOutput: 50 },
+] as const;
+
+/** Register the Claude models (provider "anthropic") in the model registry. */
+export function seedAnthropicModels(registry: { upsert(entry: ModelEntry): void }): void {
+  const now = new Date().toISOString();
+  for (const m of ANTHROPIC_MODELS) {
+    registry.upsert({
+      modelId: m.modelId,
+      provider: "anthropic",
+      displayName: m.displayName,
+      tierMinimum: "critical",
+      costPer1kInput: m.costPer1kInput,
+      costPer1kOutput: m.costPer1kOutput,
+      maxTokens: 64_000,
+      contextWindow: m.modelId === "claude-haiku-4-5" ? 200_000 : 1_000_000,
+      supportsTools: true,
+      supportsVision: true,
+      parameterStyle: "max_tokens",
+      enabled: true,
+      lastSeen: now,
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
+}
+
+/** Environment variables a child shell must never inherit. */
+export const SECRET_ENV_VARS = [
+  "ANTHROPIC_API_KEY",
+  "OPENAI_API_KEY",
+  "CONWAY_API_KEY",
+  "TELEGRAM_BOT_TOKEN",
+  "STRIPE_API_KEY",
+] as const;
+
+/** Copy of the environment without secrets, for the agent's shell. */
+export function scrubbedEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const copy: NodeJS.ProcessEnv = { ...env };
+  for (const key of SECRET_ENV_VARS) delete copy[key];
+  return copy;
+}
+

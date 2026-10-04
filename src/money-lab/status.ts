@@ -9,6 +9,7 @@ import type Database from "better-sqlite3";
 import type { AutomatonConfig } from "../types.js";
 import { inferenceGetDailyCost, inferenceGetHourlyCost } from "../state/database.js";
 import { paymentsSpentTodayCents } from "./guard.js";
+import { survivalBalance } from "./selfhosted.js";
 import {
   getKV,
   getPauseState,
@@ -49,6 +50,13 @@ export function formatStatus(
   out.push(`Cycles sans progrès : ${getNoProgressCycles(db)} / ${lab.noProgressCycles ?? "désactivé"}`);
 
   const limit = (v: number | null) => (v === null ? "aucune limite" : usd(v));
+  if (lab.runtime === "self-hosted") {
+    const s = survivalBalance(db, lab);
+    out.push("", "Survie :");
+    out.push(`  Solde : ${usd(s.balanceCents)} (fonds ${usd(s.fundingCents)} + revenus confirmés ${usd(s.confirmedRevenueCents)} - dépensé ${usd(s.spentCents)})`);
+    out.push(`  Consommation : ~${usd(s.burnPerDayCents)}/jour — ${s.daysLeft === null ? "aucune dépense récente" : `≈ ${s.daysLeft.toFixed(1)} jours restants`}`);
+    if (s.balanceCents < 0) out.push("  ÉTAT : MORT (plus de fonds). /fonds ou un revenu confirmé le ranime.");
+  }
   out.push("", "Inférence (UTC) :");
   out.push(`  Aujourd'hui : ${usd(inferenceGetDailyCost(db))} / ${limit(lab.inference.dailyCents)}`);
   out.push(`  Heure en cours : ${usd(inferenceGetHourlyCost(db))} / ${limit(lab.inference.hourlyCents)}`);
@@ -59,8 +67,12 @@ export function formatStatus(
   }
   out.push(`Réplication : interdite${lab.deniedTools.length ? ` — autres outils refusés : ${lab.deniedTools.join(", ")}` : ""}`);
 
-  out.push("", "Ressources Conway (facturées MÊME EN PAUSE — à arrêter séparément, voir la checklist) :");
-  out.push(`  Sandbox configurée : ${config.sandboxId || "aucune"}`);
+  if (lab.runtime === "self-hosted") {
+    out.push("", "Ressources (facturées MÊME EN PAUSE — à arrêter séparément, voir le guide) :");
+  } else {
+    out.push("", "Ressources Conway (facturées MÊME EN PAUSE — à arrêter séparément, voir la checklist) :");
+    out.push(`  Sandbox configurée : ${config.sandboxId || "aucune"}`);
+  }
   if (lab.resources.length === 0) out.push("  Aucune ressource déclarée dans le profil.");
   for (const r of lab.resources) {
     out.push(`  - ${r.id} [${r.kind}] ${r.description} — coût estimé/jour : ${usd(r.expectedDailyCostCents)}`);

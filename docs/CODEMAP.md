@@ -15,5 +15,10 @@
 | Money Lab tests | src/__tests__/money-lab/money-lab.test.ts | Mocked first-run tests with network disabled | Any Money Lab behaviour changes |
 | Deployment checklist | money-lab/CONWAY-CHECKLIST.md | Install, backup, supervised run and resource-stop procedure | Deployment or shutdown steps change |
 | Integration note | money-lab/INTEGRATION.md | Pinned upstream SHA, spend paths, units and known limitations | Upstream base, spend paths or limitations change |
+| Self-hosted runtime | src/money-lab/selfhosted.ts | Local client without Conway, survival balance, Claude model registry entries, secret-free shell env | Balance rules, hosting accrual, model prices or the runtime environment change |
+| Telegram channel | src/money-lab/telegram.ts | Owner-only Telegram commands, message forwarding to the bot, notification outbox, daily summary | Owner commands or notifications change |
+| Stripe revenue | src/money-lab/stripe.ts | Read-only Stripe balance-transaction sync into the ledger | Revenue mapping, currency handling or the Stripe API usage change |
+| Anthropic backend | src/conway/inference.ts | Claude calls via the official SDK (effort, refusal fallback, no thinking replay) | Model parameters or Anthropic API usage change |
+| VPS deployment | money-lab/vps/configure.mjs | Writes the self-hosted Money Lab configuration; with the systemd unit and env template | Deployment layout or configuration keys change |
 
 Keep entries short and tied to actual paths. Agents must confirm ownership before editing.

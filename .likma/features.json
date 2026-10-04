@@ -18,8 +18,8 @@
         "note": "Implemented in src/money-lab and narrow upstream patches; see money-lab/INTEGRATION.md"
       },
       "verification": {
-        "at": "2026-10-04T06:46:26.648452+00:00",
-        "fingerprint": "32a397b87113eb74e2ea51597151a3002bd108ec7eeb13dff82af4d7bc7fa7f4",
+        "at": "2026-10-04T07:52:38.466819+00:00",
+        "fingerprint": "a65d1292a9b09e2e094ff52ff350fc925dc508ab8c446083726b49d9ba3d00ce",
         "criterion_checks": {
           "1": "money-lab",
           "2": "money-lab",
@@ -27,7 +27,7 @@
           "4": "money-lab",
           "5": "build"
         },
-        "report": ".likma/checks/4e9eb0c46a644348a5b64902e95444de.json",
+        "report": ".likma/checks/20c1d0943f1d466fa0f13bca4b312011.json",
         "contract": "f2ba70949e82ab8b80068b65e184e4a9751f1bf694e8b38652a43fc96921b11b"
       }
     },
@@ -46,15 +46,15 @@
         "note": "Implemented in src/money-lab (journal, cli, status, cycle); see money-lab/INTEGRATION.md"
       },
       "verification": {
-        "at": "2026-10-04T06:46:31.421204+00:00",
-        "fingerprint": "32a397b87113eb74e2ea51597151a3002bd108ec7eeb13dff82af4d7bc7fa7f4",
+        "at": "2026-10-04T07:52:43.493254+00:00",
+        "fingerprint": "a65d1292a9b09e2e094ff52ff350fc925dc508ab8c446083726b49d9ba3d00ce",
         "criterion_checks": {
           "1": "money-lab",
           "2": "money-lab",
           "3": "money-lab",
           "4": "money-lab"
         },
-        "report": ".likma/checks/39d28860d8884fc29c1c4737787734fb.json",
+        "report": ".likma/checks/95c4899eeec949c381a06d9f213ded9d.json",
         "contract": "fee726a8c44025a2064f695527db4b4e9e68432016462edbe4dbc87bbd386565"
       }
     },
@@ -71,14 +71,89 @@
         "note": "Implemented in src/money-lab (journal, cli, status, cycle); see money-lab/INTEGRATION.md"
       },
       "verification": {
-        "at": "2026-10-04T06:46:36.321334+00:00",
-        "fingerprint": "32a397b87113eb74e2ea51597151a3002bd108ec7eeb13dff82af4d7bc7fa7f4",
+        "at": "2026-10-04T07:52:48.450914+00:00",
+        "fingerprint": "a65d1292a9b09e2e094ff52ff350fc925dc508ab8c446083726b49d9ba3d00ce",
         "criterion_checks": {
           "1": "money-lab",
           "2": "money-lab"
         },
-        "report": ".likma/checks/1e5417efe62b4eeba1cd85bcdbbb070a.json",
+        "report": ".likma/checks/b49ec052626548d79f72a35524f2b216.json",
         "contract": "fc02da285bb11e2e132cc0b425712257590dbe827ea112ebfac23d3268f5b43b"
+      }
+    },
+    {
+      "id": "self-hosted-survival",
+      "title": "Self-hosted runtime and survival",
+      "criteria": [
+        "Runs without Conway: local execution, Conway-only operations refused, secrets removed from the agent shell",
+        "Balance is funding plus confirmed revenue minus spending including accrued hosting; estimated revenue never counts",
+        "Below zero the bot makes no inference call, notifies the owner once and revives after funding",
+        "Claude requests carry effort, auto tool choice and the default refusal fallback, never replay thinking, and handle refusals"
+      ],
+      "status": "verified",
+      "implementation": {
+        "at": "2026-10-04T07:52:48.577001+00:00",
+        "note": "Implemented in src/money-lab (selfhosted, telegram, stripe) and src/conway/inference.ts"
+      },
+      "verification": {
+        "at": "2026-10-04T07:52:53.727334+00:00",
+        "fingerprint": "a65d1292a9b09e2e094ff52ff350fc925dc508ab8c446083726b49d9ba3d00ce",
+        "criterion_checks": {
+          "1": "money-lab",
+          "2": "money-lab",
+          "3": "money-lab",
+          "4": "money-lab"
+        },
+        "report": ".likma/checks/96dc6b49e7444dd2991e696198a3b59f.json",
+        "contract": "3f130a83536e2fe86f8b4cc511a934bcf5595ed04752716e83e216e4e6983e15"
+      }
+    },
+    {
+      "id": "telegram-owner-channel",
+      "title": "Telegram owner channel",
+      "criteria": [
+        "Only the owner chat is served; other text reaches the bot as an inbox message and wakes it",
+        "Commands fund the bot, answer help requests, pause and resume; queued notifications and one daily summary are delivered",
+        "Errors never include the bot token"
+      ],
+      "status": "verified",
+      "implementation": {
+        "at": "2026-10-04T07:52:48.670680+00:00",
+        "note": "Implemented in src/money-lab (selfhosted, telegram, stripe) and src/conway/inference.ts"
+      },
+      "verification": {
+        "at": "2026-10-04T07:52:58.984227+00:00",
+        "fingerprint": "a65d1292a9b09e2e094ff52ff350fc925dc508ab8c446083726b49d9ba3d00ce",
+        "criterion_checks": {
+          "1": "money-lab",
+          "2": "money-lab",
+          "3": "money-lab"
+        },
+        "report": ".likma/checks/0820583b29904c0ca96b208f6d7faebe.json",
+        "contract": "0d95618a8757df8beffb2f4826cd2057149973aa06429ac726b818ec3a51edb1"
+      }
+    },
+    {
+      "id": "stripe-revenue",
+      "title": "Stripe revenue sync",
+      "criteria": [
+        "Charges, fees, refunds and payouts map to ledger entries with the owner's conversion rate",
+        "Sync is idempotent, skips other currencies, extends survival and notifies the owner"
+      ],
+      "status": "verified",
+      "implementation": {
+        "at": "2026-10-04T07:52:48.761377+00:00",
+        "note": "Implemented in src/money-lab (selfhosted, telegram, stripe) and src/conway/inference.ts"
+      },
+      "verification": {
+        "at": "2026-10-04T07:53:04.088019+00:00",
+        "fingerprint": "a65d1292a9b09e2e094ff52ff350fc925dc508ab8c446083726b49d9ba3d00ce",
+        "criterion_checks": {
+          "1": "money-lab",
+          "2": "money-lab"
+        },
+        "report": ".likma/checks/a77e1b5c085647aca4cc25f51a0a0c22.json",
+        "contract": "fb586cc5fab0eda7952dd8f8f92d718c03088207f4e7d1812a5c454e7d960f55"
       }
     }
   ]

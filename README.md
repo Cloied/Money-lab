@@ -9,7 +9,13 @@ removed is replication. Income is
 uncertain: the goal is to observe what an autonomous agent can actually build, use and earn, and to
 measure it honestly.
 
-> **Status:** first-run development build. Mocked tests pass; nothing has been launched, funded or
+> **Runtime:** Conway Cloud no longer accepts new accounts (beta ended), so Money Lab runs
+> **self-hosted on a VPS**: Claude Sonnet 5.5 through the Anthropic API, the owner on Telegram,
+> revenue confirmed by Stripe. Step-by-step setup (French): [money-lab/GUIDE-VPS.fr.md](money-lab/GUIDE-VPS.fr.md).
+> The goal the bot is given is to **stay alive**: its balance is the owner's funding plus
+> confirmed revenue minus everything it spends; below zero it dies until funded again.
+
+> **Status:** development build. Mocked tests pass; nothing has been launched, funded or
 > published yet. Live use requires the owner's approval of the exact resources and budget.
 
 ## What Money Lab adds to Automaton
@@ -24,6 +30,10 @@ All additions are inert unless `~/.automaton/automaton.json` contains a `moneyLa
 | Payments | `allowed` or `disabled` by the owner; automatic top-ups run only when no payment cap is set |
 | Profile | Unknown/missing keys or zero values stop startup instead of silently using defaults |
 | Journal | Experiments, owner help requests, operator ledger in the existing `state.db` |
+| Self-hosted runtime | Local commands/files on the VPS, secrets kept out of the agent's shell, Conway-only tools removed |
+| Survival | Balance = funding + Stripe/owner-confirmed revenue - spending (inference, hosting, fees); death below zero, revival on funding |
+| Telegram | Owner-only chat: commands (`/statut`, `/fonds`, `/ok`, `/pause`…), free messages to the bot, notifications and a daily summary |
+| Stripe | Read-only sync of balance transactions into the ledger (revenue, fees, refunds, payouts), deduplicated |
 | Sleep | Sleeps when a budget window is exhausted or after repeated no-progress cycles; only the operator wakes it early |
 | Accounting | Funding, credit purchases, consumed costs, estimated revenue, confirmed revenue and cash received are reported separately |
 

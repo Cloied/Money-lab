@@ -12,6 +12,7 @@
 
 import type { AutomatonConfig, ModelStrategyConfig } from "../types.js";
 import { DEFAULT_MODEL_STRATEGY_CONFIG, DEFAULT_TREASURY_POLICY } from "../types.js";
+import { SELF_HOSTED_UNAVAILABLE_TOOLS } from "./selfhosted.js";
 
 export interface MoneyLabResource {
   id: string;
@@ -24,16 +25,39 @@ export interface MoneyLabResource {
 /** null means "no limit set by the owner" for that dimension. */
 export interface MoneyLabInference {
   model: string | null;
+  /** Anthropic effort level; null keeps the model default. */
+  effort: "low" | "medium" | "high" | "xhigh" | "max" | null;
   perCallCents: number | null;
   hourlyCents: number | null;
   dailyCents: number | null;
   maxOutputTokens: number | null;
 }
 
+export interface MoneyLabTelegram {
+  /** Name of the environment variable holding the bot token (never the token itself). */
+  botTokenEnv: string;
+  /** The only Telegram chat allowed to talk to the bot (the owner). */
+  ownerChatId: number;
+}
+
+export interface MoneyLabStripe {
+  /** Environment variable holding a read-only (restricted) Stripe key. */
+  apiKeyEnv: string;
+  syncMinutes: number;
+  /** Stripe settlement currency, lowercase ISO code (e.g. "eur"). */
+  currency: string;
+  /** Owner-set conversion to the USD ledger: USD per 1 unit of currency (1 for "usd"). */
+  usdPerUnit: number;
+}
+
 export interface MoneyLabConfig {
   enabled: true;
   profile: "first-run";
+  /** "self-hosted": VPS without Conway Cloud; "conway": Conway sandbox. */
+  runtime: "conway" | "self-hosted";
   inference: MoneyLabInference;
+  telegram: MoneyLabTelegram | null;
+  stripe: MoneyLabStripe | null;
   /** "allowed": credit top-ups, transfers and x402 payments work as upstream. */
   payments: "allowed" | "disabled";
   /** Price caps on agent payments (top-ups, transfers, x402); null = no cap. */
@@ -96,6 +120,8 @@ export const MONEY_LAB_PAYMENT_TOOLS: ReadonlySet<string> = new Set([
 export function moneyLabDeniedTools(lab: MoneyLabConfig): Set<string> {
   const denied = new Set([...MONEY_LAB_ALWAYS_DENIED_TOOLS, ...lab.deniedTools]);
   if (lab.payments === "disabled") for (const t of MONEY_LAB_PAYMENT_TOOLS) denied.add(t);
+  // Conway-only operations do not exist on a self-hosted server.
+  if (lab.runtime === "self-hosted") for (const t of SELF_HOSTED_UNAVAILABLE_TOOLS) denied.add(t);
   return denied;
 }
 
@@ -106,7 +132,8 @@ export function moneyLabDeniedTools(lab: MoneyLabConfig): Set<string> {
  */
 export function automaticTopupsAllowed(lab: MoneyLabConfig | undefined): boolean {
   if (!lab) return true;
-  return lab.payments === "allowed"
+  return lab.runtime === "conway"
+    && lab.payments === "allowed"
     && lab.paymentLimits.perPaymentCents === null
     && lab.paymentLimits.dailyCents === null;
 }
@@ -125,10 +152,12 @@ export class MoneyLabConfigError extends Error {
 }
 
 const TOP_LEVEL_KEYS = [
-  "enabled", "profile", "inference", "payments", "paymentLimits", "deniedTools", "maxTurnsPerCycle",
+  "enabled", "profile", "runtime", "telegram", "stripe", "inference", "payments", "paymentLimits", "deniedTools", "maxTurnsPerCycle",
   "noProgressCycles", "noProgressSleepMinutes", "resources", "funding",
 ];
-const INFERENCE_KEYS = ["model", "perCallCents", "hourlyCents", "dailyCents", "maxOutputTokens"];
+const INFERENCE_KEYS = ["model", "effort", "perCallCents", "hourlyCents", "dailyCents", "maxOutputTokens"];
+const EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
+const ENV_NAME = /^[A-Z][A-Z0-9_]*$/;
 const PAYMENT_LIMIT_KEYS = ["perPaymentCents", "dailyCents"];
 const RESOURCE_KEYS = ["id", "kind", "description", "expectedDailyCostCents"];
 const FUNDING_KEYS = ["currency", "provisionedCents", "heldBackCents"];
@@ -185,8 +214,16 @@ export function parseMoneyLabConfig(raw: unknown): MoneyLabConfig | null {
 
   if (!isObject(raw.inference)) throw new MoneyLabConfigError("inference doit être un objet");
   checkKeys(raw.inference, INFERENCE_KEYS, "moneyLab.inference");
+  if (raw.runtime !== "conway" && raw.runtime !== "self-hosted") {
+    throw new MoneyLabConfigError('runtime doit valoir "conway" ou "self-hosted"');
+  }
+  const effort = raw.inference.effort;
+  if (effort !== null && !EFFORTS.includes(effort as any)) {
+    throw new MoneyLabConfigError(`inference.effort doit valoir ${EFFORTS.join(", ")} ou null`);
+  }
   const inference: MoneyLabInference = {
     model: raw.inference.model === null ? null : nonEmptyString(raw.inference.model, "inference.model"),
+    effort: effort as MoneyLabInference["effort"],
     perCallCents: optionalPositiveInt(raw.inference.perCallCents, "inference.perCallCents"),
     hourlyCents: optionalPositiveInt(raw.inference.hourlyCents, "inference.hourlyCents"),
     dailyCents: optionalPositiveInt(raw.inference.dailyCents, "inference.dailyCents"),
@@ -244,9 +281,46 @@ export function parseMoneyLabConfig(raw: unknown): MoneyLabConfig | null {
     throw new MoneyLabConfigError("funding.heldBackCents doit être un entier positif ou nul");
   }
 
+  let telegram: MoneyLabTelegram | null = null;
+  if (raw.telegram !== null) {
+    if (!isObject(raw.telegram)) throw new MoneyLabConfigError("telegram doit être un objet ou null");
+    checkKeys(raw.telegram, ["botTokenEnv", "ownerChatId"], "moneyLab.telegram");
+    const env = nonEmptyString(raw.telegram.botTokenEnv, "telegram.botTokenEnv");
+    if (!ENV_NAME.test(env)) throw new MoneyLabConfigError("telegram.botTokenEnv doit être un nom de variable d'environnement");
+    const chat = raw.telegram.ownerChatId;
+    if (typeof chat !== "number" || !Number.isInteger(chat)) {
+      throw new MoneyLabConfigError("telegram.ownerChatId doit être un entier (identifiant de ton chat Telegram)");
+    }
+    telegram = { botTokenEnv: env, ownerChatId: chat };
+  }
+
+  let stripe: MoneyLabStripe | null = null;
+  if (raw.stripe !== null) {
+    if (!isObject(raw.stripe)) throw new MoneyLabConfigError("stripe doit être un objet ou null");
+    checkKeys(raw.stripe, ["apiKeyEnv", "syncMinutes", "currency", "usdPerUnit"], "moneyLab.stripe");
+    const env = nonEmptyString(raw.stripe.apiKeyEnv, "stripe.apiKeyEnv");
+    if (!ENV_NAME.test(env)) throw new MoneyLabConfigError("stripe.apiKeyEnv doit être un nom de variable d'environnement");
+    const currency = nonEmptyString(raw.stripe.currency, "stripe.currency").toLowerCase();
+    if (!/^[a-z]{3}$/.test(currency)) throw new MoneyLabConfigError("stripe.currency doit être un code devise (ex : eur)");
+    const rate = raw.stripe.usdPerUnit;
+    if (typeof rate !== "number" || !Number.isFinite(rate) || rate <= 0 || rate > 1000) {
+      throw new MoneyLabConfigError("stripe.usdPerUnit doit être un nombre positif (1 pour usd)");
+    }
+    if (currency === "usd" && rate !== 1) throw new MoneyLabConfigError("stripe.usdPerUnit doit valoir 1 quand currency est usd");
+    stripe = {
+      apiKeyEnv: env,
+      syncMinutes: positiveInt(raw.stripe.syncMinutes, "stripe.syncMinutes"),
+      currency,
+      usdPerUnit: rate,
+    };
+  }
+
   return {
     enabled: true,
     profile: "first-run",
+    runtime: raw.runtime,
+    telegram,
+    stripe,
     inference,
     payments: raw.payments,
     paymentLimits,
@@ -288,7 +362,7 @@ export function applyMoneyLabProfile(config: AutomatonConfig): AutomatonConfig {
   const modelStrategy: ModelStrategyConfig = {
     ...base,
     ...(model ? { inferenceModel: model, lowComputeModel: model, criticalModel: model, pinnedModel: model } : {}),
-    maxTokensPerTurn: maxOut ? Math.min(base.maxTokensPerTurn, maxOut) : base.maxTokensPerTurn,
+    maxTokensPerTurn: maxOut ?? base.maxTokensPerTurn,
     perCallCeilingCents: tighter(base.perCallCeilingCents, lab.inference.perCallCents),
     hourlyBudgetCents: tighter(base.hourlyBudgetCents, lab.inference.hourlyCents),
     dailyBudgetCents: tighter(base.dailyBudgetCents, lab.inference.dailyCents),
@@ -316,7 +390,7 @@ export function applyMoneyLabProfile(config: AutomatonConfig): AutomatonConfig {
     moneyLab: lab,
     treasuryPolicy,
     ...(model ? { inferenceModel: model } : {}),
-    maxTokensPerTurn: maxOut ? Math.min(config.maxTokensPerTurn, maxOut) : config.maxTokensPerTurn,
+    maxTokensPerTurn: maxOut ?? config.maxTokensPerTurn,
     ...(lab.maxTurnsPerCycle ? { maxTurnsPerCycle: lab.maxTurnsPerCycle } : {}),
     maxChildren: 0,
     modelStrategy,

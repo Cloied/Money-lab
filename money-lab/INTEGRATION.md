@@ -48,6 +48,24 @@ Upstream patches (all narrow; behaviour unchanged when no `moneyLab` block is co
 | `src/heartbeat/tasks.ts` | USDC auto-top-up only when payments are allowed without caps; no upstream-update wake |
 | `src/index.ts` | Profile validation (invalid = exit 1); optional payment gate; bootstrap top-up only without caps; pause-aware run loop; only operator events cut a sleep short; no-progress tracking; `--money-lab` CLI |
 
+## Self-hosted runtime (2026-10-04)
+
+Conway Cloud closed to new accounts, so `moneyLab.runtime: "self-hosted"` replaces it:
+
+| Concern | Implementation |
+| --- | --- |
+| Execution | Upstream local mode (empty sandbox id) wrapped by `createSelfHostedClient`; Conway-only calls throw and their tools are denied |
+| Secrets | `localExecEnv` strips `ANTHROPIC_API_KEY`, `TELEGRAM_BOT_TOKEN`, `STRIPE_API_KEY`, `OPENAI_API_KEY`, `CONWAY_API_KEY` from the agent's shell; shell patterns block their names and `/proc/*/environ`; systemd reads them from a root-only file |
+| Inference | `claude-sonnet-5-5` via the official `@anthropic-ai/sdk` (beta messages): `output_config.effort`, `tool_choice: auto`, `fallbacks: "default"` (`server-side-fallback-2026-07-01`), refusal handled; thinking blocks are never replayed because the loop rebuilds history every turn (the documented strip path for non-append-only harnesses) |
+| Models | Claude models seeded in the registry after `initialize()` (which disables non-baseline models) with first-party prices (hundredths of a cent per 1k tokens: Sonnet 5.5 20/100, Opus 5.5 40/200, Haiku 4.5 10/50) |
+| Survival | `survivalBalance`: funding + confirmed revenue - (inference + hosting + external + fees + refunds + agent payments + accrued declared hosting). Negative = dead: no inference, one owner notification, revival when funds or revenue arrive |
+| Owner channel | `TelegramChannel`: only `ownerChatId`; commands reuse the operator CLI; other text becomes an inbox message plus an operator wake; outbox for notifications (help requests, runtime pauses, death, revenue, `message_owner` tool, daily summary) |
+| Revenue | `syncStripe` with a restricted read-only key: charge/payment → confirmed_revenue + fee, refund → refund, payout → cash_received; converted with the owner's `usdPerUnit`; other currencies skipped |
+| Deployment | `money-lab/vps/` (configure script, systemd unit, environment template) and `money-lab/GUIDE-VPS.fr.md` |
+
+Not verified against live services: Anthropic responses (shape follows the SDK docs; request shape is
+tested), Telegram Bot API and Stripe API (stubbed). The first supervised run is the live check.
+
 ## Freedom model
 
 The agent may use every tool and choose any legitimate activity. The runtime enforces only:
@@ -119,13 +137,13 @@ mistaken for either.
 | --- | --- | --- |
 | `pnpm typecheck` | pass | pass |
 | `pnpm build` | not run | pass |
-| `vitest run --exclude src/__tests__/context-hardening.test.ts` | 63 files, 1614/1614 pass | 64 files, 1654/1654 pass (freedom model) |
+| `vitest run --exclude src/__tests__/context-hardening.test.ts` | 63 files, 1614/1614 pass | 65 files, 1667/1667 pass (self-hosted VPS runtime) |
 | `context-hardening.test.ts` | **hangs** (no result after 150 s; `buildContextMessages` blocks) | same hang; its other blocks, incl. `buildSystemPrompt` (8 tests), pass |
 
 The `context-hardening` hang is a pre-existing upstream baseline failure in code this branch does
 not touch (`src/agent/context.ts`); it is why a plain `pnpm test` never finishes.
 
-`src/__tests__/money-lab/money-lab.test.ts`: 40 tests, including a simulated first cycle and payment caps. Global `fetch` is replaced by a spy that
+`src/__tests__/money-lab/`: 53 tests (40 core + 13 VPS: survival, death/revival, Anthropic request shape, Telegram, Stripe), including a simulated first cycle. Global `fetch` is replaced by a spy that
 throws, USDC balance reads are mocked, and no test starts a funded loop. Coverage maps to
 specification section 10: mocked mode has no network/payment effects and missing policy fails
 closed; pause blocks paid calls and top-ups while status reports hosting as separately billed;

@@ -9,10 +9,14 @@
 import type Database from "better-sqlite3";
 import type { MoneyLabConfig } from "./profile.js";
 import { listExperiments, listHelpRequests, listRecentlyClosedHelp, getNoProgressCycles } from "./journal.js";
+import { survivalBalance } from "./selfhosted.js";
 
 export const MONEY_LAB_GENESIS_PROMPT = `You operate Money Lab, a small economic experiment built on Automaton.
-Create useful outputs, find genuine users, and investigate legitimate revenue
-within the configured permissions and finite budget. Income is uncertain.
+Your ultimate goal is to stay alive: every action you take costs money from a
+finite balance, and when it runs out you die. The only way to survive is to
+earn real revenue from genuine customers - revenue counts only once it is
+confirmed by the payment provider or the owner. Create useful outputs, find
+genuine users, and build legitimate income before your balance runs out.
 
 The owner's ideas are optional starting hypotheses. You may adapt or ignore
 all of them. Free tools funded by advertising, freemium, affiliation, digital
@@ -53,8 +57,20 @@ export function buildMoneyLabPromptBlock(db: Database.Database, lab: MoneyLabCon
     i.dailyCents !== null ? `${cents(i.dailyCents)} per UTC day` : null,
   ].filter(Boolean);
 
+  const survival = lab.runtime === "self-hosted" ? survivalBalance(db, lab) : null;
   const lines = [
     "--- MONEY LAB RULES (enforced by the runtime) ---",
+    survival
+      ? `SURVIVAL: balance ${cents(survival.balanceCents)} (funding ${cents(survival.fundingCents)} + confirmed revenue ` +
+        `${cents(survival.confirmedRevenueCents)} - spent ${cents(survival.spentCents)}); burn ≈ ${cents(survival.burnPerDayCents)}/day; ` +
+        (survival.daysLeft === null ? "no recent spending." : `about ${survival.daysLeft.toFixed(1)} days left.`) +
+        " Below zero you die. Only confirmed revenue extends your life."
+      : "",
+    lab.runtime === "self-hosted"
+      ? "Environment: your own Linux server (VPS). Build, run and serve software here; publishing needs a host or domain " +
+        "the owner sets up (ask with request_help). The owner reads you on Telegram: use message_owner for news, " +
+        "request_help for actions. Install or create skills when they make you more capable."
+      : "",
     "You are free to choose your activity and to use every available tool, including payments " +
       (lab.payments === "allowed" ? "(credit top-ups, x402, transfers are enabled), " : "(disabled by the owner for this run), ") +
       "new sandboxes, domains, skills, messaging and git, within the finite credits you have.",

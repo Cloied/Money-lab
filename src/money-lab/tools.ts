@@ -11,6 +11,8 @@ import {
   EXPERIMENT_STATUSES,
   upsertExperiment,
   createHelpRequest,
+  ownerNotificationsToday,
+  queueOwnerNotification,
   type ExperimentStatus,
 } from "./journal.js";
 import { formatStatus } from "./status.js";
@@ -109,6 +111,28 @@ export function createMoneyLabTools(): AutomatonTool[] {
         });
         return `Help request ${help.id} recorded for the owner. Sleep or continue unrelated permitted work; ` +
           "you will be woken when the owner resolves it.";
+      },
+    },
+    {
+      name: "message_owner",
+      description:
+        "Send a short message to the owner (Telegram): a result, a milestone, a question that does not block you. " +
+        "For anything that needs a human action, use request_help instead. Max 30 messages per day; never include secrets.",
+      category: "survival",
+      riskLevel: "safe",
+      parameters: {
+        type: "object",
+        properties: { text: { type: "string", description: "Message, in French" } },
+        required: ["text"],
+      },
+      execute: async (args, ctx) => {
+        const text = String(args.text ?? "").trim();
+        if (!text) return "Empty message not sent.";
+        if (ownerNotificationsToday(ctx.db.raw) >= 30) {
+          return "Daily message limit reached (30). Group your updates into the daily summary instead.";
+        }
+        queueOwnerNotification(ctx.db.raw, `🤖 ${text.slice(0, 3500)}`);
+        return "Message queued for the owner.";
       },
     },
     {
