@@ -122,6 +122,12 @@ export function ensureMoneyLabSchema(db: DB): void {
       created_at TEXT NOT NULL,
       resolved_at TEXT
     );
+    CREATE TABLE IF NOT EXISTS money_lab_outbox (
+      id TEXT PRIMARY KEY,
+      text TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      sent_at TEXT
+    );
     CREATE TABLE IF NOT EXISTS money_lab_ledger (
       id TEXT PRIMARY KEY,
       kind TEXT NOT NULL,
@@ -317,6 +323,13 @@ export function createHelpRequest(db: DB, input: HelpRequestInput): HelpRequest 
       }
     }
     const id = `help_${ulid()}`;
+    queueOwnerNotification(
+      db,
+      `🙋 Demande d'aide ${id}\nRaison : ${input.reason.trim()}\nAction demandée : ${input.humanAction.trim()}` +
+        (input.link ? `\nLien : ${input.link}` : "") +
+        (cost !== undefined && cost !== null ? `\nCoût prévu : ${(cost / 100).toFixed(2)} $` : "") +
+        `\nReprise quand : ${input.resumeCondition.trim()}\n\nRéponds /ok ${id} ou /non ${id}`,
+    );
     db.prepare(
       `INSERT INTO money_lab_help_requests
        (id, experiment_id, reason, human_action, link, expected_cost_cents, permissions_requested,
@@ -481,6 +494,7 @@ export function pause(db: DB, reason: string, by: PauseState["by"]): PauseState 
   if (existing) return existing;
   const state: PauseState = { at: now(), reason, by };
   setKV(db, KV_PAUSED, JSON.stringify(state));
+  if (by === "runtime") queueOwnerNotification(db, `⏸️ Money Lab mis en pause automatiquement : ${reason}\n/reprendre quand c'est réglé.`);
   return state;
 }
 
@@ -524,4 +538,29 @@ export function listRecentlyClosedHelp(db: DB, limit: number): HelpRequest[] {
   return (db.prepare(
     "SELECT * FROM money_lab_help_requests WHERE status != 'open' ORDER BY resolved_at DESC, id DESC LIMIT ?",
   ).all(limit) as any[]).map(rowToHelp);
+}
+
+// ─── Owner notifications (outbox, delivered by the Telegram channel) ──
+
+/** Queue a message for the owner. Delivery happens outside the agent loop. */
+export function queueOwnerNotification(db: DB, text: string): string {
+  const id = `msg_${ulid()}`;
+  db.prepare("INSERT INTO money_lab_outbox (id, text, created_at) VALUES (?, ?, ?)").run(id, text, now());
+  return id;
+}
+
+export function pendingOwnerNotifications(db: DB, limit = 20): { id: string; text: string }[] {
+  return db.prepare(
+    "SELECT id, text FROM money_lab_outbox WHERE sent_at IS NULL ORDER BY created_at, id LIMIT ?",
+  ).all(limit) as { id: string; text: string }[];
+}
+
+export function markOwnerNotificationSent(db: DB, id: string): void {
+  db.prepare("UPDATE money_lab_outbox SET sent_at = ? WHERE id = ?").run(now(), id);
+}
+
+/** Notifications queued today (UTC), for the agent's daily message budget. */
+export function ownerNotificationsToday(db: DB): number {
+  const day = new Date().toISOString().slice(0, 10);
+  return (db.prepare("SELECT COUNT(*) AS n FROM money_lab_outbox WHERE created_at >= ?").get(day) as { n: number }).n;
 }

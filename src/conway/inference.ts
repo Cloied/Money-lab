@@ -5,6 +5,7 @@
  * The automaton pays for its own thinking through Conway credits.
  */
 
+import Anthropic from "@anthropic-ai/sdk";
 import type {
   InferenceClient,
   ChatMessage,
@@ -29,7 +30,11 @@ interface InferenceClientOptions {
   ollamaBaseUrl?: string;
   /** Optional registry lookup — if provided, used before name heuristics */
   getModelProvider?: (modelId: string) => string | undefined;
+  /** Anthropic effort level (output_config.effort); omitted = model default. */
+  anthropicEffort?: AnthropicEffort;
 }
+
+type AnthropicEffort = "low" | "medium" | "high" | "xhigh" | "max";
 
 type InferenceBackend = "conway" | "openai" | "anthropic" | "ollama";
 
@@ -106,7 +111,8 @@ export function createInferenceClient(
         tools,
         temperature: opts?.temperature,
         anthropicApiKey: anthropicApiKey as string,
-        httpClient,
+        effort: options.anthropicEffort,
+        signal: (opts as { signal?: AbortSignal } | undefined)?.signal,
       });
     }
 
@@ -266,6 +272,9 @@ async function chatViaOpenAiCompatible(params: {
   };
 }
 
+/** Models that accept the server-side refusal fallback in its "default" form. */
+const ANTHROPIC_DEFAULT_FALLBACK_MODELS = new Set(["claude-sonnet-5-5", "claude-opus-5-5", "claude-opus-5", "claude-fable-5-1"]);
+
 async function chatViaAnthropic(params: {
   model: string;
   tokenLimit: number;
@@ -273,26 +282,25 @@ async function chatViaAnthropic(params: {
   tools?: InferenceToolDefinition[];
   temperature?: number;
   anthropicApiKey: string;
-  httpClient: ResilientHttpClient;
+  effort?: AnthropicEffort;
+  signal?: AbortSignal;
 }): Promise<InferenceResponse> {
   const transformed = transformMessagesForAnthropic(params.messages);
+  if (transformed.messages.length === 0) {
+    throw new Error("Cannot send empty message array to Anthropic API");
+  }
+
+  // Thinking blocks are never replayed: the agent loop rebuilds its history
+  // every turn, so replaying them would fail the API's history check. The
+  // model still thinks within each turn (adaptive thinking is the default).
   const body: Record<string, unknown> = {
     model: params.model,
     max_tokens: params.tokenLimit,
-    messages:
-      transformed.messages.length > 0
-        ? transformed.messages
-        : (() => { throw new Error("Cannot send empty message array to Anthropic API"); })(),
+    messages: transformed.messages,
   };
-
-  if (transformed.system) {
-    body.system = transformed.system;
-  }
-
-  if (params.temperature !== undefined) {
-    body.temperature = params.temperature;
-  }
-
+  if (transformed.system) body.system = transformed.system;
+  if (params.temperature !== undefined) body.temperature = params.temperature;
+  if (params.effort) body.output_config = { effort: params.effort };
   if (params.tools && params.tools.length > 0) {
     body.tools = params.tools.map((tool) => ({
       name: tool.function.name,
@@ -301,31 +309,32 @@ async function chatViaAnthropic(params: {
     }));
     body.tool_choice = { type: "auto" };
   }
-
-  const resp = await params.httpClient.request("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": params.anthropicApiKey,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify(body),
-    timeout: INFERENCE_TIMEOUT_MS,
-  });
-
-  if (!resp.ok) {
-    const text = await resp.text();
-    throw new Error(`Inference error (anthropic): ${resp.status}: ${text}`);
+  const betas: string[] = [];
+  if (ANTHROPIC_DEFAULT_FALLBACK_MODELS.has(params.model)) {
+    // On a safety decline the API re-runs the request on a suitable model.
+    body.fallbacks = "default";
+    betas.push("server-side-fallback-2026-07-01");
   }
 
-  const data = await resp.json() as any;
-  const content = Array.isArray(data.content) ? data.content : [];
-  const textBlocks = content.filter((c: any) => c?.type === "text");
-  const toolUseBlocks = content.filter((c: any) => c?.type === "tool_use");
+  const client = new Anthropic({ apiKey: params.anthropicApiKey });
+  let data: any;
+  try {
+    data = await client.beta.messages.create(
+      { ...body, ...(betas.length ? { betas } : {}) } as any,
+      params.signal ? { signal: params.signal } : undefined,
+    );
+  } catch (error) {
+    if (error instanceof Anthropic.APIError) {
+      throw new Error(`Inference error (anthropic): ${error.status}: ${error.message}`);
+    }
+    throw error;
+  }
 
+  const content: any[] = Array.isArray(data.content) ? data.content : [];
+  const toolUseBlocks = content.filter((c) => c?.type === "tool_use");
   const toolCalls: InferenceToolCall[] | undefined =
     toolUseBlocks.length > 0
-      ? toolUseBlocks.map((tool: any) => ({
+      ? toolUseBlocks.map((tool) => ({
           id: tool.id,
           type: "function" as const,
           function: {
@@ -335,22 +344,37 @@ async function chatViaAnthropic(params: {
         }))
       : undefined;
 
-  const textContent = textBlocks
-    .map((block: any) => String(block.text || ""))
+  const textContent = content
+    .filter((c) => c?.type === "text")
+    .map((block) => String(block.text || ""))
     .join("\n")
     .trim();
 
-  if (!textContent && !toolCalls?.length) {
-    throw new Error("No completion content returned from anthropic inference");
-  }
-
-  const promptTokens = data.usage?.input_tokens || 0;
-  const completionTokens = data.usage?.output_tokens || 0;
+  const usageData = data.usage ?? {};
+  const promptTokens = (usageData.input_tokens || 0)
+    + (usageData.cache_read_input_tokens || 0)
+    + (usageData.cache_creation_input_tokens || 0);
+  const completionTokens = usageData.output_tokens || 0;
   const usage: TokenUsage = {
     promptTokens,
     completionTokens,
     totalTokens: promptTokens + completionTokens,
   };
+
+  if (data.stop_reason === "refusal") {
+    // The whole fallback chain declined: report it instead of failing the turn.
+    return {
+      id: data.id || "",
+      model: data.model || params.model,
+      message: { role: "assistant", content: textContent || "[refused by the model safety system]" },
+      usage,
+      finishReason: "refusal",
+    };
+  }
+
+  if (!textContent && !toolCalls?.length) {
+    throw new Error("No completion content returned from anthropic inference");
+  }
 
   return {
     id: data.id || "",

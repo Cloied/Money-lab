@@ -80,6 +80,36 @@
         "report": ".likma/checks/1e5417efe62b4eeba1cd85bcdbbb070a.json",
         "contract": "fc02da285bb11e2e132cc0b425712257590dbe827ea112ebfac23d3268f5b43b"
       }
+    },
+    {
+      "id": "self-hosted-survival",
+      "title": "Self-hosted runtime and survival",
+      "criteria": [
+        "Runs without Conway: local execution, Conway-only operations refused, secrets removed from the agent shell",
+        "Balance is funding plus confirmed revenue minus spending including accrued hosting; estimated revenue never counts",
+        "Below zero the bot makes no inference call, notifies the owner once and revives after funding",
+        "Claude requests carry effort, auto tool choice and the default refusal fallback, never replay thinking, and handle refusals"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "telegram-owner-channel",
+      "title": "Telegram owner channel",
+      "criteria": [
+        "Only the owner chat is served; other text reaches the bot as an inbox message and wakes it",
+        "Commands fund the bot, answer help requests, pause and resume; queued notifications and one daily summary are delivered",
+        "Errors never include the bot token"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "stripe-revenue",
+      "title": "Stripe revenue sync",
+      "criteria": [
+        "Charges, fees, refunds and payouts map to ledger entries with the owner's conversion rate",
+        "Sync is idempotent, skips other currencies, extends survival and notifies the owner"
+      ],
+      "status": "planned"
     }
   ]
 }

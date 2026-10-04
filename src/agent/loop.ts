@@ -66,9 +66,10 @@ import { ProviderRegistry } from "../inference/provider-registry.js";
 import { UnifiedInferenceClient } from "../inference/inference-client.js";
 import { isIdleOnlyTool } from "./idle-only-tools.js";
 import { automaticTopupsAllowed, hasInferenceLimits, moneyLabDeniedTools } from "../money-lab/profile.js";
+import { seedAnthropicModels, survivalBalance } from "../money-lab/selfhosted.js";
 import { createMoneyLabTools } from "../money-lab/tools.js";
 import { paidCallBlockReason } from "../money-lab/guard.js";
-import { ensureMoneyLabSchema, pause as pauseMoneyLab } from "../money-lab/journal.js";
+import { ensureMoneyLabSchema, pause as pauseMoneyLab, queueOwnerNotification } from "../money-lab/journal.js";
 
 const logger = createLogger("loop");
 const MAX_TOOL_CALLS_PER_TURN = 10;
@@ -126,6 +127,9 @@ export async function runAgentLoop(
   };
   const modelRegistry = new ModelRegistry(db.raw);
   modelRegistry.initialize();
+  // initialize() disables models outside the upstream baseline; re-register
+  // the Claude models used by the self-hosted runtime.
+  if (moneyLab?.runtime === "self-hosted") seedAnthropicModels(modelRegistry);
 
   // Discover Ollama models if configured
   if (ollamaBaseUrl) {
@@ -618,8 +622,29 @@ export async function runAgentLoop(
       // Clear pending input after use
       pendingInput = undefined;
 
-      // ── Money Lab: no paid call while paused ──
+      // ── Money Lab: no paid call while paused or dead ──
       if (moneyLab) {
+        if (moneyLab.runtime === "self-hosted") {
+          const survival = survivalBalance(db.raw, moneyLab);
+          if (survival.balanceCents < 0) {
+            // Out of money and no confirmed revenue: the bot is dead until the
+            // owner funds it again or confirmed revenue arrives.
+            log(config, `[MONEY LAB] Solde ${survival.balanceCents}c : le bot est mort (plus de fonds).`);
+            if (!db.getKV("money_lab.died_at")) {
+              db.setKV("money_lab.died_at", new Date().toISOString());
+              queueOwnerNotification(
+                db.raw,
+                `💀 Le bot est mort : solde ${(survival.balanceCents / 100).toFixed(2)} $, aucun revenu pour couvrir ses dépenses.\n` +
+                  "Il reviendra à la vie si des fonds (/fonds) ou un revenu confirmé arrivent.",
+              );
+            }
+            db.setAgentState("dead");
+            onStateChange?.("dead");
+            running = false;
+            break;
+          }
+          db.deleteKV("money_lab.died_at");
+        }
         const blocked = paidCallBlockReason(db.raw);
         if (blocked) {
           log(config, `[MONEY LAB] Inference blocked (${blocked}). Sleeping.`);

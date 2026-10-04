@@ -1,26 +1,33 @@
 {
-  "_comment": "Merge into ~/.automaton/automaton.json after the setup wizard. The moneyLab block is strict: unknown or missing keys stop startup. Amounts are USD cents; null means no limit. Values below cap spending only: every capability except replication stays available. Check them against current Conway prices and the approved budget. treasuryPolicy.x402AllowedDomains lists the domains the agent may pay via x402 (upstream default: conway.tech); add domains to widen it.",
-  "genesisPrompt": "Owner's optional starting hypotheses (you may ignore all of them): small browser-side file utilities, practical calculators, printable generators, developer tools, digital templates, narrow APIs, or original niche resources. No revenue model is mandatory.",
+  "_comment": "Merge into ~/.automaton/automaton.json after the setup wizard (or use the install script in money-lab/VPS-SETUP.md). The moneyLab block is strict: unknown or missing keys stop startup. Amounts are USD cents; null means no limit. Secrets are NOT stored here: ANTHROPIC_API_KEY, TELEGRAM_BOT_TOKEN and STRIPE_API_KEY come from the environment file. Replace ownerChatId with your Telegram chat id, set stripe.usdPerUnit to today's EUR->USD rate (1 undercounts EUR revenue, which is conservative), and set the VPS daily cost.",
+  "genesisPrompt": "Owner's optional starting hypotheses (you may ignore all of them): small web tools, practical calculators, printable generators, developer tools, digital templates, narrow APIs, or original niche resources. No revenue model is mandatory.",
   "maxChildren": 0,
-  "treasuryPolicy": {
-    "x402AllowedDomains": [
-      "conway.tech"
-    ]
-  },
   "moneyLab": {
     "enabled": true,
     "profile": "first-run",
+    "runtime": "self-hosted",
+    "telegram": {
+      "botTokenEnv": "TELEGRAM_BOT_TOKEN",
+      "ownerChatId": 123456789
+    },
+    "stripe": {
+      "apiKeyEnv": "STRIPE_API_KEY",
+      "syncMinutes": 30,
+      "currency": "eur",
+      "usdPerUnit": 1
+    },
     "inference": {
-      "model": null,
+      "model": "claude-sonnet-5-5",
+      "effort": "medium",
       "perCallCents": null,
       "hourlyCents": 100,
       "dailyCents": 300,
-      "maxOutputTokens": null
+      "maxOutputTokens": 16000
     },
-    "payments": "allowed",
+    "payments": "disabled",
     "paymentLimits": {
-      "perPaymentCents": 500,
-      "dailyCents": 1000
+      "perPaymentCents": null,
+      "dailyCents": null
     },
     "deniedTools": [],
     "maxTurnsPerCycle": null,
@@ -28,16 +35,16 @@
     "noProgressSleepMinutes": 120,
     "resources": [
       {
-        "id": "REPLACE_WITH_EXISTING_SANDBOX_ID",
-        "kind": "sandbox",
-        "description": "Existing Conway sandbox running the Money Lab build",
+        "id": "vps",
+        "kind": "server",
+        "description": "VPS running Money Lab",
         "expectedDailyCostCents": null
       }
     ],
     "funding": {
       "currency": "USD",
-      "provisionedCents": 1500,
-      "heldBackCents": 500
+      "provisionedCents": 2000,
+      "heldBackCents": 0
     }
   }
 }

@@ -54,7 +54,9 @@ const PROTECTED_SHELL_PATTERNS: RegExp[] = [
   /\bwallet\.json\b/,
   /\bstate\.db\b/,
   /\.automaton\/(config\.json|constitution\.md)/,
-  /\bCONWAY_API_KEY\b/,
+  /\b(CONWAY_API_KEY|ANTHROPIC_API_KEY|OPENAI_API_KEY|TELEGRAM_BOT_TOKEN|STRIPE_API_KEY)\b/,
+  // The parent process environment holds the secrets the shell does not get.
+  /\/proc\/[^\s]*\/environ\b/,
 ];
 
 function runtimeDir(): string {

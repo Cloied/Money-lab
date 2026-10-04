@@ -18,6 +18,9 @@ identity, scope and constraints are defined here and in the Money Lab specificat
 - Owner decision (2026-10-04): the bot gets maximum freedom; only replication is forbidden, and
   spending is bounded by optional price caps. Do not add capability restrictions without the owner's
   approval, and do not remove the replication ban, runtime protection or price-cap enforcement.
+- Owner decision (2026-10-04): Conway Cloud is closed; the default runtime is self-hosted on a VPS
+  (Anthropic Claude Sonnet 5.5, Telegram owner channel, Stripe revenue sync). The bot's ultimate goal
+  is survival: only provider- or owner-confirmed revenue extends its balance.
 - In-process limits are not tamper-proof (exec can bypass them). Never describe them as secure isolation.
 - Unknown cost is never free. Funding is not revenue; estimated income is not cash.
 - Tests must not make network or payment calls (src/__tests__/money-lab replaces fetch with a failing spy).

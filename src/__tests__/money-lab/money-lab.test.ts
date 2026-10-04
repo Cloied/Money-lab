@@ -74,7 +74,10 @@ function rawProfile(overrides: Record<string, unknown> = {}): Record<string, unk
   return {
     enabled: true,
     profile: "first-run",
-    inference: { model: "gpt-5-mini", perCallCents: 5, hourlyCents: 10, dailyCents: 30, maxOutputTokens: 1024 },
+    runtime: "conway",
+    telegram: null,
+    stripe: null,
+    inference: { model: "gpt-5-mini", effort: null, perCallCents: 5, hourlyCents: 10, dailyCents: 30, maxOutputTokens: 1024 },
     payments: "disabled",
     paymentLimits: { perPaymentCents: null, dailyCents: null },
     deniedTools: [],
@@ -140,7 +143,7 @@ describe("Money Lab profile", () => {
     expect(() => parseMoneyLabConfig(missing)).toThrow(/clé manquante moneyLab.funding/);
     expect(() =>
       parseMoneyLabConfig(
-        rawProfile({ inference: { model: "gpt-5-mini", perCallCents: 0, hourlyCents: 10, dailyCents: 30, maxOutputTokens: 1024 } }),
+        rawProfile({ inference: { model: "gpt-5-mini", effort: null, perCallCents: 0, hourlyCents: 10, dailyCents: 30, maxOutputTokens: 1024 } }),
         SANDBOX,
       ),
     ).toThrow(/perCallCents/);
@@ -150,7 +153,7 @@ describe("Money Lab profile", () => {
   it("rejects inconsistent limits and a foreign publish sandbox", () => {
     expect(() =>
       parseMoneyLabConfig(
-        rawProfile({ inference: { model: "m", perCallCents: 20, hourlyCents: 10, dailyCents: 30, maxOutputTokens: 1024 } }),
+        rawProfile({ inference: { model: "m", effort: null, perCallCents: 20, hourlyCents: 10, dailyCents: 30, maxOutputTokens: 1024 } }),
         SANDBOX,
       ),
     ).toThrow(/perCallCents <= hourlyCents/);
@@ -164,15 +167,16 @@ describe("Money Lab profile", () => {
       fs.readFileSync(path.join(RUNTIME_ROOT, "money-lab", "automaton.money-lab.example.json"), "utf-8"),
     );
     const lab = parseMoneyLabConfig(example.moneyLab)!;
-    expect(lab.payments).toBe("allowed");
+    expect(lab.runtime).toBe("self-hosted");
+    expect(lab.inference.model).toBe("claude-sonnet-5-5");
     expect(lab.inference.dailyCents).not.toBeNull();
-    expect(lab.paymentLimits.dailyCents).not.toBeNull();
+    expect(lab.telegram?.botTokenEnv).toBe("TELEGRAM_BOT_TOKEN");
   });
 
   it("accepts null as 'no limit' without imposing defaults", () => {
     const free = applyMoneyLabProfile(createTestConfig({
       moneyLab: rawProfile({
-        inference: { model: null, perCallCents: null, hourlyCents: null, dailyCents: 300, maxOutputTokens: null },
+        inference: { model: null, effort: null, perCallCents: null, hourlyCents: null, dailyCents: 300, maxOutputTokens: null },
         maxTurnsPerCycle: null,
         noProgressCycles: null,
       }) as any,
@@ -449,7 +453,7 @@ describe("Money Lab inference limits", () => {
     const file = dbPath();
     let db = openDb(file);
     const config = labConfig({
-      inference: { model: "gpt-5-mini", perCallCents: 5, hourlyCents: 30, dailyCents: 30, maxOutputTokens: 1024 },
+      inference: { model: "gpt-5-mini", effort: null, perCallCents: 5, hourlyCents: 30, dailyCents: 30, maxOutputTokens: 1024 },
     });
     router(db, config).budget.recordCost({
       sessionId: "s1", turnId: null, model: "gpt-5-mini", provider: "openai", inputTokens: 0,
@@ -598,7 +602,7 @@ describe("Money Lab agent loop", () => {
 
   it("pauses instead of retrying forever when the per-call ceiling rejects the call", async () => {
     const config = labConfig({
-      inference: { model: "gpt-5-mini", perCallCents: 1, hourlyCents: 10, dailyCents: 30, maxOutputTokens: 8192 },
+      inference: { model: "gpt-5-mini", effort: null, perCallCents: 1, hourlyCents: 10, dailyCents: 30, maxOutputTokens: 8192 },
     });
     const inference = new MockInferenceClient([noToolResponse("should not run")]);
     await run(inference, config);
@@ -609,7 +613,7 @@ describe("Money Lab agent loop", () => {
 
   it("pauses without inference when the pinned model is unknown", async () => {
     const config = labConfig({
-      inference: { model: "no-such-model", perCallCents: 5, hourlyCents: 10, dailyCents: 30, maxOutputTokens: 1024 },
+      inference: { model: "no-such-model", effort: null, perCallCents: 5, hourlyCents: 10, dailyCents: 30, maxOutputTokens: 1024 },
     });
     const inference = new MockInferenceClient([noToolResponse("should not run")]);
     await run(inference, config);
@@ -723,7 +727,7 @@ describe("Money Lab journal", () => {
 
   it("agent tools cannot resolve help or write the ledger", () => {
     const names = createMoneyLabTools().map((t) => t.name);
-    expect(names).toEqual(["record_experiment", "request_help", "money_lab_status"]);
+    expect(names).toEqual(["record_experiment", "request_help", "message_owner", "money_lab_status"]);
   });
 
   it("separates funding, purchases, usage, estimated revenue and cash", () => {
