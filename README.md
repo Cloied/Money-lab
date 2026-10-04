@@ -3,8 +3,9 @@
 A small, supervised economic experiment built on
 [Conway Automaton](https://github.com/Conway-Research/automaton).
 
-One Automaton instance gets a clear mission, a finite budget and a few spend controls. It chooses a
-useful small product, tries to find genuine users and investigates legitimate revenue. Income is
+One Automaton instance gets a clear mission, maximum freedom and owner-set price caps. It chooses a
+useful product, tries to find genuine users and investigates legitimate revenue. The only capability
+removed is replication. Income is
 uncertain: the goal is to observe what an autonomous agent can actually build, use and earn, and to
 measure it honestly.
 
@@ -17,12 +18,12 @@ All additions are inert unless `~/.automaton/automaton.json` contains a `moneyLa
 
 | Area | Behaviour |
 | --- | --- |
-| Mission | Code-owned Money Lab prompt plus the `money-lab-strategy` skill; the agent keeps strategic freedom |
-| Strict profile | Unknown/missing keys or zero limits stop startup; one pinned, priced model |
-| Inference budget | Per-call, hourly and daily caps in USD cents, persisted across restarts; bounded output tokens |
-| Payments | No credit purchases or x402 payments from inside the agent; the owner provisions credits |
-| Tools | Allowlist; replication, transfers, sandbox creation, domains, outbound messaging, git push and runtime self-modification are denied |
-| Journal | Experiments (one active build), owner help requests, operator ledger in the existing `state.db` |
+| Mission | Code-owned Money Lab prompt plus the `money-lab-strategy` skill; the agent chooses its activity |
+| Tools | Everything Automaton offers (sandboxes, domains, payments, skills, messaging, git) **except replication** and runtime self-modification that could undo that ban |
+| Price caps | Optional inference caps (per call, hour, day) and payment caps (per payment, day) in USD cents; `null` = no cap |
+| Payments | `allowed` or `disabled` by the owner; automatic top-ups run only when no payment cap is set |
+| Profile | Unknown/missing keys or zero values stop startup instead of silently using defaults |
+| Journal | Experiments, owner help requests, operator ledger in the existing `state.db` |
 | Sleep | Sleeps when a budget window is exhausted or after repeated no-progress cycles; only the operator wakes it early |
 | Accounting | Funding, credit purchases, consumed costs, estimated revenue, confirmed revenue and cash received are reported separately |
 
@@ -50,8 +51,9 @@ Do **not** use the upstream `curl … automaton.sh | sh` installer: it tracks up
 would replace this build. Follow [money-lab/CONWAY-CHECKLIST.md](money-lab/CONWAY-CHECKLIST.md)
 (pinned commit, configuration, backups, supervised smoke run, bounded experiment, shutdown).
 
-Start from [money-lab/automaton.money-lab.example.json](money-lab/automaton.money-lab.example.json).
-Its budget values are provisional; set them from current Conway prices and the approved budget.
+Start from [money-lab/automaton.money-lab.example.json](money-lab/automaton.money-lab.example.json):
+payments allowed, inference capped at $1/hour and $3/day, payments capped at $5 each and $10/day,
+no other limit. Adjust the caps to current Conway prices and the approved budget.
 
 ## Development
 
@@ -77,8 +79,9 @@ pnpm build
 ## Safety limits
 
 The controls run inside the agent process. The shell tool can still reach the wallet, the state
-database and the API key through obfuscated commands, so this is a **supervised experiment** with
-dedicated, finite funds, not secure unattended financial automation. No profit is guaranteed;
+database and the API key through obfuscated commands, and with payments allowed a prompt injection
+could trigger a payment within the caps. This is a **supervised experiment** with dedicated, finite
+funds, not secure unattended financial automation. No profit is guaranteed;
 displayed income is not necessarily received.
 
 ## Credits and license

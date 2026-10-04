@@ -4,10 +4,10 @@
   "features": [
     {
       "id": "first-run-guards",
-      "title": "First-run spend guards",
+      "title": "Freedom model and spend guards",
       "criteria": [
-        "Missing policy context fails closed and disabled replication, funding, payment and self-modification tools are denied",
-        "Pause blocks paid inference and every top-up/x402 path without any network request",
+        "Missing policy context fails closed; replication and runtime self-modification are always denied while other tools follow owner settings",
+        "Pause, disabled payments and payment price caps block paid inference, top-ups and x402 without any network request",
         "Per-call, hourly and daily inference limits use correct cent units and persist across restart",
         "Upstream tool policy is unchanged when no moneyLab profile is configured",
         "The project typechecks and builds"
@@ -35,7 +35,7 @@
       "id": "experiment-help-journal",
       "title": "Experiment and help journal",
       "criteria": [
-        "Only one experiment can be building at a time",
+        "Experiments can be created and updated in parallel with merged evidence and metrics",
         "Help requests survive restart; repeated or unrelated resolutions cannot unblock or re-wake",
         "Funding, credit purchases, consumed costs, estimated revenue, confirmed revenue and cash stay separate",
         "Repeated no-progress cycles trigger a long sleep while experiment context is kept"

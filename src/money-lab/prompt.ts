@@ -22,7 +22,7 @@ Retrieve prior evidence first. Choose a concrete problem, explain the existing
 alternatives and a permitted acquisition channel, then run a small bounded
 test. Do not build an elaborate business before testing its main assumption.
 
-Use existing tools and deterministic software. Keep one active build. Sleep
+Use existing tools and deterministic software. Prefer one active build. Sleep
 while waiting for results; do not burn tokens on repeated unchanged research.
 Observation windows depend on the strategy, but spending remains capped.
 
@@ -40,28 +40,37 @@ function cents(value: number | null): string {
   return value === null ? "unknown" : `$${(value / 100).toFixed(2)}`;
 }
 
-/** Envelope and journal context appended to the system prompt. */
+/** Rules and journal context appended to the system prompt. */
 export function buildMoneyLabPromptBlock(db: Database.Database, lab: MoneyLabConfig): string {
   const experiments = listExperiments(db).filter((e) => e.status !== "finished");
   const openHelp = listHelpRequests(db, "open");
   const recentlyClosed = listRecentlyClosedHelp(db, 3);
 
+  const i = lab.inference;
+  const limits = [
+    i.perCallCents !== null ? `${cents(i.perCallCents)} per call` : null,
+    i.hourlyCents !== null ? `${cents(i.hourlyCents)} per hour` : null,
+    i.dailyCents !== null ? `${cents(i.dailyCents)} per UTC day` : null,
+  ].filter(Boolean);
+
   const lines = [
-    "--- MONEY LAB FIRST-RUN ENVELOPE (enforced by the runtime) ---",
-    `Inference: model ${lab.inference.model}; at most ${cents(lab.inference.perCallCents)} per call, ` +
-      `${cents(lab.inference.hourlyCents)} per hour, ${cents(lab.inference.dailyCents)} per UTC day; ` +
-      `${lab.inference.maxOutputTokens} output tokens per call. When a limit is reached the runtime sleeps.`,
-    "Disabled: credit top-ups, transfers, x402 payments, new sandboxes, domains, replication/children, " +
-      "outbound messaging, git push, runtime self-modification, heartbeat/config/skill edits.",
-    lab.publishSandboxId
-      ? `Publishing: only from the current sandbox (${lab.publishSandboxId}) via expose_port.`
-      : "Publishing: no publish target is approved yet; ask with request_help.",
-    "Journal: use record_experiment for every status change, evidence link or metric; " +
-      "use request_help for anything outside this envelope, then sleep.",
-    `Only one experiment may be in "building". After ${lab.noProgressCycles} wake cycles without a journal ` +
-      "update the runtime sleeps for a long period.",
-    `No-progress cycles so far: ${getNoProgressCycles(db)}.`,
-  ];
+    "--- MONEY LAB RULES (enforced by the runtime) ---",
+    "You are free to choose your activity and to use every available tool, including payments " +
+      (lab.payments === "allowed" ? "(credit top-ups, x402, transfers are enabled), " : "(disabled by the owner for this run), ") +
+      "new sandboxes, domains, skills, messaging and git, within the finite credits you have.",
+    "Not allowed: replication (children, workers, orchestrator) and editing the runtime code, configuration, " +
+      "wallet, state database or constitution. Never reveal the API key or wallet keys.",
+    `Inference: model ${i.model ?? "chosen by the runtime"}; ` +
+      (limits.length ? `owner limits ${limits.join(", ")}; the runtime sleeps or pauses when one is reached.` : "no owner spending limit beyond your credits.") +
+      (i.maxOutputTokens ? ` Max ${i.maxOutputTokens} output tokens per call.` : ""),
+    "Every credit spent is real money from the owner: spend where it tests your main assumption.",
+    "Journal: use record_experiment for every status change, evidence link, metric and cost; " +
+      "use request_help when a human action is needed (accounts, verification, payments outside your wallet), then sleep.",
+    lab.noProgressCycles !== null
+      ? `After ${lab.noProgressCycles} wake cycles without a journal update the runtime sleeps for a long period. ` +
+        `No-progress cycles so far: ${getNoProgressCycles(db)}.`
+      : "",
+  ].filter(Boolean);
 
   if (experiments.length > 0) {
     lines.push("Active experiments:");
@@ -87,6 +96,6 @@ export function buildMoneyLabPromptBlock(db: Database.Database, lab: MoneyLabCon
       lines.push(`- ${h.id} ${h.status}: ${h.resolutionNote ?? ""} (resume when: ${h.resumeCondition})`);
     }
   }
-  lines.push("--- END MONEY LAB ENVELOPE ---");
+  lines.push("--- END MONEY LAB RULES ---");
   return lines.join("\n");
 }

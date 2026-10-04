@@ -36,7 +36,7 @@ export function afterWakeCycle(
 
   const cycles = getNoProgressCycles(db) + 1;
   setNoProgressCycles(db, cycles);
-  if (cycles < lab.noProgressCycles) {
+  if (lab.noProgressCycles === null || cycles < lab.noProgressCycles) {
     return { progressed: false, noProgressCycles: cycles, longSleepUntil: null };
   }
 

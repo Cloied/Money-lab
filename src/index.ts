@@ -36,7 +36,7 @@ import { prettySink } from "./observability/pretty-sink.js";
 import { bootstrapTopup } from "./conway/topup.js";
 import { randomUUID } from "crypto";
 import { keccak256, toHex } from "viem";
-import { applyMoneyLabProfile, MoneyLabConfigError } from "./money-lab/profile.js";
+import { applyMoneyLabProfile, automaticTopupsAllowed, MoneyLabConfigError } from "./money-lab/profile.js";
 import { installMoneyLabPaymentGuard } from "./money-lab/guard.js";
 import { ensureMoneyLabSchema, getPauseState, journalFingerprint } from "./money-lab/journal.js";
 import { afterWakeCycle, isOperatorWake } from "./money-lab/cycle.js";
@@ -241,10 +241,14 @@ async function run(): Promise<void> {
   config = withMoneyLabProfile(config);
   const moneyLab = config.moneyLab;
   if (moneyLab) {
-    // Before any client is created: no x402 payment or credit purchase
-    // can be signed by this process.
-    installMoneyLabPaymentGuard();
-    logger.info("[MONEY LAB] Profil first-run actif : paiements désactivés, liste d'outils autorisés appliquée.");
+    if (moneyLab.payments === "disabled") {
+      // Before any client is created: no x402 payment or credit purchase
+      // can be signed by this process.
+      installMoneyLabPaymentGuard();
+    }
+    logger.info(
+      `[MONEY LAB] Profil actif : réplication interdite, paiements ${moneyLab.payments === "allowed" ? "autorisés" : "désactivés"}.`,
+    );
   }
 
   // Load wallet (chain-aware)
@@ -393,8 +397,8 @@ async function run(): Promise<void> {
 
   // Bootstrap topup: buy minimum credits ($5) from USDC so the agent can start.
   // The agent decides larger topups itself via the topup_credits tool.
-  // Money Lab: skipped; initial credits are provisioned by the operator.
-  if (!moneyLab) try {
+  // Money Lab: skipped unless payments are allowed without price caps.
+  if (automaticTopupsAllowed(moneyLab)) try {
     let bootstrapTimer: ReturnType<typeof setTimeout>;
     const bootstrapTimeout = new Promise<null>((_, reject) => {
       bootstrapTimer = setTimeout(() => reject(new Error("bootstrap topup timed out")), 15_000);

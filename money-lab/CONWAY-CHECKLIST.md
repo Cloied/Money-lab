@@ -7,7 +7,7 @@ Conway availability, prices and service conditions were **not** verified; check 
 ## 0. Before anything is provisioned [owner]
 
 - [ ] Owner-controlled fork/copy of Automaton exists, keeps `LICENSE`, and contains branch
-      `money-lab/first-run`. Record the release commit SHA to deploy: `________`.
+      the Money Lab changes merged on `main`. Record the release commit SHA to deploy: `________`.
 - [ ] Mocked checks pass on that commit: `pnpm install --frozen-lockfile && pnpm typecheck && pnpm vitest run src/__tests__/money-lab`.
 - [ ] Current Conway prices recorded (sandbox per day, inference per model, any minimums,
       overage rules, subscriptions, prepaid balance behaviour): `________`.
@@ -17,7 +17,8 @@ Conway availability, prices and service conditions were **not** verified; check 
 - [ ] `moneyLab.inference` limits confirmed against real prices (provisional: 5 c/call,
       10 c/hour, 30 c/day, 1024 output tokens). If too small for useful work, change the config
       explicitly and record why; never bypass in code.
-- [ ] Publish destination decided: the existing sandbox only, or `publishSandboxId: null`.
+- [ ] Payment mode decided: `payments: "allowed"` (agent may buy credits, pay x402 services and
+      transfer within `paymentLimits`) or `"disabled"`. Set the caps (`null` = none).
 - [ ] Research route decided (permitted HTTP retrieval only, or a scoped search tool + allowance).
 - [ ] Help channel: local CLI (`--money-lab help-list`). Telegram is not implemented.
 
@@ -41,10 +42,10 @@ node dist/index.js --version
 
 - [ ] Remote of `/opt/automaton` points to the owner fork, not upstream (`git remote -v`).
 - [ ] `node dist/index.js --init` and `--provision` only after approval of the wallet/API-key step.
-      Do **not** fund the agent wallet with USDC for this run.
+      Put in the agent wallet only the USDC you accept the agent may spend (payments mode).
 - [ ] Run `node dist/index.js --setup`, then merge `money-lab/automaton.money-lab.example.json`
       into `~/.automaton/automaton.json`, replacing placeholders with the real sandbox id.
-      Keep `socialRelayUrl: ""` and `maxChildren: 0`.
+      Keep `maxChildren: 0`.
 - [ ] Copy the strategy skill: `mkdir -p ~/.automaton/skills && cp -r money-lab/skills/money-lab-strategy ~/.automaton/skills/`.
 - [ ] Pause before first start: `node dist/index.js --money-lab pause "pre-launch check"`.
 - [ ] `node dist/index.js --money-lab status` shows the profile, limits, resources and
@@ -55,7 +56,8 @@ node dist/index.js --version
 - [ ] Owner adds the approved Conway credits through the Conway dashboard/credits API
       (not through the agent). Record it: `node dist/index.js --money-lab ledger-add credit_purchase <cents> <receipt-ref>`
       and the funding itself: `... ledger-add owner_funding <cents> <ref>`.
-- [ ] Confirm on a block explorer that the agent wallet address holds no spendable USDC.
+- [ ] Check on a block explorer that the agent wallet holds only the USDC you approved
+      (record it with `ledger-add owner_funding`).
 
 ## 3. Back up state before every run
 
@@ -108,8 +110,9 @@ Pausing the agent does **not** stop Conway billing.
        promises on the page. Decide: keep a low-cost artifact online (only if hosting cost and
        obligations fit the envelope) or take it down with notice.
 5. [ ] Remove exposed ports (`remove_port`) or stop the web process if the service is taken down.
-6. [ ] List all Conway resources in the account (sandboxes, domains, subscriptions) and compare
-       with `moneyLab.resources`. Anything unexpected is an incident: record it.
+6. [ ] List all Conway resources in the account (sandboxes, domains, subscriptions), including
+       those the agent created itself, and compare with `moneyLab.resources` and the experiment
+       journal. Record each one's cost; delete those you do not keep.
 7. [ ] Stop/delete the sandbox and cancel any subscription via the Conway dashboard/API **after**
        the backup is verified off-box.
 8. [ ] Record final hosting/external costs in the ledger and report separately: working

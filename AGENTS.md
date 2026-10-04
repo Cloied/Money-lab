@@ -15,7 +15,9 @@ identity, scope and constraints are defined here and in the Money Lab specificat
 ## Safety
 - Never launch the agent, fund wallets, buy credits, create accounts, provision paid resources or
   publish anything without the owner's explicit approval of the exact resources and budget.
-- Do not loosen budgets, the tool allowlist or the payment gate to make something work; report it.
+- Owner decision (2026-10-04): the bot gets maximum freedom; only replication is forbidden, and
+  spending is bounded by optional price caps. Do not add capability restrictions without the owner's
+  approval, and do not remove the replication ban, runtime protection or price-cap enforcement.
 - In-process limits are not tamper-proof (exec can bypass them). Never describe them as secure isolation.
 - Unknown cost is never free. Funding is not revenue; estimated income is not cash.
 - Tests must not make network or payment calls (src/__tests__/money-lab replaces fetch with a failing spy).

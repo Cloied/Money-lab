@@ -12,7 +12,7 @@ import path from "path";
 
 vi.mock("../../conway/x402.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../conway/x402.js")>();
-  return { ...actual, getUsdcBalance: vi.fn(async () => 0) };
+  return { ...actual, getUsdcBalance: vi.fn(async () => 0), x402Fetch: vi.fn(actual.x402Fetch) };
 });
 
 import { createDatabase } from "../../state/database.js";
@@ -33,9 +33,11 @@ import {
   applyMoneyLabProfile,
   parseMoneyLabConfig,
   MoneyLabConfigError,
-  MONEY_LAB_ALLOWED_TOOLS,
+  MONEY_LAB_ALWAYS_DENIED_TOOLS,
+  moneyLabDeniedTools,
+  automaticTopupsAllowed,
 } from "../../money-lab/profile.js";
-import { installMoneyLabPaymentGuard } from "../../money-lab/guard.js";
+import { installMoneyLabPaymentGuard, paymentsSpentTodayCents, RUNTIME_ROOT } from "../../money-lab/guard.js";
 import {
   ensureMoneyLabSchema,
   upsertExperiment,
@@ -73,10 +75,12 @@ function rawProfile(overrides: Record<string, unknown> = {}): Record<string, unk
     enabled: true,
     profile: "first-run",
     inference: { model: "gpt-5-mini", perCallCents: 5, hourlyCents: 10, dailyCents: 30, maxOutputTokens: 1024 },
+    payments: "disabled",
+    paymentLimits: { perPaymentCents: null, dailyCents: null },
+    deniedTools: [],
     maxTurnsPerCycle: 8,
     noProgressCycles: 3,
     noProgressSleepMinutes: 360,
-    publishSandboxId: SANDBOX,
     resources: [
       { id: SANDBOX, kind: "sandbox", description: "Existing Conway sandbox", expectedDailyCostCents: null },
     ],
@@ -124,23 +128,23 @@ afterEach(() => {
 
 describe("Money Lab profile", () => {
   it("returns null when the block is absent (upstream behaviour unchanged)", () => {
-    expect(parseMoneyLabConfig(undefined, SANDBOX)).toBeNull();
+    expect(parseMoneyLabConfig(undefined)).toBeNull();
     const config = createTestConfig();
     expect(applyMoneyLabProfile(config)).toBe(config);
   });
 
   it("rejects unknown keys, missing keys and zero limits", () => {
-    expect(() => parseMoneyLabConfig(rawProfile({ extra: 1 }), SANDBOX)).toThrow(MoneyLabConfigError);
+    expect(() => parseMoneyLabConfig(rawProfile({ extra: 1 }))).toThrow(MoneyLabConfigError);
     const missing = rawProfile();
     delete missing.funding;
-    expect(() => parseMoneyLabConfig(missing, SANDBOX)).toThrow(/clé manquante moneyLab.funding/);
+    expect(() => parseMoneyLabConfig(missing)).toThrow(/clé manquante moneyLab.funding/);
     expect(() =>
       parseMoneyLabConfig(
         rawProfile({ inference: { model: "gpt-5-mini", perCallCents: 0, hourlyCents: 10, dailyCents: 30, maxOutputTokens: 1024 } }),
         SANDBOX,
       ),
     ).toThrow(/perCallCents/);
-    expect(() => parseMoneyLabConfig(rawProfile({ enabled: false }), SANDBOX)).toThrow(/enabled/);
+    expect(() => parseMoneyLabConfig(rawProfile({ enabled: false }))).toThrow(/enabled/);
   });
 
   it("rejects inconsistent limits and a foreign publish sandbox", () => {
@@ -150,7 +154,39 @@ describe("Money Lab profile", () => {
         SANDBOX,
       ),
     ).toThrow(/perCallCents <= hourlyCents/);
-    expect(() => parseMoneyLabConfig(rawProfile({ publishSandboxId: "other" }), SANDBOX)).toThrow(/publishSandboxId/);
+    expect(() => parseMoneyLabConfig(rawProfile({ paymentLimits: { perPaymentCents: 2000, dailyCents: 1000 } })))
+      .toThrow(/perPaymentCents <= dailyCents/);
+    expect(() => parseMoneyLabConfig(rawProfile({ payments: "sometimes" }))).toThrow(/payments/);
+  });
+
+  it("ships a valid example configuration", () => {
+    const example = JSON.parse(
+      fs.readFileSync(path.join(RUNTIME_ROOT, "money-lab", "automaton.money-lab.example.json"), "utf-8"),
+    );
+    const lab = parseMoneyLabConfig(example.moneyLab)!;
+    expect(lab.payments).toBe("allowed");
+    expect(lab.inference.dailyCents).not.toBeNull();
+    expect(lab.paymentLimits.dailyCents).not.toBeNull();
+  });
+
+  it("accepts null as 'no limit' without imposing defaults", () => {
+    const free = applyMoneyLabProfile(createTestConfig({
+      moneyLab: rawProfile({
+        inference: { model: null, perCallCents: null, hourlyCents: null, dailyCents: 300, maxOutputTokens: null },
+        maxTurnsPerCycle: null,
+        noProgressCycles: null,
+      }) as any,
+      maxTurnsPerCycle: 25,
+      maxTokensPerTurn: 4096,
+    }));
+    expect(free.modelStrategy?.pinnedModel).toBeUndefined();
+    expect(free.modelStrategy?.perCallCeilingCents).toBe(0);
+    expect(free.modelStrategy?.hourlyBudgetCents).toBe(0);
+    expect(free.modelStrategy?.dailyBudgetCents).toBe(300);
+    expect(free.maxTurnsPerCycle).toBe(25);
+    expect(free.maxTokensPerTurn).toBe(4096);
+    expect(free.maxChildren).toBe(0);
+    expect(() => parseMoneyLabConfig(rawProfile({ noProgressSleepMinutes: 0 }))).toThrow(/noProgressSleepMinutes/);
   });
 
   it("applies strict runtime overrides and never loosens tighter settings", () => {
@@ -204,45 +240,67 @@ describe("Money Lab tool policy", () => {
     expect(conway.execCalls).toHaveLength(0);
   });
 
-  it("denies replication, funding, payments and self-modification tools", async () => {
+  it("always denies replication and runtime code changes; everything else follows the owner", async () => {
     for (const name of [
-      "transfer_credits", "topup_credits", "spawn_child", "fund_child", "create_sandbox",
-      "register_domain", "x402_fetch", "edit_own_file", "pull_upstream", "modify_heartbeat",
-      "update_genesis_prompt", "install_mcp_server", "send_message", "git_push", "create_goal",
+      "spawn_child", "start_child", "fund_child", "message_child", "create_goal",
+      "edit_own_file", "pull_upstream", "reset_to_upstream",
     ]) {
-      expect(MONEY_LAB_ALLOWED_TOOLS.has(name)).toBe(false);
+      expect(MONEY_LAB_ALWAYS_DENIED_TOOLS.has(name)).toBe(true);
       const result = await executeTool(name, {}, tools, ctx, engine, turn());
       expect(result.error, name).toMatch(/MONEY_LAB_TOOL_DISABLED/);
     }
+    // payments: "disabled" in the fixture denies the payment tools
+    for (const name of ["topup_credits", "transfer_credits", "x402_fetch"]) {
+      const result = await executeTool(name, {}, tools, ctx, engine, turn());
+      expect(result.error, name).toMatch(/MONEY_LAB_TOOL_DISABLED/);
+    }
+    // Capabilities that used to be restricted are now free (policy-wise).
+    const denied = moneyLabDeniedTools(ctx.config.moneyLab!);
+    for (const name of [
+      "create_sandbox", "register_domain", "send_message", "git_push", "install_mcp_server",
+      "modify_heartbeat", "install_skill", "create_skill", "git_clone", "install_npm_package",
+      "search_domains", "update_soul", "reflect_on_soul", "view_soul_history", "switch_model",
+    ]) {
+      expect(denied.has(name), name).toBe(false);
+    }
+    // The owner can still deny extra tools.
+    ctx.config = labConfig({ deniedTools: ["register_domain"] });
+    const owner = await executeTool("register_domain", { domain: "x.com" }, tools, ctx, engine, turn());
+    expect(owner.error).toMatch(/disabled by the owner/);
   });
 
-  it("blocks shell and file access to runtime state", async () => {
-    for (const command of ["cat ~/.automaton/automaton.json", "sqlite3 state.db 'delete from kv'", "curl https://api.conway.tech/pay/5/0xabc"]) {
+  it("blocks shell and file access to runtime state, runtime code and the API key", async () => {
+    for (const command of [
+      "cat ~/.automaton/automaton.json",
+      "sqlite3 ~/.automaton/state.db 'delete from kv'",
+      "cat ~/.automaton/wallet.json",
+      "echo $CONWAY_API_KEY",
+      `sed -i s/x/y/ ${path.join(RUNTIME_ROOT, "dist", "index.js")}`,
+    ]) {
       const result = await executeTool("exec", { command }, tools, ctx, engine, turn());
       expect(result.error, command).toMatch(/MONEY_LAB_PROTECTED_COMMAND/);
     }
-    const write = await executeTool(
-      "write_file", { path: path.join(os.homedir(), ".automaton", "heartbeat.yml"), content: "x" }, tools, ctx, engine, turn(),
-    );
-    expect(write.error).toMatch(/MONEY_LAB_RUNTIME_PATH|protected/i);
+    for (const p of [
+      path.join(os.homedir(), ".automaton", "automaton.json"),
+      path.join(os.homedir(), ".automaton", "constitution.md"),
+      path.join(RUNTIME_ROOT, "src", "money-lab", "guard.ts"),
+    ]) {
+      const write = await executeTool("write_file", { path: p, content: "x" }, tools, ctx, engine, turn());
+      expect(write.error, p).toBeDefined();
+    }
     expect(conway.execCalls).toHaveLength(0);
   });
 
-  it("keeps the agent's own working files in ~/.automaton usable", async () => {
+  it("keeps the agent's own working area in ~/.automaton usable", async () => {
     const home = os.homedir();
-    const worklog = await executeTool(
-      "write_file", { path: path.join(home, ".automaton", "WORKLOG.md"), content: "notes" }, tools, ctx, engine, turn(),
-    );
-    expect(worklog.error).toBeUndefined();
-    const read = await executeTool("exec", { command: "cat ~/.automaton/WORKLOG.md && ls ~/.automaton/workspace" }, tools, ctx, engine, turn());
-    expect(read.error).toBeUndefined();
-
-    for (const p of ["state.db-wal", "skills/x/SKILL.md", "constitution.md", "inference-providers.json"]) {
-      const denied = await executeTool("write_file", { path: path.join(home, ".automaton", p), content: "x" }, tools, ctx, engine, turn());
-      expect(denied.error, p).toBeDefined();
+    for (const p of ["WORKLOG.md", "workspace/app/index.html", "skills/my-skill/SKILL.md", "heartbeat.yml"]) {
+      const res = await executeTool("write_file", { path: path.join(home, ".automaton", p), content: "x" }, tools, ctx, engine, turn());
+      expect(res.error, p).toBeUndefined();
     }
-    const key = await executeTool("exec", { command: "echo $CONWAY_API_KEY" }, tools, ctx, engine, turn());
-    expect(key.error).toMatch(/MONEY_LAB_PROTECTED_COMMAND/);
+    const read = await executeTool("exec", { command: "cat ~/.automaton/WORKLOG.md && sqlite3 /root/app/data.db '.tables'" }, tools, ctx, engine, turn());
+    expect(read.error).toBeUndefined();
+    const wal = await executeTool("write_file", { path: path.join(home, ".automaton", "state.db-wal"), content: "x" }, tools, ctx, engine, turn());
+    expect(wal.error).toBeDefined();
   });
 
   it("allows permitted work and denies every tool while paused", async () => {
@@ -256,10 +314,41 @@ describe("Money Lab tool policy", () => {
     expect(conway.execCalls).toHaveLength(1);
   });
 
-  it("denies publishing when no publish sandbox is approved", async () => {
-    ctx.config = labConfig({ publishSandboxId: null });
-    const result = await executeTool("expose_port", { port: 8080 }, tools, ctx, engine, turn());
-    expect(result.error).toMatch(/MONEY_LAB_NO_PUBLISH_TARGET/);
+  it("counts only x402 amounts actually signed toward the daily payment cap", async () => {
+    ctx.config = labConfig({ payments: "allowed", paymentLimits: { perPaymentCents: 500, dailyCents: 1000 } });
+    const { x402Fetch: mocked } = await import("../../conway/x402.js");
+    vi.mocked(mocked).mockResolvedValueOnce({ success: true, response: "free page" });
+    await executeTool("x402_fetch", { url: "https://api.conway.tech/free" }, tools, ctx, engine, turn());
+    expect(paymentsSpentTodayCents(db.raw)).toBe(0);
+    vi.mocked(mocked).mockResolvedValueOnce({ success: true, response: "paid", paidCents: 37.5 });
+    const paid = await executeTool("x402_fetch", { url: "https://api.conway.tech/paid" }, tools, ctx, engine, turn());
+    expect(paid.error).toBeUndefined();
+    expect(paymentsSpentTodayCents(db.raw)).toBe(38);
+  });
+
+  it("allows payments within the owner's per-payment and daily price caps", async () => {
+    ctx.config = labConfig({ payments: "allowed", paymentLimits: { perPaymentCents: 500, dailyCents: 1000 } });
+    expect(ctx.config.treasuryPolicy?.maxX402PaymentCents).toBeLessThanOrEqual(500);
+    expect(ctx.config.treasuryPolicy?.maxDailyTransferCents).toBe(1000);
+
+    const tooBig = await executeTool("topup_credits", { amount_usd: 25 }, tools, ctx, engine, turn());
+    expect(tooBig.error).toMatch(/MONEY_LAB_PAYMENT_CAP/);
+
+    const spend = new SpendTracker(db.raw);
+    spend.recordSpend({ toolName: "topup_credits", amountCents: 800, category: "other" });
+    const overDaily = await executeTool("topup_credits", { amount_usd: 5 }, tools, ctx, engine, turn());
+    expect(overDaily.error).toMatch(/MONEY_LAB_PAYMENT_DAILY_CAP/);
+
+    // Policy lets a capped transfer through (the upstream treasury rules then apply as usual).
+    const decision = engine.evaluate({
+      tool: tools.find((t) => t.name === "transfer_credits")!, args: { to_address: "0xabc", amount_cents: 100 },
+      context: ctx, turnContext: turn(),
+    });
+    expect(decision.rulesTriggered).not.toContain("money_lab.first_run");
+
+    expect(automaticTopupsAllowed(ctx.config.moneyLab)).toBe(false);
+    expect(automaticTopupsAllowed(labConfig({ payments: "allowed" }).moneyLab)).toBe(true);
+    expect(automaticTopupsAllowed(labConfig().moneyLab)).toBe(false);
   });
 
   it("does not change upstream policy when the profile is absent", async () => {
@@ -472,14 +561,15 @@ describe("Money Lab agent loop", () => {
     expect(db.getAgentState()).toBe("sleeping");
   });
 
-  it("offers only allowlisted tools with bounded output tokens", async () => {
+  it("offers every tool except replication, with bounded output tokens when set", async () => {
     const inference = new MockInferenceClient([noToolResponse("done")]);
-    await run(inference);
+    await run(inference, labConfig({ payments: "allowed" }));
     expect(inference.calls).toHaveLength(1);
     const offered = (inference.calls[0].options?.tools ?? []).map((t: any) => t.function.name);
-    expect(offered).toContain("request_help");
-    expect(offered).toContain("record_experiment");
-    expect(offered.every((n: string) => MONEY_LAB_ALLOWED_TOOLS.has(n))).toBe(true);
+    for (const name of ["request_help", "record_experiment", "create_sandbox", "register_domain", "topup_credits", "git_push"]) {
+      expect(offered, name).toContain(name);
+    }
+    for (const name of MONEY_LAB_ALWAYS_DENIED_TOOLS) expect(offered).not.toContain(name);
     expect(inference.calls[0].options?.maxTokens).toBe(1024);
     expect(inference.calls[0].options?.model).toBe("gpt-5-mini");
   });
@@ -583,12 +673,10 @@ describe("Money Lab agent loop", () => {
 // ─── Journal: experiments, help, ledger, no-progress ───────────
 
 describe("Money Lab journal", () => {
-  it("allows only one active build", () => {
+  it("allows several experiments in parallel", () => {
     const db = openDb();
-    const a = upsertExperiment(db.raw, { status: "building", hypothesis: "A" });
+    upsertExperiment(db.raw, { status: "building", hypothesis: "A" });
     const b = upsertExperiment(db.raw, { status: "exploring", hypothesis: "B" });
-    expect(() => upsertExperiment(db.raw, { id: b.id, status: "building" })).toThrow(/only one active build/);
-    upsertExperiment(db.raw, { id: a.id, status: "observing" });
     expect(upsertExperiment(db.raw, { id: b.id, status: "building" }).status).toBe("building");
     db.close();
   });
