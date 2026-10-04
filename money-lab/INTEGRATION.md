@@ -75,8 +75,10 @@ rejected rather than meaning "unlimited".
 ## Known limitations (do not remove from reports)
 
 1. **Shell is not sandboxed by these checks.** `exec` runs arbitrary commands in the sandbox. The
-   rule blocks obvious references to `.automaton`, `state.db`, `automaton.json`, `wallet.json`,
-   `heartbeat.yml`, `sqlite3` and `/pay/N`, but obfuscated commands (encoding, variables, other
+   rule blocks obvious references to `automaton.json`, `wallet.json`, `state.db`, `heartbeat.yml`,
+   `inference-providers.json`, `~/.automaton/{config.json,skills,constitution.md}`,
+   `CONWAY_API_KEY` and `/pay/N`; the rest of `~/.automaton` (WORKLOG.md, workspace) stays usable
+   by the agent. Obfuscated commands (encoding, variables, other
    interpreters) can still read the wallet key, edit the DB (e.g. clear the pause, delete cost rows)
    or call Conway APIs directly with the API key (creating sandboxes or domains spends Conway
    credits). The API key and wallet are on the same machine. This is a
@@ -107,13 +109,13 @@ rejected rather than meaning "unlimited".
 | --- | --- | --- |
 | `pnpm typecheck` | pass | pass |
 | `pnpm build` | not run | pass |
-| `vitest run --exclude src/__tests__/context-hardening.test.ts` | 63 files, 1614/1614 pass | 64 files, 1649/1649 pass (after review fixes) |
+| `vitest run --exclude src/__tests__/context-hardening.test.ts` | 63 files, 1614/1614 pass | 64 files, 1651/1651 pass (final check) |
 | `context-hardening.test.ts` | **hangs** (no result after 150 s; `buildContextMessages` blocks) | same hang; its other blocks, incl. `buildSystemPrompt` (8 tests), pass |
 
 The `context-hardening` hang is a pre-existing upstream baseline failure in code this branch does
 not touch (`src/agent/context.ts`); it is why a plain `pnpm test` never finishes.
 
-`src/__tests__/money-lab/money-lab.test.ts`: 35 tests. Global `fetch` is replaced by a spy that
+`src/__tests__/money-lab/money-lab.test.ts`: 37 tests, including a simulated first cycle. Global `fetch` is replaced by a spy that
 throws, USDC balance reads are mocked, and no test starts a funded loop. Coverage maps to
 specification section 10: mocked mode has no network/payment effects and missing policy fails
 closed; pause blocks paid calls and top-ups while status reports hosting as separately billed;

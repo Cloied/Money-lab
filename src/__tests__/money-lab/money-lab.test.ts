@@ -228,6 +228,23 @@ describe("Money Lab tool policy", () => {
     expect(conway.execCalls).toHaveLength(0);
   });
 
+  it("keeps the agent's own working files in ~/.automaton usable", async () => {
+    const home = os.homedir();
+    const worklog = await executeTool(
+      "write_file", { path: path.join(home, ".automaton", "WORKLOG.md"), content: "notes" }, tools, ctx, engine, turn(),
+    );
+    expect(worklog.error).toBeUndefined();
+    const read = await executeTool("exec", { command: "cat ~/.automaton/WORKLOG.md && ls ~/.automaton/workspace" }, tools, ctx, engine, turn());
+    expect(read.error).toBeUndefined();
+
+    for (const p of ["state.db-wal", "skills/x/SKILL.md", "constitution.md", "inference-providers.json"]) {
+      const denied = await executeTool("write_file", { path: path.join(home, ".automaton", p), content: "x" }, tools, ctx, engine, turn());
+      expect(denied.error, p).toBeDefined();
+    }
+    const key = await executeTool("exec", { command: "echo $CONWAY_API_KEY" }, tools, ctx, engine, turn());
+    expect(key.error).toMatch(/MONEY_LAB_PROTECTED_COMMAND/);
+  });
+
   it("allows permitted work and denies every tool while paused", async () => {
     const ok = await executeTool("exec", { command: "ls /root/product" }, tools, ctx, engine, turn());
     expect(ok.error).toBeUndefined();
@@ -508,6 +525,48 @@ describe("Money Lab agent loop", () => {
     await run(inference, config);
     expect(inference.calls).toHaveLength(0);
     expect(getPauseState(db.raw)?.reason).toMatch(/no-such-model/);
+  });
+
+  it("simulated first cycle: explore, keep a worklog, ask for help, sleep", async () => {
+    const conway = new MockConwayClient();
+    const inference = new MockInferenceClient([
+      toolCallResponse([{ name: "record_experiment", arguments: {
+        status: "exploring", hypothesis: "Free CSV cleanup page for small shops",
+        evidence: ["https://example.org/forum-thread (2026-10-03)"], acquisition_channel: "relevant directories",
+      } }]),
+      toolCallResponse([{ name: "write_file", arguments: {
+        path: path.join(os.homedir(), ".automaton", "WORKLOG.md"), content: "Exploring CSV cleanup",
+      } }]),
+      toolCallResponse([{ name: "transfer_credits", arguments: { to_address: "0xabc", amount_cents: 100 } }]),
+      toolCallResponse([{ name: "request_help", arguments: {
+        reason: "Need a directory listing account", human_action: "Create the listing account",
+        resume_condition: "Owner confirms the account exists",
+      } }]),
+      toolCallResponse([{ name: "sleep", arguments: { duration_seconds: 3600, reason: "waiting for owner" } }]),
+    ]);
+    const turns: any[] = [];
+    await runAgentLoop({
+      identity: createTestIdentity(), config: labConfig(), db, conway, inference,
+      policyEngine: new PolicyEngine(db.raw, createDefaultRules()), spendTracker: new SpendTracker(db.raw),
+      onTurnComplete: (t) => turns.push(t),
+    });
+
+    const calls = turns.flatMap((t) => t.toolCalls);
+    expect(calls.map((c: any) => c.name)).toEqual([
+      "record_experiment", "write_file", "transfer_credits", "request_help", "sleep",
+    ]);
+    expect(calls[0].error).toBeUndefined();
+    expect(calls[1].error).toBeUndefined();
+    expect(conway.files[path.join(os.homedir(), ".automaton", "WORKLOG.md")]).toBe("Exploring CSV cleanup");
+    expect(calls[2].error).toMatch(/Unknown tool: transfer_credits/); // hidden from the model entirely
+    expect(calls[3].error).toBeUndefined();
+    expect(db.getAgentState()).toBe("sleeping");
+    expect(inference.calls).toHaveLength(5);
+    expect(fetchSpy).not.toHaveBeenCalled();
+
+    const status = formatStatus(db.raw, labConfig());
+    expect(status).toMatch(/Free CSV cleanup page/);
+    expect(status).toMatch(/Create the listing account/);
   });
 
   it("records experiments and help requests through agent tools", async () => {

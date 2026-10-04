@@ -27,14 +27,32 @@ export function installMoneyLabPaymentGuard(): void {
   setX402PaymentGuard(() => PAYMENTS_DISABLED_REASON);
 }
 
-/** Shell fragments that indicate an attempt to touch runtime state or pay. */
+/**
+ * Runtime files the agent must not touch: configuration, wallet, state
+ * database, heartbeat schedule, installed skills, constitution and provider
+ * settings. The rest of ~/.automaton (WORKLOG.md, notes, workspace/) is the
+ * agent's own working area and stays writable.
+ */
+const PROTECTED_RUNTIME_ENTRIES = [
+  "automaton.json",
+  "wallet.json",
+  "config.json",
+  "state.db",
+  "heartbeat.yml",
+  "skills",
+  "constitution.md",
+  "inference-providers.json",
+];
+
+/** Shell fragments that indicate an attempt to touch runtime secrets/state or pay. */
 const PROTECTED_SHELL_PATTERNS: RegExp[] = [
-  /\.automaton\b/,
-  /\bstate\.db\b/,
   /\bautomaton\.json\b/,
   /\bwallet\.json\b/,
+  /\bstate\.db\b/,
   /\bheartbeat\.yml\b/,
-  /\bsqlite3\b/,
+  /\binference-providers\.json\b/,
+  /\.automaton\/(config\.json|skills|constitution\.md)/,
+  /\bCONWAY_API_KEY\b/,
   /\/pay\/\d/,
 ];
 
@@ -42,13 +60,16 @@ function runtimeDir(): string {
   return path.join(process.env.HOME || os.homedir(), ".automaton");
 }
 
+/** True for protected runtime entries (and anything inside them). */
 export function isRuntimePath(filePath: string): boolean {
   const expanded = filePath.startsWith("~")
     ? path.join(process.env.HOME || os.homedir(), filePath.slice(1))
     : filePath;
   const resolved = path.resolve(expanded);
   const dir = runtimeDir();
-  return resolved === dir || resolved.startsWith(dir + path.sep);
+  if (!resolved.startsWith(dir + path.sep)) return false;
+  const first = resolved.slice(dir.length + 1).split(path.sep)[0];
+  return PROTECTED_RUNTIME_ENTRIES.some((entry) => first === entry || first.startsWith(`${entry}-`));
 }
 
 function deny(reasonCode: string, humanMessage: string): PolicyRuleResult {
@@ -84,7 +105,7 @@ export function createMoneyLabRules(): PolicyRule[] {
         }
 
         if (name === "write_file" && isRuntimePath(String(request.args.path ?? ""))) {
-          return deny("MONEY_LAB_RUNTIME_PATH", "Writing to the runtime directory is disabled");
+          return deny("MONEY_LAB_RUNTIME_PATH", "Writing runtime configuration, wallet, state or skills is disabled");
         }
 
         if (name === "exec") {
@@ -92,7 +113,7 @@ export function createMoneyLabRules(): PolicyRule[] {
           if (PROTECTED_SHELL_PATTERNS.some((p) => p.test(command))) {
             return deny(
               "MONEY_LAB_PROTECTED_COMMAND",
-              "Shell commands touching runtime state, wallets or payment endpoints are disabled",
+              "Shell commands touching runtime configuration, wallet, state, API key or payment endpoints are disabled",
             );
           }
         }
