@@ -128,6 +128,27 @@ Envoie `/aide` à ton bot. Commandes principales :
 | `/pause [raison]` / `/reprendre` | arrêter / relancer ses dépenses |
 | tout autre message | transmis au bot comme une conversation |
 
+## Mettre à jour le bot
+
+Quand une correction est publiée sur GitHub :
+```sh
+cd /opt/money-lab
+sudo -u moneylab -H git pull
+sudo -u moneylab -H pnpm install --frozen-lockfile
+sudo -u moneylab -H pnpm run build
+systemctl restart money-lab
+```
+La pause (`/pause`) est conservée après le redémarrage : relance avec `/reprendre` quand tu es prêt.
+
+## Quand le bot veut publier un site
+
+Rien de ce que le bot lance n'est visible sur internet tant que tu ne l'ouvres pas. S'il te le demande
+(par exemple pour le port 8080) et que tu es d'accord :
+```sh
+ufw allow 8080/tcp
+```
+Le site sera alors visible à `http://ADRESSE_IP:8080`. Pour le refermer : `ufw delete allow 8080/tcp`.
+
 ## Tes interventions
 
 Le bot travaille seul. Il te sollicite seulement pour : créer des comptes à ton nom (hébergement,

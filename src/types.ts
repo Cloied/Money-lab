@@ -137,6 +137,10 @@ export interface TokenUsage {
   promptTokens: number;
   completionTokens: number;
   totalTokens: number;
+  /** Part of promptTokens read from the provider's prompt cache (Anthropic). */
+  cacheReadTokens?: number;
+  /** Part of promptTokens written to the provider's prompt cache (Anthropic). */
+  cacheWriteTokens?: number;
 }
 
 // ─── Tool System ─────────────────────────────────────────────────

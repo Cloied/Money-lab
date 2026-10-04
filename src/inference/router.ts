@@ -166,10 +166,16 @@ export class InferenceRouter {
     const costEstimated = strict && !(response.usage?.promptTokens > 0);
     const inputTokens = response.usage?.promptTokens || 0;
     const outputTokens = response.usage?.completionTokens || 0;
+    // Prompt-cache pricing (Anthropic): writes 1.25x, reads at most 0.1x of
+    // the input price. Providers without a cache report neither field.
+    const cacheRead = response.usage?.cacheReadTokens || 0;
+    const cacheWrite = response.usage?.cacheWriteTokens || 0;
+    const billedInputTokens = Math.max(0, inputTokens - cacheRead - cacheWrite)
+      + cacheWrite * 1.25 + cacheRead * 0.1;
     const actualCostCents = costEstimated
       ? estimatedCostCents
       : Math.ceil(
-        (inputTokens / 1000) * model.costPer1kInput / 100 +
+        (billedInputTokens / 1000) * model.costPer1kInput / 100 +
         (outputTokens / 1000) * model.costPer1kOutput / 100,
       );
 
@@ -185,7 +191,7 @@ export class InferenceRouter {
       latencyMs,
       tier,
       taskType,
-      cacheHit: false,
+      cacheHit: cacheRead > 0,
     });
 
     // 9. Build result

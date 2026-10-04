@@ -51,7 +51,9 @@ export function runMoneyLabCommand(
       const reason = rest.join(" ").trim() || "pause opérateur";
       const state = pause(db, reason, "operator");
       write(`Money Lab en pause depuis ${state.at} : ${state.reason}`);
-      write("Attention : la pause n'arrête PAS la facturation Conway. Voir la checklist d'arrêt des ressources.");
+      write(config.moneyLab?.runtime === "self-hosted"
+        ? "Attention : la pause n'arrête PAS la facturation du VPS ni des services créés pour le bot. Voir le guide (« Arrêter le bot »)."
+        : "Attention : la pause n'arrête PAS la facturation Conway. Voir la checklist d'arrêt des ressources.");
       return 0;
     }
     case "resume":
