@@ -52,6 +52,11 @@ function validate(body) {
     if (!/^[a-zA-Z0-9_-]{1,128}$/.test(t.name)) errs.push(`bad tool name ${t.name}`);
     if (names.has(t.name)) errs.push(`duplicate tool ${t.name}`);
     names.add(t.name);
+    if (typeof t.type === "string") {
+      // Server tools (web search/fetch) have a type and no schema.
+      if (!/^web_(search|fetch)_\d{8}$/.test(t.type)) errs.push(`unknown server tool ${t.type}`);
+      continue;
+    }
     if (!t.input_schema || t.input_schema.type !== "object") errs.push(`tool ${t.name} schema not object`);
     if (typeof t.description !== "string") errs.push(`tool ${t.name} without description`);
   }
@@ -122,6 +127,7 @@ const reply = (content, stop = "tool_use", usage = {}) => ({
 const idsByStep = {};
 const anthropicCountNow = () => log.filter((l) => l.kind === "anthropic").length;
 const PORT2 = SITE_PORT + 1;
+const PW_CHROME = ["/opt/pw-browsers/chromium-1194/chrome-linux/chrome"].find((p) => fs.existsSync(p)) ?? null;
 const text = (t) => ({ type: "text", text: t });
 
 function model(body) {
@@ -144,6 +150,7 @@ function model(body) {
       const offered = new Set(body.tools.map((t) => t.name));
       for (const t of ["exec", "write_file", "record_experiment", "request_help", "message_owner", "sleep"]) if (!offered.has(t)) fail(`tool ${t} not offered`);
       for (const t of ["spawn_child", "expose_port", "create_sandbox", "topup_credits"]) if (offered.has(t)) fail(`tool ${t} offered`);
+      for (const t of ["web_search", "web_fetch", "view_page", "set_budget_focus"]) if (!offered.has(t)) fail(`tool ${t} not offered`);
       const sys = body.system.map((b) => b.text).join("");
       if (!/SURVIVAL: balance/.test(sys)) fail("survival line missing from system prompt");
       if (!/autostart\.sh/.test(sys)) fail("prompt does not mention autostart.sh");
@@ -164,11 +171,19 @@ function model(body) {
         use("exec", { command: `sleep 2; for p in ${SITE_PORT} ${PORT2} ${PORT2}; do curl -s -o /dev/null -w '%{http_code} ' localhost:$p; done` })]);
     case 3:
       expectMemory(2, /200 200 200/, "both sites answer (no SIGPIPE on the unredirected one)");
-      return respond([use("write_file", { path: "~/autostart.sh", content: `#!/bin/sh\nnohup python3 -m http.server ${SITE_PORT} --directory ~/site > ~/site.log 2>&1 &\n` })]);
-    case 4:
-      expectMemory(3, /./, "autostart written");
+      return respond([
+        use("write_file", { path: "~/autostart.sh", content: `#!/bin/sh\nnohup python3 -m http.server ${SITE_PORT} --directory ~/site > ~/site.log 2>&1 &\n` }),
+        use("view_page", { url: `http://localhost:${SITE_PORT}/`, viewport: "mobile" }),
+        use("set_budget_focus", { focus: "build", plan: { research: 25, build: 45, marketing: 15, learning: 10, operations: 5 } }),
+      ]);
+    case 4: {
+      expectMemory(3, /./, "autostart written, screenshot, budget focus");
+      const shot = body.messages.flatMap((m) => (Array.isArray(m.content) ? m.content : []))
+        .find((b) => b.type === "tool_result" && Array.isArray(b.content) && b.content.some((c) => c.type === "image"));
+      if (PW_CHROME && !shot) fail("view_page screenshot not sent to the model as an image");
       flags.longStart = Date.now();
       return respond([use("exec", { command: "sleep 15; echo long-done" })]);
+    }
     case 5:
       expectMemory(4, /long-done/, "long command output");
       if (/WARNING: You have been calling/.test(allText(body))) fail("repetition warning after different exec commands");
@@ -272,7 +287,8 @@ function start() {
 child = spawn("node", ["dist/index.js", "--run"], {
   cwd: REPO,
   env: { ...env, ANTHROPIC_API_KEY: "sk-ant-e2e", TELEGRAM_BOT_TOKEN: "123:e2e", STRIPE_API_KEY: "rk_test_e2e",
-    E2E_PORT: String(PORT), NODE_OPTIONS: `--import ${path.join(HERE, "preload.mjs")}` },
+    E2E_PORT: String(PORT), NODE_OPTIONS: `--import ${path.join(HERE, "preload.mjs")}`,
+    ...(PW_CHROME ? { MONEY_LAB_BROWSER: PW_CHROME } : {}) },
   stdio: ["ignore", "pipe", "pipe"],
 });
 child.stdout.on("data", (d) => { out += d; });

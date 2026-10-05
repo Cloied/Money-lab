@@ -41,6 +41,7 @@ import { installMoneyLabPaymentGuard } from "./money-lab/guard.js";
 import { ensureMoneyLabSchema, getPauseState, journalFingerprint } from "./money-lab/journal.js";
 import { afterWakeCycle, isOperatorWake } from "./money-lab/cycle.js";
 import { MONEY_LAB_WAKE_REASON_KEY } from "./money-lab/journal.js";
+import { isReviewDue } from "./money-lab/review.js";
 import {
   createSelfHostedClient,
   markRunStarted,
@@ -386,6 +387,8 @@ async function run(): Promise<void> {
     ollamaBaseUrl,
     getModelProvider: (modelId) => modelRegistry.get(modelId)?.provider,
     ...(moneyLab?.inference.effort ? { anthropicEffort: moneyLab.inference.effort } : {}),
+    // Self-hosted Money Lab researches the web through Anthropic's server tools.
+    ...(selfHosted ? { anthropicWebTools: true } : {}),
   });
 
   if (ollamaBaseUrl) {
@@ -613,6 +616,18 @@ async function run(): Promise<void> {
         while (slept < sleepMs) {
           await sleep(checkInterval);
           slept += checkInterval;
+
+          // Money Lab: the weekly review cuts an agent-chosen sleep short, but
+          // not a budget sleep (the review would be blocked anyway).
+          if (
+            moneyLab && isReviewDue(db.raw) && !getPauseState(db.raw) && db.getAgentState() !== "dead" &&
+            !String(db.getKV("sleep_reason") ?? "").startsWith("plafond")
+          ) {
+            logger.info("[MONEY LAB] Bilan hebdomadaire dû : réveil.");
+            db.setKV(MONEY_LAB_WAKE_REASON_KEY, "weekly review due");
+            db.deleteKV("sleep_until");
+            break;
+          }
 
           // Phase 1.1: Check for wake events from wake_events table (atomic consume)
           const wakeEvent = consumeNextWakeEvent(db.raw);

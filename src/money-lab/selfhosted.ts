@@ -273,3 +273,45 @@ export async function runAutostart(env: NodeJS.ProcessEnv = scrubbedEnv()): Prom
   if (!fs.existsSync(script)) return null;
   return runLocalCommand(`sh ${JSON.stringify(script)} >> ${JSON.stringify(path.join(home, "autostart.log"))} 2>&1`, 120_000, env);
 }
+
+// ─── Capabilities the owner can grant on the server ─────────────
+
+/**
+ * Credentials the agent may use itself (unlike SECRET_ENV_VARS). Each is
+ * scoped by the owner: a GitHub token limited to the bot's own organization,
+ * a read-only analytics token.
+ */
+export const BOT_CREDENTIAL_VARS = ["GH_TOKEN", "GOATCOUNTER_TOKEN"] as const;
+
+const BROWSER_NAMES = ["google-chrome", "google-chrome-stable", "chromium", "chromium-browser"];
+
+/** Headless browser for screenshots: MONEY_LAB_BROWSER, else the first one on PATH. */
+export function findBrowser(env: NodeJS.ProcessEnv = process.env): string | null {
+  if (env.MONEY_LAB_BROWSER && fs.existsSync(env.MONEY_LAB_BROWSER)) return env.MONEY_LAB_BROWSER;
+  for (const dir of (env.PATH || "").split(":").filter(Boolean)) {
+    for (const name of BROWSER_NAMES) {
+      const candidate = path.join(dir, name);
+      if (fs.existsSync(candidate)) return candidate;
+    }
+  }
+  return null;
+}
+
+export interface SelfHostedCapabilities {
+  githubOrg: string | null;
+  analyticsSite: string | null;
+  browser: string | null;
+}
+
+export function selfHostedCapabilities(env: NodeJS.ProcessEnv = process.env): SelfHostedCapabilities {
+  return {
+    githubOrg: env.GH_TOKEN && env.GITHUB_ORG ? env.GITHUB_ORG : null,
+    analyticsSite: env.GOATCOUNTER_TOKEN && env.GOATCOUNTER_SITE ? env.GOATCOUNTER_SITE : null,
+    browser: findBrowser(env),
+  };
+}
+
+/** Single-quote a value for /bin/sh. */
+export function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`;
+}
