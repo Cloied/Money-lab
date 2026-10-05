@@ -70,6 +70,8 @@ import { gatherDocuments, htmlToText } from "../../money-lab/delegate.js";
 import { isOperatorWake } from "../../money-lab/cycle.js";
 import { auditPage, summarizeLighthouse } from "../../money-lab/audit.js";
 import { abVerdict } from "../../money-lab/abtest.js";
+import { CRITERIA, getIdea, listIdeas } from "../../money-lab/ideas.js";
+import { parseVerdict } from "../../money-lab/critic.js";
 import { pause as pauseMoneyLab, upsertExperiment } from "../../money-lab/journal.js";
 
 function vpsProfile(overrides: Record<string, unknown> = {}): Record<string, unknown> {
@@ -1177,5 +1179,116 @@ describe("A/B tests", () => {
     expect(await run({ action: "list" })).toContain("cta-title [finished] on https://org.github.io/site/");
     expect(buildMoneyLabPromptBlock(db.raw, vpsConfig().moneyLab!)).toBeTruthy();
     db.close();
+  });
+});
+
+// ─── Discovery before building: idea pipeline (2026-10-06) ─────
+
+describe("Idea pipeline", () => {
+  function setup() {
+    const db = openDb();
+    const routed: any[] = [];
+    let verdict = "GO";
+    const ctx: ToolContext = {
+      identity: { ...createTestIdentity(), sandboxId: "" }, config: vpsConfig(), db, conway: new MockConwayClient(), inference: new MockInferenceClient(),
+      inferenceRouter: {
+        route: async (request: any) => {
+          routed.push(request);
+          return { content: `Verdict: ${verdict}\nWeakest points: demande non prouvée.`, model: request.model, provider: "anthropic",
+            inputTokens: 900, outputTokens: 400, costCents: 4, latencyMs: 1, finishReason: "stop" } as any;
+        },
+      },
+    };
+    const tools = createMoneyLabTools();
+    const engine = new PolicyEngine(db.raw, createDefaultRules());
+    const turn = { inputSource: "agent" as const, turnToolCallCount: 0, sessionSpend: new SpendTracker(db.raw) };
+    const call = (name: string, args: Record<string, unknown>) => executeTool(name, args, tools, ctx, engine, turn).then((r) => r.result || r.error || "");
+    const scores = (n: number) => Object.fromEntries(CRITERIA.map((c) => [c, { score: n, why: `fait vérifié pour ${c}` }]));
+    const full = (id: string, n: number) => call("idea", {
+      action: "update", id, title: `Idée ${id}`, problem: "Un vrai problème", audience: "plombiers", solution: "outil",
+      revenue_model: "affiliation", channels: "SEO longue traîne", server_edge: "collecte quotidienne de prix",
+      evidence: ["forum A 2026-10", "recherche B", "fil C"], competitors: ["X (gratuit, daté)", "Y (29 €/mois)"],
+      kill_criteria: "moins de 50 visites/semaine après 4 semaines", scores: scores(n),
+    });
+    return { db, call, full, routed, setVerdict: (v: string) => { verdict = v; } };
+  }
+
+  afterEach(() => vi.useRealTimers());
+
+  it("lets an idea be approved only after comparison, critique, answer and a day of reflection", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-06T08:00:00Z"));
+    const { db, call, full, routed, setVerdict } = setup();
+    expect(await call("idea", { action: "update", id: "x", title: "t", problem: "p", scores: { demand: { score: 11, why: "beaucoup trop haut" } } }))
+      .toMatch(/integer 0-10/);
+    expect(await call("idea", { action: "update", id: "y", title: "t", problem: "p", scores: { demand: { score: 8, why: "court" } } }))
+      .toMatch(/explain the score/);
+    expect(await full("devis-plombiers", 8)).toMatch(/total 80\/100.*compare at least 5 fully scored ideas \(have 1\)/s);
+    for (const [id, n] of [["b", 7], ["c", 6], ["d", 5], ["e", 4]] as const) await full(id, n);
+
+    expect(await call("idea", { action: "decide", id: "devis-plombiers", decision: "approve", note: "meilleure" }))
+      .toMatch(/get a critique with action challenge[\s\S]*6 h left/);
+
+    setVerdict("NO-GO");
+    expect(await call("idea", { action: "challenge", id: "devis-plombiers" })).toMatch(/Verdict: NO-GO/);
+    expect(routed[0].model).toBe("claude-opus-5-5");
+    expect(routed[0].messages[1].content).toContain("collecte quotidienne de prix");
+    expect(await call("idea", { action: "challenge", id: "devis-plombiers" })).toMatch(/Nothing changed since the last critique/);
+    vi.setSystemTime(new Date("2026-10-07T09:00:00Z"));
+    expect(await call("idea", { action: "decide", id: "devis-plombiers", decision: "approve", note: "meilleure" }))
+      .toMatch(/latest critique says NO-GO/);
+
+    await call("idea", { action: "update", id: "devis-plombiers", evidence: ["sondage D"], response_to_critic: "Demande prouvée par 4 sources." });
+    setVerdict("GO");
+    await call("idea", { action: "challenge", id: "devis-plombiers" });
+    expect(await call("idea", { action: "decide", id: "devis-plombiers", decision: "approve", note: "meilleure" }))
+      .toMatch(/answer the critique/);
+    await call("idea", { action: "update", id: "devis-plombiers", response_to_critic: "D'accord, kill criteria resserrés." });
+    expect(await call("idea", { action: "decide", id: "e", decision: "approve", note: "x" })).toMatch(/top 3/);
+    expect(await call("idea", { action: "decide", id: "devis-plombiers", decision: "approve", note: "meilleure du pipeline" }))
+      .toMatch(/approved \(80\/100\)/);
+    expect(getIdea(db.raw, "devis-plombiers")!.critiques.map((c) => c.verdict)).toEqual(["NO-GO", "GO"]);
+    expect(await call("idea", { action: "list" })).toMatch(/^devis-plombiers — Idée devis-plombiers: 80\/100 \[approved\], critic GO/);
+    const prompt = buildMoneyLabPromptBlock(db.raw, vpsConfig().moneyLab!);
+    expect(prompt).toContain("Idea pipeline: 4 candidates, 1 approved");
+    db.close();
+  });
+
+  it("keeps experiments in exploring until an idea is approved, and at most 3 active", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-06T08:00:00Z"));
+    const { db, call, full } = setup();
+    expect(await call("record_experiment", { status: "building", hypothesis: "Encore un générateur de factures" }))
+      .toMatch(/only through an approved idea/);
+    expect(await call("record_experiment", { status: "exploring", hypothesis: "Recherche de niches" })).toMatch(/recorded with status exploring/);
+    for (const [id, n] of [["a", 8], ["b", 7], ["c", 6], ["d", 5], ["e", 4]] as const) await full(id, n);
+    await call("idea", { action: "challenge", id: "a" });
+    await call("idea", { action: "update", id: "a", response_to_critic: "Pris en compte." });
+    vi.setSystemTime(new Date("2026-10-07T09:00:00Z"));
+    expect(await call("record_experiment", { status: "building", hypothesis: "Devis", idea_id: "a" })).toMatch(/is candidate, not approved/);
+    await call("idea", { action: "decide", id: "a", decision: "approve", note: "ok" });
+    const launched = await call("record_experiment", { status: "building", hypothesis: "Devis plombiers", idea_id: "a" });
+    expect(launched).toMatch(/recorded with status building/);
+    expect(getIdea(db.raw, "a")!.status).toBe("launched");
+
+    // An experiment created before the pipeline existed keeps working.
+    db.raw.prepare("INSERT INTO money_lab_experiments (id, status, hypothesis, evidence, metrics, created_at, updated_at) VALUES (?, 'paused', 'Factures', '[]', '{}', ?, ?)")
+      .run("exp_old", "2026-10-01T00:00:00Z", "2026-10-01T00:00:00Z");
+    expect(await call("record_experiment", { id: "exp_old", status: "observing" })).toMatch(/recorded with status observing/);
+    db.raw.prepare("INSERT INTO money_lab_experiments (id, status, hypothesis, evidence, metrics, created_at, updated_at) VALUES (?, 'observing', 'Autre', '[]', '{}', ?, ?)")
+      .run("exp_third", "2026-10-01T00:00:00Z", "2026-10-01T00:00:00Z");
+    db.raw.prepare("INSERT INTO money_lab_experiments (id, status, hypothesis, evidence, metrics, created_at, updated_at) VALUES (?, 'paused', 'Vieux', '[]', '{}', ?, ?)")
+      .run("exp_fourth", "2026-10-01T00:00:00Z", "2026-10-01T00:00:00Z");
+    expect(await call("record_experiment", { id: "exp_fourth", status: "building" })).toMatch(/At most 3 active experiments/);
+    expect(listIdeas(db.raw)).toHaveLength(5);
+    db.close();
+  });
+
+  it("reads the critic's verdict", () => {
+    expect(parseVerdict("Verdict: NEEDS MORE EVIDENCE\n...")).toBe("NEEDS MORE EVIDENCE");
+    expect(parseVerdict("**Verdict:** NO-GO")).toBe("NO-GO");
+    expect(parseVerdict("Verdict: **NO-GO**")).toBe("NO-GO");
+    expect(parseVerdict("Verdict: go")).toBe("GO");
+    expect(parseVerdict("rien")).toBe(null);
   });
 });

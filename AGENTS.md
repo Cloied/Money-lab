@@ -1,6 +1,6 @@
 # Money Lab — project operating rules
 Money Lab is a thin extension of Conway Automaton for a small, supervised economic experiment.
-Read money-lab/INTEGRATION.md, money-lab/CONWAY-CHECKLIST.md and docs/STATUS.md first.
+Read money-lab/INTEGRATION.md, money-lab/CONWAY-CHECKLIST.md, money-lab/PLAN.fr.md and docs/STATUS.md first.
 Shared methods come from Likma Dev System (https://github.com/Cloied/likma-dev-system); this project's
 identity, scope and constraints are defined here and in the Money Lab specification.
 
