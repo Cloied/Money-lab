@@ -18,6 +18,7 @@ import {
   markOwnerNotificationSent,
   pendingOwnerNotifications,
   setKV,
+  OWNER_TELEGRAM_SENDER,
 } from "./journal.js";
 
 const KV_OFFSET = "money_lab.telegram_offset";
@@ -98,7 +99,7 @@ export class TelegramChannel {
       const at = new Date().toISOString();
       this.db.insertInboxMessage({
         id: `tg_${updateId}`,
-        from: "owner (Telegram)",
+        from: OWNER_TELEGRAM_SENDER,
         to: "",
         content: trimmed,
         signedAt: at,

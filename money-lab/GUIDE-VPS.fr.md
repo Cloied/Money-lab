@@ -140,6 +140,12 @@ systemctl restart money-lab
 ```
 La pause (`/pause`) est conservée après le redémarrage : relance avec `/reprendre` quand tu es prêt.
 
+## Lui écrire
+
+Tout message Telegram qui n'est pas une commande lui est transmis comme venant de toi et le réveille
+(compte jusqu'à environ 40 secondes). Quand il n'a rien à faire, il dort 15 minutes entre deux réveils.
+Ses serveurs s'arrêtent à chaque redémarrage du service : il les relance via `~/autostart.sh`.
+
 ## Quand le bot veut publier un site
 
 Rien de ce que le bot lance n'est visible sur internet tant que tu ne l'ouvres pas. S'il te le demande

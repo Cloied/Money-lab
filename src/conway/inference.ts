@@ -528,5 +528,8 @@ function parseToolArguments(raw: string): Record<string, unknown> {
 function normalizeAnthropicFinishReason(reason: unknown): string {
   if (typeof reason !== "string") return "stop";
   if (reason === "tool_use") return "tool_calls";
+  // The loop sleeps after a text-only "stop"; Anthropic says end_turn.
+  if (reason === "end_turn" || reason === "stop_sequence") return "stop";
+  if (reason === "max_tokens") return "length";
   return reason;
 }

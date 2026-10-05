@@ -564,3 +564,6 @@ export function ownerNotificationsToday(db: DB): number {
   const day = new Date().toISOString().slice(0, 10);
   return (db.prepare("SELECT COUNT(*) AS n FROM money_lab_outbox WHERE created_at >= ?").get(day) as { n: number }).n;
 }
+
+/** Sender of owner messages relayed from Telegram (only the owner's chat is accepted). */
+export const OWNER_TELEGRAM_SENDER = "owner (Telegram)";
