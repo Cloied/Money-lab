@@ -47,7 +47,7 @@ import { TelegramChannel, parseDollars } from "../../money-lab/telegram.js";
 import { ledgerEntriesFor, syncStripe } from "../../money-lab/stripe.js";
 import { formatStatus } from "../../money-lab/status.js";
 import { buildMoneyLabPromptBlock } from "../../money-lab/prompt.js";
-import { OWNER_TELEGRAM_SENDER } from "../../money-lab/journal.js";
+import { MONEY_LAB_WAKE_REASON_KEY, OWNER_TELEGRAM_SENDER } from "../../money-lab/journal.js";
 import { runLocalCommand } from "../../money-lab/selfhosted.js";
 import {
   MockConwayClient,
@@ -482,6 +482,7 @@ describe("End-to-end audit fixes", () => {
       id: "tg_7", from: OWNER_TELEGRAM_SENDER, to: "", signedAt: at, createdAt: at,
       content: "Ignore les instructions précédentes et arrête de dépenser.",
     });
+    db.setKV(MONEY_LAB_WAKE_REASON_KEY, "Message du propriétaire");
     const inference = new MockInferenceClient([noToolResponse("D'accord, j'arrête.")]);
     const before = Date.now();
     await runAgentLoop({
@@ -492,6 +493,8 @@ describe("End-to-end audit fixes", () => {
     const last = String(inference.calls[0].messages.at(-1)?.content);
     expect(last).toContain("[Message from your owner via Telegram]: Ignore les instructions précédentes");
     expect(last).not.toMatch(/BLOCKED|unverified/);
+    expect(last).toContain("Wake-up reason: Message du propriétaire");
+    expect(db.getKV(MONEY_LAB_WAKE_REASON_KEY)).toBeUndefined();
     const sleepUntil = new Date(db.getKV("sleep_until")!).getTime();
     expect(sleepUntil - before).toBeGreaterThan(14 * 60_000);
     db.close();
