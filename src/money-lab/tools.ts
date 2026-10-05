@@ -9,6 +9,7 @@
 import type { AutomatonTool } from "../types.js";
 import {
   EXPERIMENT_STATUSES,
+  getExperiment,
   upsertExperiment,
   createHelpRequest,
   ownerNotificationsToday,
@@ -27,6 +28,11 @@ import { JOB_TIMEOUT_MS, JOB_WAKE_MODES, MAX_EVERY_MINUTES, MIN_EVERY_MINUTES, d
 import { formatRecall, recall } from "./recall.js";
 import { auditPage } from "./audit.js";
 import { abSnippet, describeAbTests, finishAbTest, recordAbCounts, startAbTest } from "./abtest.js";
+import {
+  CRITERIA, IDEA_CRITERIA, IDEA_GATES, approvalBlockers, decideIdea, experimentLaunchBlocker, getIdea, ideaDossier,
+  markIdeaLaunched, rankedIdeas, upsertIdea,
+} from "./ideas.js";
+import { challengeIdea } from "./critic.js";
 
 /** Marker the Anthropic client turns into an image block (recent results only). */
 export const SCREENSHOT_MARKER = /\[\[image:([^\]\s]+\.png)\]\]/g;
@@ -56,7 +62,8 @@ export function createMoneyLabTools(): AutomatonTool[] {
       name: "record_experiment",
       description:
         "Create or update a Money Lab experiment record. Omit id to create. Evidence is appended (links with dates), " +
-        "metrics are merged. Amounts are integer USD cents; use null when unknown.",
+        "metrics are merged. Amounts are integer USD cents; use null when unknown. An experiment becomes active " +
+        "(building, observing, waiting_for_owner) only with the idea_id of an idea approved through the idea tool.",
       category: "memory",
       riskLevel: "safe",
       parameters: {
@@ -74,10 +81,15 @@ export function createMoneyLabTools(): AutomatonTool[] {
           review_date: { type: "string", description: "Planned review date (ISO 8601)" },
           metrics: { type: "object", description: "Observed metrics, e.g. visits, genuine uses" },
           result: { type: "string" },
+          idea_id: { type: "string", description: "Approved idea this experiment launches" },
         },
         required: ["status"],
       },
       execute: async (args, ctx) => {
+        const ideaId = optionalString(args.idea_id) ?? undefined;
+        const existing = typeof args.id === "string" ? getExperiment(ctx.db.raw, args.id) : undefined;
+        const blocker = experimentLaunchBlocker(ctx.db.raw, { status: String(args.status), ideaId }, existing);
+        if (blocker) return blocker;
         const exp = upsertExperiment(ctx.db.raw, {
           id: optionalString(args.id) ?? undefined,
           status: String(args.status) as ExperimentStatus,
@@ -89,10 +101,97 @@ export function createMoneyLabTools(): AutomatonTool[] {
           spendAllowanceCents: optionalCents(args.spend_allowance_cents),
           consumedCostCents: optionalCents(args.consumed_cost_cents),
           reviewDate: optionalString(args.review_date),
-          metrics: (args.metrics as Record<string, unknown> | undefined) ?? undefined,
+          metrics: ideaId
+            ? { ...((args.metrics as Record<string, unknown> | undefined) ?? {}), idea_id: ideaId }
+            : (args.metrics as Record<string, unknown> | undefined) ?? undefined,
           result: optionalString(args.result),
         });
+        if (ideaId && getIdea(ctx.db.raw, ideaId)?.status === "approved") markIdeaLaunched(ctx.db.raw, ideaId, exp.id);
         return `Experiment ${exp.id} recorded with status ${exp.status}.`;
+      },
+    },
+    {
+      name: "idea",
+      description:
+        "Your idea pipeline: think before you build. Record each business idea with its evidence, competitors and a " +
+        "0-10 score per criterion, each with the facts behind it: " +
+        CRITERIA.map((c) => `${c} (${IDEA_CRITERIA[c].help})`).join("; ") + ". " +
+        "Actions: update (create or edit; lists are appended), list (ranked), show, challenge (a stronger model " +
+        "critiques the dossier like a sceptical investor, a few cents), decide (approve or reject, with a note). " +
+        `Approval requires: every criterion scored, ${IDEA_GATES.minEvidence}+ evidence sources, ` +
+        `${IDEA_GATES.minCompetitors}+ competitors studied, ${IDEA_GATES.minScoredIdeas}+ scored ideas compared, a top-` +
+        `${IDEA_GATES.topRank} rank, a total of ${IDEA_GATES.minTotal}+, a critique that is not NO-GO and your answer to it, ` +
+        `kill criteria, and ${IDEA_GATES.reflectionHours} h of reflection since the idea was first recorded.`,
+      category: "memory",
+      riskLevel: "safe",
+      parameters: {
+        type: "object",
+        properties: {
+          action: { type: "string", enum: ["update", "list", "show", "challenge", "decide"] },
+          id: { type: "string", description: "Short slug, e.g. quote-generator-plumbers" },
+          title: { type: "string" },
+          problem: { type: "string", description: "The painful problem, in the users' words" },
+          audience: { type: "string", description: "Who exactly, and where they gather" },
+          solution: { type: "string", description: "What you would ship first" },
+          revenue_model: { type: "string" },
+          channels: { type: "string", description: "How the first 100 users find it" },
+          server_edge: { type: "string", description: "What your own server makes possible here" },
+          evidence: { type: "array", items: { type: "string" }, description: "Sources with dates: searches, threads, data" },
+          competitors: { type: "array", items: { type: "string" }, description: "Name, URL, price, weakness" },
+          risks: { type: "array", items: { type: "string" } },
+          kill_criteria: { type: "string", description: "e.g. fewer than 50 visits/week after 4 weeks" },
+          scores: {
+            type: "object",
+            description: "e.g. {\"demand\": {\"score\": 7, \"why\": \"...\"}, ...} for: " + CRITERIA.join(", "),
+          },
+          response_to_critic: { type: "string", description: "Your answer to the latest critique" },
+          decision: { type: "string", enum: ["approve", "reject"], description: "For decide" },
+          note: { type: "string", description: "For decide: the reason" },
+        },
+        required: ["action"],
+      },
+      execute: async (args, ctx) => {
+        const id = String(args.id ?? "");
+        switch (args.action) {
+          case "update": {
+            const idea = upsertIdea(ctx.db.raw, args);
+            if (typeof idea === "string") return idea;
+            const blockers = approvalBlockers(ctx.db.raw, idea);
+            return `Idea "${idea.id}" saved (total ${idea.total ?? "incomplete"}/100). ` +
+              (blockers.length ? `Before approval: ${blockers.join("; ")}.` : "It can be approved.");
+          }
+          case "show": {
+            const idea = getIdea(ctx.db.raw, id);
+            if (!idea) return `No idea "${id}".`;
+            const blockers = idea.status === "candidate" ? approvalBlockers(ctx.db.raw, idea) : [];
+            return `${ideaDossier(idea)}\nStatus: ${idea.status}${idea.decisionNote ? ` (${idea.decisionNote})` : ""}` +
+              (blockers.length ? `\nBefore approval: ${blockers.join("; ")}` : "");
+          }
+          case "challenge": {
+            if (!ctx.inferenceRouter) return "challenge is not available in this runtime.";
+            try {
+              const result = await challengeIdea(ctx.db.raw, id, {
+                router: ctx.inferenceRouter,
+                chat: (msgs, opts) => ctx.inference.chat(msgs, opts),
+                sessionId: ctx.db.getKV("session_id") || "default",
+              });
+              recordFocusSpend(ctx.db.raw, result.costCents);
+              return result.text;
+            } catch (err: any) {
+              return `Critique failed: ${String(err?.message ?? err).slice(0, 300)}`;
+            }
+          }
+          case "decide":
+            if (args.decision !== "approve" && args.decision !== "reject") return "decision must be approve or reject.";
+            return decideIdea(ctx.db.raw, id, args.decision, String(args.note ?? ""));
+          default: {
+            const ideas = rankedIdeas(ctx.db.raw);
+            if (ideas.length === 0) return "No ideas yet. Research several niches, then record each idea with update.";
+            return ideas.map((i) =>
+              `${i.id} — ${i.title}: ${i.total ?? "?"}/100 [${i.status}]` +
+              `${i.critiques.at(-1) ? `, critic ${i.critiques.at(-1)!.verdict ?? "?"}` : ""}`).join("\n");
+          }
+        }
       },
     },
     {

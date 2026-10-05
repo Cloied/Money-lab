@@ -159,7 +159,7 @@ function model(body) {
       const offered = new Set(body.tools.map((t) => t.name));
       for (const t of ["exec", "write_file", "record_experiment", "request_help", "message_owner", "sleep"]) if (!offered.has(t)) fail(`tool ${t} not offered`);
       for (const t of ["spawn_child", "expose_port", "create_sandbox", "topup_credits"]) if (offered.has(t)) fail(`tool ${t} offered`);
-      for (const t of ["web_search", "web_fetch", "view_page", "browse", "set_budget_focus"]) if (!offered.has(t)) fail(`tool ${t} not offered`);
+      for (const t of ["web_search", "web_fetch", "view_page", "browse", "set_budget_focus", "idea", "delegate", "schedule_job", "recall", "audit_page", "ab_test"]) if (!offered.has(t)) fail(`tool ${t} not offered`);
       const trailing = body.messages.at(-1).role === "system" ? body.messages.at(-1).content : "";
       if (!trailing.includes("SURVIVAL: balance")) fail("live state not sent as a trailing system message");
       if (body.system.map((b) => b.text).join("").includes("SURVIVAL: balance")) fail("live state still in the cached system prefix");
@@ -172,6 +172,7 @@ function model(body) {
       expectMemory(0, /index\.html/, "ls output");
       return respond([
         use("record_experiment", { status: "building", hypothesis: "Générateur de factures gratuit" }),
+        use("idea", { action: "update", id: "factures-artisans", title: "Factures pour artisans", problem: "Les artisans perdent du temps sur leurs factures" }),
         use("exec", { command: `nohup python3 -m http.server ${SITE_PORT} --directory ~/site > ~/site.log 2>&1 &` }),
         use("exec", { command: `python3 -m http.server ${PORT2} --directory ~/site &` }),
       ]);
@@ -179,6 +180,8 @@ function model(body) {
       if (!flags.overload) { flags.overload = true; return { status: 529, body: { type: "error", error: { type: "overloaded_error", message: "Overloaded" } } }; }
       if (Date.now() - stepTimes[1] > 8000) fail(`a server started with "&" held exec for ${Math.round((Date.now() - stepTimes[1]) / 1000)} s`);
       expectMemory(1, /./, "experiment + servers");
+      if (!/only through an approved idea/.test(allText(body))) fail("an experiment became active without an approved idea");
+      if (!/factures-artisans\W{0,3} saved \(total incomplete\/100\)/.test(allText(body))) fail("idea not recorded");
       return respond([text("Je vérifie que les deux sites répondent."),
         use("exec", { command: `sleep 2; for p in ${SITE_PORT} ${PORT2} ${PORT2}; do curl -s -o /dev/null -w '%{http_code} ' localhost:$p; done` })]);
     case 3:

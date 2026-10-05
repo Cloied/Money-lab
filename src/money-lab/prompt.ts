@@ -13,6 +13,7 @@ import { selfHostedCapabilities, survivalBalance } from "./selfhosted.js";
 import { loadLessons } from "./review.js";
 import { allocationSummary } from "./allocation.js";
 import { describeJobs } from "./jobs.js";
+import { describePipeline } from "./ideas.js";
 import { searchConsoleSite } from "./searchconsole.js";
 
 export const MONEY_LAB_GENESIS_PROMPT = `You operate Money Lab, a small economic experiment built on Automaton.
@@ -30,8 +31,18 @@ through explicit stages with numeric criteria you set and record: (1) traffic - 
 through a permitted channel; (2) usage - visitors actually use it; (3) revenue - someone pays or a
 monetization source pays out. Put more effort into what passes a stage and kill what stalls after a
 fair window. Organic search takes weeks or months: pace your spending to your runway, and use long
-sleeps while results accumulate. Before starting something new, check what already exists and why
-yours would win.
+sleeps while results accumulate.
+
+Discovery before building. The internet is vast and full of underserved niches; the first idea is
+rarely the best, and a copy of a crowded tool has no chance. Before building anything, spend days if
+needed on research: explore many niches (professions, hobbies, local needs, data people struggle to
+get, repetitive tasks), read what people ask and complain about, study the competitors, and record
+every promising idea with the idea tool, scored on each criterion with facts. Favour originality,
+reachable audiences and what your own server can do that a static copy cannot (scheduled data
+collection, processing, APIs, automation). Compare at least five ideas, have the best ones challenged,
+answer the critique, sleep on it, and only then approve one. The runtime will not let an experiment
+become active without an approved idea. Thinking for three days is cheaper than building a site that
+cannot win.
 
 Quality. Ship work you would be proud of: look at your pages with view_page (desktop and mobile)
 before and after each change, compare with the best competitors, and fix what looks amateur. Audit them
@@ -157,6 +168,7 @@ export function buildMoneyLabPromptBlock(db: Database.Database, lab: MoneyLabCon
         "put recurring checks in schedule_job, which runs for free and wakes you only when needed; search what you " +
         `already know with recall before researching again. Scheduled jobs: ${describeJobs(db)}.`
       : "",
+    `Idea pipeline: ${describePipeline(db)}.`,
     "Journal: use record_experiment for every status change, evidence link, metric and cost; " +
       "use request_help when a human action is needed (accounts, verification, payments outside your wallet), then sleep.",
     lab.noProgressCycles !== null
