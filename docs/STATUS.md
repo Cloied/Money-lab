@@ -20,7 +20,9 @@
   paused it. Fixes: prompt caching with cache-aware cost, expose_port removed on self-hosted, VPS prompt
   wording, pause message. Second run (22:00 UTC): about $0.02-0.03 per turn instead of $0.05, but the
   agent still repeated the same check: turns with tool calls and no text were dropped from the history
-  (src/agent/context.ts), so it never saw its own results. Fixed 2026-10-05; not yet measured live.
+  (src/agent/context.ts), so it never saw its own results. Fixed 2026-10-05. Third run: with the history
+  restored, every request failed (400, tool_use without tool_result) because the router flattened tool
+  results into user text for Anthropic; the router now keeps tool messages. Not yet measured live.
 - Blockers and known regressions:
   - Upstream context-hardening.test.ts hangs on unmodified upstream; upstream CI masks it as a warning.
   - In-process limits are bypassable through exec; supervised run only.

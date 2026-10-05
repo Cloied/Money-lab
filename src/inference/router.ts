@@ -284,9 +284,9 @@ export class InferenceRouter {
   /**
    * Fix messages for Anthropic's API requirements:
    * 1. Extract system messages
-   * 2. Merge consecutive same-role messages
-   * 3. Merge consecutive tool messages into a single user message
-   *    with multiple tool_result content blocks
+   * 2. Merge consecutive same-role user/assistant messages
+   * 3. Keep tool messages; the Anthropic client groups them into
+   *    tool_result blocks
    */
   private fixAnthropicMessages(messages: ChatMessage[]): ChatMessage[] {
     const result: ChatMessage[] = [];
@@ -298,22 +298,11 @@ export class InferenceRouter {
         continue;
       }
 
-      // Tool messages become user messages with tool_result content
+      // Tool messages stay as they are: the Anthropic client turns them into
+      // tool_result blocks right after the matching tool_use. Flattening them
+      // into user text made the API reject every request with tool history.
       if (msg.role === "tool") {
-        const last = result[result.length - 1];
-        // If previous message was also a tool (now a user), merge into it
-        if (last && last.role === "user" && (last as any)._toolResultMerged) {
-          // Append to the merged content
-          last.content = last.content + "\n[tool_result:" + (msg.tool_call_id || "unknown") + "] " + msg.content;
-          continue;
-        }
-        // Otherwise create a new user message
-        const userMsg: ChatMessage & { _toolResultMerged?: boolean } = {
-          role: "user",
-          content: "[tool_result:" + (msg.tool_call_id || "unknown") + "] " + msg.content,
-          _toolResultMerged: true,
-        };
-        result.push(userMsg);
+        result.push({ ...msg });
         continue;
       }
 
@@ -328,11 +317,6 @@ export class InferenceRouter {
       }
 
       result.push({ ...msg });
-    }
-
-    // Clean up internal markers
-    for (const msg of result) {
-      delete (msg as any)._toolResultMerged;
     }
 
     return result;

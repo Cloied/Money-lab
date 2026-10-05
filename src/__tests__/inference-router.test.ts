@@ -439,7 +439,7 @@ describe("InferenceRouter", () => {
       expect(result.length).toBe(3);
     });
 
-    it("handles Anthropic format: merges consecutive tool messages", () => {
+    it("handles Anthropic format: keeps tool messages for tool_result blocks", () => {
       const messages = [
         { role: "user" as const, content: "Do something" },
         {
@@ -455,16 +455,14 @@ describe("InferenceRouter", () => {
       ];
       const result = router.transformMessagesForProvider(messages, "anthropic");
 
-      // The two tool messages should be merged into one user message
-      const userMessages = result.filter((m) => m.role === "user");
-      // Original user + merged tool results = 2 user messages
-      expect(userMessages.length).toBe(2);
-
-      // The merged tool result message should contain both results
-      const lastUser = result[result.length - 1];
-      expect(lastUser.role).toBe("user");
-      expect(lastUser.content).toContain("result1");
-      expect(lastUser.content).toContain("result2");
+      // Tool messages are kept with their ids: the Anthropic client groups them
+      // into tool_result blocks right after the tool_use blocks. Flattened into
+      // user text, the API rejects the request (tool_use without tool_result).
+      expect(result.map((m) => m.role)).toEqual(["user", "assistant", "tool", "tool"]);
+      expect(result.slice(2).map((m) => [m.tool_call_id, m.content])).toEqual([
+        ["tc1", "result1"],
+        ["tc2", "result2"],
+      ]);
     });
 
     it("Anthropic: alternating user/assistant maintained", () => {
