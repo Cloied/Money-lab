@@ -25,6 +25,8 @@ import { BUDGET_CATEGORIES, allocationSummary, isBudgetCategory, recordFocusSpen
 import { delegate } from "./delegate.js";
 import { JOB_TIMEOUT_MS, JOB_WAKE_MODES, MAX_EVERY_MINUTES, MIN_EVERY_MINUTES, describeJobs, jobLogFile, listJobs, removeJob, upsertJob } from "./jobs.js";
 import { formatRecall, recall } from "./recall.js";
+import { auditPage } from "./audit.js";
+import { abSnippet, describeAbTests, finishAbTest, recordAbCounts, startAbTest } from "./abtest.js";
 
 /** Marker the Anthropic client turns into an image block (recent results only). */
 export const SCREENSHOT_MARKER = /\[\[image:([^\]\s]+\.png)\]\]/g;
@@ -233,6 +235,91 @@ export function createMoneyLabTools(): AutomatonTool[] {
           return await browse(args as any);
         } catch (err: any) {
           return `Browser error: ${String(err?.message ?? err).split("\n")[0].slice(0, 400)}`;
+        }
+      },
+    },
+    {
+      name: "audit_page",
+      description:
+        "Audit a page with Lighthouse (Google's quality tool): scores out of 100 for performance, accessibility, " +
+        "best practices and SEO, speed metrics, and the failing checks with the most impact first. Google ranks " +
+        "fast, accessible pages higher: audit before and after each significant change and aim for 90+.",
+      category: "vm",
+      riskLevel: "safe",
+      parameters: {
+        type: "object",
+        properties: {
+          url: { type: "string", description: "http(s) URL" },
+          device: { type: "string", enum: ["mobile", "desktop"], description: "Default mobile (what Google indexes)" },
+        },
+        required: ["url"],
+      },
+      execute: async (args, ctx) => {
+        if (ctx.identity.sandboxId) return "audit_page is only available on a self-hosted server.";
+        const browser = findBrowser();
+        if (!browser) return "No headless browser on this server. Ask the owner (request_help) to install Google Chrome.";
+        let url: URL;
+        try {
+          url = new URL(String(args.url));
+        } catch {
+          return "Invalid URL.";
+        }
+        if (url.protocol !== "http:" && url.protocol !== "https:") return "Only http(s) URLs can be audited.";
+        return auditPage(url.toString(), args.device === "desktop" ? "desktop" : "mobile", {
+          exec: (command, timeout) => ctx.conway.exec(command, timeout),
+          browser,
+          home: process.env.HOME || "/root",
+        });
+      },
+    },
+    {
+      name: "ab_test",
+      description:
+        "Run A/B tests: show two versions of an element (title, button, layout) at random and keep the one that " +
+        "makes visitors reach the goal more often. start returns the page code (cookieless; counts GoatCounter " +
+        "events ab-<name>-a-view, ab-<name>-a-goal, ab-<name>-b-view, ab-<name>-b-goal); read those counts from the " +
+        "GoatCounter API and pass them to record, which tells you whether the difference is real or noise. " +
+        "finish stores the decision. list shows every test.",
+      category: "memory",
+      riskLevel: "safe",
+      parameters: {
+        type: "object",
+        properties: {
+          action: { type: "string", enum: ["start", "record", "finish", "list"] },
+          name: { type: "string", description: "e.g. cta-title" },
+          page: { type: "string", description: "For start: page URL" },
+          hypothesis: { type: "string", description: "For start: what B changes and why it should win" },
+          goal: { type: "string", description: "For start: the goal action, e.g. clicks Download PDF" },
+          a_views: { type: "integer" },
+          a_goals: { type: "integer" },
+          b_views: { type: "integer" },
+          b_goals: { type: "integer" },
+          winner: { type: "string", enum: ["A", "B"], description: "For finish" },
+          note: { type: "string", description: "For finish: what you learned" },
+        },
+        required: ["action"],
+      },
+      execute: async (args, ctx) => {
+        const name = String(args.name ?? "");
+        switch (args.action) {
+          case "start": {
+            const test = startAbTest(ctx.db.raw, args);
+            if (typeof test === "string") return test;
+            return `Test "${test.name}" started. Add this to ${test.page || "the page"} (after the GoatCounter script), ` +
+              `mark the two versions with the classes ab-${name}-a and ab-${name}-b, and call abCount("goal") on the goal:\n` +
+              abSnippet(test.name);
+          }
+          case "record":
+            return recordAbCounts(
+              ctx.db.raw, name,
+              { views: Number(args.a_views), goals: Number(args.a_goals) },
+              { views: Number(args.b_views), goals: Number(args.b_goals) },
+            );
+          case "finish":
+            if (args.winner !== "A" && args.winner !== "B") return "winner must be A or B.";
+            return finishAbTest(ctx.db.raw, name, args.winner, String(args.note ?? ""));
+          default:
+            return describeAbTests(ctx.db.raw);
         }
       },
     },

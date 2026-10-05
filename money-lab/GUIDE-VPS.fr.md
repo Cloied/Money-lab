@@ -196,6 +196,11 @@ personnalisé GitHub Pages), l'inscription à un programme d'affiliation, une r�
 lien de paiement Stripe. Pour que les ventes Stripe soient comptées automatiquement, refais l'étape 3
 puis relance la configuration (étape 7) sans `--no-stripe`.
 
+Outils gratuits ou économiques à sa disposition : `delegate` (confie lectures et résumés à Claude
+Haiku, deux fois moins cher), `schedule_job` (tâches automatiques sans frais, qui ne le réveillent
+qu'en cas de problème ou de changement, au plus une fois par heure), `recall` (recherche dans ses
+notes), `audit_page` (notes Lighthouse de ses pages) et `ab_test` (tests A/B sans cookies).
+
 Le bilan hebdomadaire utilise Claude Opus 5.5 (plus fort, environ deux fois plus cher) pour ses
 4 premiers tours, puis revient à Sonnet ; il reste soumis aux mêmes plafonds.
 

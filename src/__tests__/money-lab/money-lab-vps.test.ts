@@ -68,6 +68,8 @@ import { listJobs, runDueJobs, upsertJob } from "../../money-lab/jobs.js";
 import { recall } from "../../money-lab/recall.js";
 import { gatherDocuments, htmlToText } from "../../money-lab/delegate.js";
 import { isOperatorWake } from "../../money-lab/cycle.js";
+import { auditPage, summarizeLighthouse } from "../../money-lab/audit.js";
+import { abVerdict } from "../../money-lab/abtest.js";
 import { pause as pauseMoneyLab, upsertExperiment } from "../../money-lab/journal.js";
 
 function vpsProfile(overrides: Record<string, unknown> = {}): Record<string, unknown> {
@@ -1082,6 +1084,98 @@ describe("Recall", () => {
     expect(hits.some((h) => h.source.includes("node_modules"))).toBe(false);
     expect(recall("plombiers", { home, db: db.raw })[0].source).toMatch(/^experiment /);
     expect(recall("x", { home })).toEqual([]);
+    db.close();
+  });
+});
+
+// ─── Step 2: page audit and A/B tests (2026-10-06) ─────────────
+
+describe("Page audit (Lighthouse)", () => {
+  const report = {
+    finalDisplayedUrl: "https://org.github.io/site/",
+    configSettings: { formFactor: "mobile" },
+    categories: {
+      performance: { id: "performance", title: "Performance", score: 0.62, auditRefs: [{ id: "largest-contentful-paint", weight: 25 }] },
+      accessibility: { id: "accessibility", title: "Accessibility", score: 0.85, auditRefs: [{ id: "image-alt", weight: 10 }, { id: "color-contrast", weight: 7 }] },
+      "best-practices": { id: "best-practices", title: "Best Practices", score: 1, auditRefs: [] },
+      seo: { id: "seo", title: "SEO", score: 0.82, auditRefs: [{ id: "meta-description", weight: 1 }, { id: "image-alt", weight: 1 }, { id: "hreflang", weight: 0 }] },
+    },
+    audits: {
+      "largest-contentful-paint": { id: "largest-contentful-paint", title: "Largest Contentful Paint", score: 0.3, displayValue: "4.1 s" },
+      "first-contentful-paint": { id: "first-contentful-paint", title: "FCP", score: 0.9, displayValue: "1.2 s" },
+      "image-alt": { id: "image-alt", title: "Image elements do not have [alt] attributes", score: 0,
+        details: { items: [{ node: { snippet: "<img src=\"logo.png\">" } }] } },
+      "color-contrast": { id: "color-contrast", title: "Contrast", score: 1 },
+      "meta-description": { id: "meta-description", title: "Document does not have a meta description", score: 0 },
+      hreflang: { id: "hreflang", title: "hreflang", score: 0 },
+      "render-blocking-resources": { id: "render-blocking-resources", title: "Eliminate render-blocking resources", score: 0.5,
+        details: { overallSavingsMs: 870, items: [{ url: "https://fonts.googleapis.com/css2" }] } },
+    },
+  };
+
+  it("summarizes scores, metrics, the failing checks by impact and the speed opportunities", () => {
+    const text = summarizeLighthouse(report as any, "/home/x/report.json");
+    expect(text).toContain("Lighthouse (mobile) https://org.github.io/site/: Performance 62, Accessibility 85, Best Practices 100, SEO 82.");
+    expect(text).toContain("Speed: FCP 1.2 s, LCP 4.1 s.");
+    const fixes = text.split("To fix, most impact first:\n")[1].split("\nSpeed opportunities")[0].split("\n");
+    expect(fixes[0]).toBe("- [Performance] Largest Contentful Paint (4.1 s)");
+    expect(fixes[1]).toBe("- [Accessibility] Image elements do not have [alt] attributes — e.g. <img src=\"logo.png\">");
+    expect(fixes).toHaveLength(3);
+    expect(text).not.toContain("hreflang");
+    expect(text).toContain("- Eliminate render-blocking resources: about 870 ms to save — e.g. https://fonts.googleapis.com/css2");
+    expect(summarizeLighthouse({ ...report, runtimeError: { message: "NO_FCP" } } as any)).toMatch(/could not audit the page: NO_FCP/);
+  });
+
+  it("runs the bundled Lighthouse CLI with the server's Chrome and keeps the report", async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "money-lab-audit-"));
+    tmpDirs.push(home);
+    const commands: string[] = [];
+    const exec = async (command: string) => {
+      commands.push(command);
+      const out = /--output-path='([^']+)'/.exec(command)![1];
+      fs.writeFileSync(out, JSON.stringify(report));
+      return { stdout: "", stderr: "", exitCode: 0 };
+    };
+    const text = await auditPage("https://org.github.io/site/", "desktop", { exec, browser: "/opt/chrome", home });
+    expect(commands[0]).toMatch(/^CHROME_PATH='\/opt\/chrome' '[^']+node[^']*' '[^']+\/node_modules\/lighthouse\/cli\/index\.js' 'https:\/\/org\.github\.io\/site\/'/);
+    expect(commands[0]).toContain("--preset=desktop");
+    expect(fs.existsSync(path.join(process.cwd(), "node_modules", "lighthouse", "cli", "index.js"))).toBe(true);
+    expect(text).toContain("Full report: " + path.join(home, ".money-lab", "lighthouse"));
+    const failed = await auditPage("https://x/", "mobile", { exec: async () => ({ stdout: "", stderr: "Chrome crashed", exitCode: 1 }), browser: "/c", home });
+    expect(failed).toBe("Lighthouse failed (exit 1): Chrome crashed");
+  });
+});
+
+describe("A/B tests", () => {
+  it("declares a winner only when the difference is statistically real", () => {
+    expect(abVerdict({ views: 80, goals: 4 }, { views: 90, goals: 20 }).decision).toBe("too_early");
+    const win = abVerdict({ views: 400, goals: 20 }, { views: 400, goals: 44 });
+    expect(win.decision).toBe("b_wins");
+    expect(win.pValue!).toBeLessThan(0.01);
+    expect(win.text).toContain("B wins (120% better)");
+    expect(abVerdict({ views: 400, goals: 20 }, { views: 400, goals: 25 }).decision).toBe("keep_running");
+    expect(abVerdict({ views: 6000, goals: 300 }, { views: 6000, goals: 310 }).decision).toBe("no_difference");
+    expect(abVerdict({ views: 500, goals: 50 }, { views: 500, goals: 20 }).decision).toBe("a_wins");
+  });
+
+  it("is a tool: start gives cookieless page code, record judges the counts, finish stores the decision", async () => {
+    const db = openDb();
+    const ctx: ToolContext = {
+      identity: { ...createTestIdentity(), sandboxId: "" }, config: vpsConfig(), db, conway: new MockConwayClient(), inference: new MockInferenceClient(),
+    };
+    const tools = createMoneyLabTools();
+    const engine = new PolicyEngine(db.raw, createDefaultRules());
+    const turn = { inputSource: "agent" as const, turnToolCallCount: 0, sessionSpend: new SpendTracker(db.raw) };
+    const run = (args: Record<string, unknown>) => executeTool("ab_test", args, tools, ctx, engine, turn).then((r) => r.result);
+    const started = await run({ action: "start", name: "cta-title", page: "https://org.github.io/site/", hypothesis: "Un verbe d'action", goal: "Télécharger PDF" });
+    expect(started).toContain('ab-cta-title-" + abv + "-" + kind');
+    expect(started).not.toMatch(/localStorage|document\.cookie/);
+    expect(await run({ action: "start", name: "cta-title" })).toMatch(/already exists/);
+    expect(await run({ action: "record", name: "cta-title", a_views: 400, a_goals: 20, b_views: 400, b_goals: 44 })).toMatch(/B wins/);
+    expect(await run({ action: "record", name: "cta-title", a_views: 10, a_goals: 20, b_views: 1, b_goals: 0 })).toMatch(/0 <= goals <= views/);
+    expect(await run({ action: "finish", name: "cta-title", winner: "B", note: "verbe d'action" })).toMatch(/finished \(kept B\)/);
+    expect(await run({ action: "list" })).toContain("cta-title [finished] on https://org.github.io/site/");
+    expect(buildMoneyLabPromptBlock(db.raw, vpsConfig().moneyLab!)).toBeTruthy();
     db.close();
   });
 });

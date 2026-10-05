@@ -13,7 +13,7 @@
   status/summary, no-progress sleep, integration note, Conway checklist (features verified in docs/FEATURES.md).
 - Checks run (command, result, date):
   - likma project feature verify (types/money-lab/build): pass, 2026-10-03
-  - pnpm exec vitest run --exclude src/__tests__/context-hardening.test.ts: 1684/1684 pass (improvements 1-5), 2026-10-05
+  - pnpm exec vitest run --exclude src/__tests__/context-hardening.test.ts: 1694/1694 pass (plan steps 1-2), 2026-10-06
   - node money-lab/e2e/harness.mjs (real process, strict fake Anthropic/Telegram/Stripe): PASS, 2026-10-05
     (upstream d8f8168 baseline: 1614/1614)
 - First supervised run (owner-approved, 2026-10-04, OVH VPS, $15 funding): Telegram works; the agent
@@ -34,7 +34,11 @@
 - Owner decision 2026-10-05 (improvements 1-5): history prompt caching (chunked 20-29 turn window,
   live state in a trailing system message), Telegram alert on repeated errors and daily state.db
   backup, revenue levers in the prompt (accounts stay the owner's), read-only Search Console tool,
-  Opus 5.5 for the first 4 turns of the weekly review. Not yet measured live.
+  Opus 5.5 for the first 4 turns of the weekly review. Measured live 2026-10-05: Search Console answers.
+- Owner decision 2026-10-06 (plan steps 1-2): delegate to Haiku 4.5, scheduled jobs without inference,
+  recall over the agent's notes, Lighthouse page audits, A/B tests. Next: step 3 (domain chosen by the
+  agent, bought by the owner; Bluesky account by the owner; image generation), step 4 (e-mail once a
+  domain exists), step 5 (revenue) last. Not yet measured live.
 - Blockers and known regressions:
   - Upstream context-hardening.test.ts hangs on unmodified upstream; upstream CI masks it as a warning.
   - In-process limits are bypassable through exec; supervised run only.
