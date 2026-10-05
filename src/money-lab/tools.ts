@@ -19,6 +19,7 @@ import { formatStatus } from "./status.js";
 import fs from "fs";
 import path from "path";
 import { findBrowser, shellQuote } from "./selfhosted.js";
+import { browse } from "./browser.js";
 import { BUDGET_CATEGORIES, allocationSummary, isBudgetCategory, setBudgetPlan, setFocus } from "./allocation.js";
 
 /** Marker the Anthropic client turns into an image block (recent results only). */
@@ -200,6 +201,35 @@ export function createMoneyLabTools(): AutomatonTool[] {
         const old = fs.readdirSync(dir).filter((f) => f.endsWith(".png")).sort().slice(0, -KEEP_SCREENSHOTS);
         for (const f of old) fs.rmSync(path.join(dir, f), { force: true });
         return `Screenshot of ${url} (${viewport}, ${width}x${height}) attached below.\n[[image:${file}]]`;
+      },
+    },
+    {
+      name: "browse",
+      description:
+        "Drive a real headless browser step by step on your server, with its own profile (no owner accounts): " +
+        "goto a URL, list interactive elements, click, fill, select, press a key, read text, screenshot, close. " +
+        "Use it to test your sites like a user (fill an invoice, check totals, print) and to research pages that " +
+        "need JavaScript. Never create accounts, solve CAPTCHAs or submit forms on third-party sites; ask the owner.",
+      category: "vm",
+      riskLevel: "caution",
+      parameters: {
+        type: "object",
+        properties: {
+          action: { type: "string", enum: ["goto", "elements", "click", "fill", "select", "press", "text", "screenshot", "close"] },
+          url: { type: "string", description: "For goto" },
+          selector: { type: "string", description: "CSS or Playwright selector, e.g. #email, input[name=\"qty\"], button:has-text(\"Print\")" },
+          value: { type: "string", description: "For fill and select" },
+          key: { type: "string", description: "For press, e.g. Enter, Tab" },
+        },
+        required: ["action"],
+      },
+      execute: async (args, ctx) => {
+        if (ctx.identity.sandboxId) return "browse is only available on a self-hosted server.";
+        try {
+          return await browse(args as any);
+        } catch (err: any) {
+          return `Browser error: ${String(err?.message ?? err).split("\n")[0].slice(0, 400)}`;
+        }
       },
     },
     {
