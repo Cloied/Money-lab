@@ -128,6 +128,9 @@ export function buildMoneyLabPromptBlock(db: Database.Database, lab: MoneyLabCon
       (limits.length ? `owner limits ${limits.join(", ")}; the runtime sleeps or pauses when one is reached.` : "no owner spending limit beyond your credits.") +
       (i.maxOutputTokens ? ` Max ${i.maxOutputTokens} output tokens per call.` : ""),
     "Every credit spent is real money from the owner: spend where it tests your main assumption.",
+    "Each turn costs several cents because your context is large, so do more per turn: batch independent " +
+      "tool calls, and wait for anything slow (a deploy, a build, a page going live) inside ONE exec with a " +
+      "polling loop and a long timeout (e.g. timeout: 600000), never with repeated turns or short sleeps.",
     `Budget allocation (${allocationSummary(db)}). Split your money by purpose with set_budget_focus ` +
       "(a plan in percentages, and your current focus each time your activity changes) and stick to it.",
     "Journal: use record_experiment for every status change, evidence link, metric and cost; " +
