@@ -91,6 +91,8 @@ export function buildContextMessages(
   options?: {
     budget?: TokenBudget;
     inference?: InferenceClient;
+    /** Count identical calls (name + arguments) instead of tool names. */
+    repeatByCall?: boolean;
   },
 ): ChatMessage[] {
   const budget = options?.budget ?? DEFAULT_TOKEN_BUDGET;
@@ -206,7 +208,8 @@ export function buildContextMessages(
     const toolFrequency: Record<string, number> = {};
     for (const turn of analysisWindow) {
       for (const tc of turn.toolCalls) {
-        toolFrequency[tc.name] = (toolFrequency[tc.name] || 0) + 1;
+        const key = options?.repeatByCall ? `${tc.name}(${JSON.stringify(tc.arguments)})` : tc.name;
+        toolFrequency[key] = (toolFrequency[key] || 0) + 1;
       }
     }
     const repeatedTools = Object.entries(toolFrequency)

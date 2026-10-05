@@ -111,7 +111,10 @@ export class InferenceRouter {
     // 5. Build inference options
     const preference = this.getPreference(tier, taskType);
     const maxTokens = request.maxTokens || preference?.maxTokens || model.maxTokens;
-    const timeout = TASK_TIMEOUTS[taskType] || 120_000;
+    // A bounded long answer (Money Lab passes maxTokens) needs time to be
+    // generated: at least 25 ms per output token (40 tokens/s). Aborting it
+    // still bills the call and, under strict accounting, pauses the bot.
+    const timeout = Math.max(TASK_TIMEOUTS[taskType] || 120_000, (request.maxTokens ?? 0) * 25);
 
     const inferenceOptions: any = {
       model: model.modelId,

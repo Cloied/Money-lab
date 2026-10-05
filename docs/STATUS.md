@@ -13,7 +13,8 @@
   status/summary, no-progress sleep, integration note, Conway checklist (features verified in docs/FEATURES.md).
 - Checks run (command, result, date):
   - likma project feature verify (types/money-lab/build): pass, 2026-10-03
-  - pnpm exec vitest run --exclude src/__tests__/context-hardening.test.ts: 1670/1670 pass (tool-only turns kept in history), 2026-10-05
+  - pnpm exec vitest run --exclude src/__tests__/context-hardening.test.ts: 1675/1675 pass (end-to-end audit fixes), 2026-10-05
+  - node money-lab/e2e/harness.mjs (real process, strict fake Anthropic/Telegram/Stripe): PASS, 2026-10-05
     (upstream d8f8168 baseline: 1614/1614)
 - First supervised run (owner-approved, 2026-10-04, OVH VPS, $15 funding): Telegram works; the agent
   spent about $0.52 in 30 s re-checking a falsely "exposed" port until the hourly cap slept it; the owner
@@ -22,7 +23,11 @@
   agent still repeated the same check: turns with tool calls and no text were dropped from the history
   (src/agent/context.ts), so it never saw its own results. Fixed 2026-10-05. Third run: with the history
   restored, every request failed (400, tool_use without tool_result) because the router flattened tool
-  results into user text for Anthropic; the router now keeps tool messages. Not yet measured live.
+  results into user text for Anthropic; the router now keeps tool messages. End-to-end audit (owner
+  request): a harness running the real process against a strict fake API found and fixed end_turn
+  re-calls, owner messages unread on wake and blocked by the injection filter, write_file confined to
+  /root, blocking execSync, name-based repetition on exec, 2-minute inference timeout, servers lost
+  on restart (autostart.sh). Not yet measured live.
 - Blockers and known regressions:
   - Upstream context-hardening.test.ts hangs on unmodified upstream; upstream CI masks it as a warning.
   - In-process limits are bypassable through exec; supervised run only.

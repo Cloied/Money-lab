@@ -69,12 +69,13 @@ import { automaticTopupsAllowed, hasInferenceLimits, moneyLabDeniedTools } from 
 import { seedAnthropicModels, survivalBalance } from "../money-lab/selfhosted.js";
 import { createMoneyLabTools } from "../money-lab/tools.js";
 import { paidCallBlockReason } from "../money-lab/guard.js";
-import { ensureMoneyLabSchema, pause as pauseMoneyLab, queueOwnerNotification } from "../money-lab/journal.js";
+import { OWNER_TELEGRAM_SENDER, ensureMoneyLabSchema, pause as pauseMoneyLab, queueOwnerNotification } from "../money-lab/journal.js";
 
 const logger = createLogger("loop");
 const MAX_TOOL_CALLS_PER_TURN = 10;
 const MAX_CONSECUTIVE_ERRORS = 5;
 const MAX_REPETITIVE_TURNS = 3;
+const MONEY_LAB_IDLE_SLEEP_MS = 15 * 60_000;
 
 export interface AgentLoopOptions {
   identity: AutomatonIdentity;
@@ -435,11 +436,20 @@ export async function runAgentLoop(
 
       // Check for unprocessed inbox messages using the state machine:
       // received → in_progress (claim) → processed (on success) or received/failed (on failure)
-      if (!pendingInput) {
+      // Money Lab: messages that arrived during sleep (the owner's, above all)
+      // are read on the wake turn itself; otherwise a cycle that ends after
+      // one turn never reads them.
+      const wakeTurn = !!moneyLab && pendingInput?.source === "wakeup";
+      if (!pendingInput || wakeTurn) {
         claimedMessages = claimInboxMessages(db.raw, 10);
         if (claimedMessages.length > 0) {
           const formatted = claimedMessages
             .map((m) => {
+              // Money Lab: the owner's own messages (Telegram accepts only the
+              // owner's chat) are instructions, not untrusted social input.
+              if (moneyLab?.telegram && m.fromAddress === OWNER_TELEGRAM_SENDER && m.id.startsWith("tg_")) {
+                return `[Message from your owner via Telegram]: ${m.content}`;
+              }
               const from = sanitizeInput(m.fromAddress, m.fromAddress, "social_address");
               const content = sanitizeInput(m.content, m.fromAddress, "social_message");
               if (content.blocked) {
@@ -448,7 +458,9 @@ export async function runAgentLoop(
               return `[Message from ${from.content}]: ${content.content}`;
             })
             .join("\n\n");
-          pendingInput = { content: formatted, source: "agent" };
+          pendingInput = wakeTurn && pendingInput
+            ? { content: `${pendingInput.content}\n\n${formatted}`, source: "wakeup" }
+            : { content: formatted, source: "agent" };
         }
       }
 
@@ -557,6 +569,9 @@ export async function runAgentLoop(
         systemPrompt,
         recentTurns,
         pendingInput,
+        // Money Lab on a server does most work through exec: only identical
+        // calls are repetition, not three different commands.
+        moneyLab ? { repeatByCall: true } : undefined,
       );
 
       // Inject memory block after system prompt, before conversation history
@@ -829,7 +844,7 @@ export async function runAgentLoop(
       // ── Loop Detection ──
       if (turn.toolCalls.length > 0) {
         const currentPattern = turn.toolCalls
-          .map((tc) => tc.name)
+          .map((tc) => (moneyLab ? `${tc.name}(${JSON.stringify(tc.arguments)})` : tc.name))
           .sort()
           .join(",");
         lastToolPatterns.push(currentPattern);
@@ -973,14 +988,16 @@ export async function runAgentLoop(
       if (
         running &&
         (!response.toolCalls || response.toolCalls.length === 0) &&
-        response.finishReason === "stop"
+        (response.finishReason === "stop" || response.finishReason === "refusal")
       ) {
         // Agent produced text without tool calls.
         // This is a natural pause point -- no work queued, sleep briefly.
         log(config, "[IDLE] No pending inputs. Entering brief sleep.");
+        // Money Lab: each wake is a paid call; owner messages and help
+        // answers wake the agent earlier anyway.
         db.setKV(
           "sleep_until",
-          new Date(Date.now() + 60_000).toISOString(),
+          new Date(Date.now() + (moneyLab ? MONEY_LAB_IDLE_SLEEP_MS : 60_000)).toISOString(),
         );
         db.setAgentState("sleeping");
         onStateChange?.("sleeping");

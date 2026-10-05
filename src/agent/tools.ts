@@ -27,14 +27,19 @@ const logger = createLogger("tools");
 
 // ─── Path Confinement ─────────────────────────────────────────
 // write_file is restricted to the sandbox home directory tree.
-// The sandbox home is /root for both local and remote execution.
-const SANDBOX_HOME = "/root";
+// The sandbox home is /root in a Conway sandbox. In local mode (no sandbox
+// id, e.g. a self-hosted VPS) commands run in $HOME, so writes are confined
+// to $HOME: with /root, an unprivileged bot user could not write any file.
+const REMOTE_SANDBOX_HOME = "/root";
 
 /**
  * Validate that a file path resolves to within the allowed root directory.
  * Returns the resolved absolute path, or an error string if out of bounds.
  */
-function confinePathToSandbox(filePath: string): string | { error: string } {
+function confinePathToSandbox(
+  filePath: string,
+  SANDBOX_HOME: string = REMOTE_SANDBOX_HOME,
+): string | { error: string } {
   // Resolve ~ to SANDBOX_HOME
   const expanded = filePath.startsWith("~")
     ? nodePath.join(SANDBOX_HOME, filePath.slice(1))
@@ -159,7 +164,8 @@ export function createBuiltinTools(sandboxId: string): AutomatonTool[] {
       execute: async (args, ctx) => {
         const filePath = args.path as string;
         // Path confinement: restrict writes to sandbox home directory
-        const confined = confinePathToSandbox(filePath);
+        const home = ctx.identity.sandboxId ? REMOTE_SANDBOX_HOME : (process.env.HOME || REMOTE_SANDBOX_HOME);
+        const confined = confinePathToSandbox(filePath, home);
         if (typeof confined === "object") return confined.error;
         // Guard against overwriting protected files (same check as edit_own_file)
         const { isProtectedFile } = await import("../self-mod/code.js");

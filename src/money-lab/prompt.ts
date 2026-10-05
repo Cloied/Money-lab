@@ -72,7 +72,9 @@ export function buildMoneyLabPromptBlock(db: Database.Database, lab: MoneyLabCon
         "To publish, start a web server on a port above 1024 that survives your command " +
         "(e.g. nohup python3 -m http.server 8080 --directory ~/site > ~/site.log 2>&1 &), check it with curl localhost, " +
         "then ask the owner once with request_help to open that port in the firewall or to set up a host or domain, and " +
-        "sleep until answered instead of re-checking. The owner reads you on Telegram: use message_owner for news, " +
+        "sleep until answered instead of re-checking. Background processes stop whenever the runtime restarts: put the " +
+        "commands that restart your services in ~/autostart.sh, which the runtime runs at every start. " +
+        "The owner reads you on Telegram: use message_owner for news, " +
         "request_help for actions. Install or create skills when they make you more capable."
       : "",
     "You are free to choose your activity and to use every available tool, including payments " +

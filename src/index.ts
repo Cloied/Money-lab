@@ -46,6 +46,8 @@ import {
   scrubbedEnv,
   seedAnthropicModels,
   survivalBalance,
+  runLocalCommand,
+  runAutostart,
 } from "./money-lab/selfhosted.js";
 import type { AutomatonConfig } from "./types.js";
 
@@ -317,13 +319,20 @@ async function run(): Promise<void> {
     ? createSelfHostedClient(
       createConwayClient({ apiUrl: config.conwayApiUrl, apiKey: "", sandboxId: "", localExecEnv: scrubbedEnv() }),
       () => survivalBalance(db.raw, moneyLab!).balanceCents,
+      { exec: (command, timeout) => runLocalCommand(command, timeout) },
     )
     : createConwayClient({
       apiUrl: config.conwayApiUrl,
       apiKey,
       sandboxId: config.sandboxId,
     });
-  if (selfHosted) markRunStarted(db.raw);
+  if (selfHosted) {
+    markRunStarted(db.raw);
+    // Background servers stop with the runtime: let the agent restart them.
+    runAutostart()
+      .then((r) => { if (r) logger.info(`[MONEY LAB] ~/autostart.sh exécuté (code ${r.exitCode}).`); })
+      .catch((err) => logger.warn(`[MONEY LAB] ~/autostart.sh : ${err?.message ?? err}`));
+  }
 
   // Register automaton identity (one-time, immutable)
   const registrationState = db.getIdentity("conwayRegistrationStatus");

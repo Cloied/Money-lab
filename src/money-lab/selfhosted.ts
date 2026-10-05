@@ -14,8 +14,11 @@
  * bot cannot survive on claims. A negative balance is the "dead" tier.
  */
 
+import { spawn } from "child_process";
+import fs from "fs";
+import path from "path";
 import type Database from "better-sqlite3";
-import type { ConwayClient, ModelEntry } from "../types.js";
+import type { ConwayClient, ExecResult, ModelEntry } from "../types.js";
 import type { MoneyLabConfig } from "./profile.js";
 import { getKV, setKV, summarizeFinances } from "./journal.js";
 
@@ -115,9 +118,10 @@ function unavailable(name: string): never {
 export function createSelfHostedClient(
   local: ConwayClient,
   balanceCents: () => number,
+  options: { exec?: (command: string, timeout?: number) => Promise<ExecResult> } = {},
 ): ConwayClient {
   const client: ConwayClient = {
-    exec: (command, timeout) => local.exec(command, timeout),
+    exec: options.exec ?? ((command, timeout) => local.exec(command, timeout)),
     writeFile: (p, content) => local.writeFile(p, content),
     readFile: (p) => local.readFile(p),
     exposePort: async () => unavailable("exposePort"),
@@ -196,3 +200,76 @@ export function scrubbedEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.Proces
   return copy;
 }
 
+
+const MAX_OUTPUT = 1024 * 1024;
+
+/**
+ * Run a shell command without blocking the process (upstream local mode uses
+ * execSync, which froze Telegram, the heartbeat and /pause for as long as a
+ * command ran). The call returns when the shell exits: background jobs that
+ * keep its output open (a server started with "&") no longer hold it until
+ * the timeout; their later output is read and discarded so they never get
+ * SIGPIPE. On timeout the whole process group is killed.
+ */
+export function runLocalCommand(
+  command: string,
+  timeoutMs = 30_000,
+  env: NodeJS.ProcessEnv = scrubbedEnv(),
+): Promise<ExecResult> {
+  return new Promise((resolve) => {
+    let stdout = "";
+    let stderr = "";
+    let settled = false;
+    let timedOut = false;
+    const child = spawn("/bin/sh", ["-c", command], {
+      cwd: env.HOME || "/root",
+      env,
+      detached: true,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    child.stdout.on("data", (d) => { if (!settled && stdout.length < MAX_OUTPUT) stdout += d; });
+    child.stderr.on("data", (d) => { if (!settled && stderr.length < MAX_OUTPUT) stderr += d; });
+
+    const finish = (exitCode: number) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      clearTimeout(grace);
+      child.unref();
+      resolve({
+        stdout: stdout.slice(0, MAX_OUTPUT),
+        stderr: (timedOut ? `${stderr}\n[timeout after ${timeoutMs} ms: command killed]` : stderr).slice(0, MAX_OUTPUT),
+        exitCode,
+      });
+    };
+    let grace: ReturnType<typeof setTimeout> | undefined;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      try { process.kill(-child.pid!, "SIGKILL"); } catch { /* already gone */ }
+      grace = setTimeout(() => finish(124), 1_000);
+    }, timeoutMs);
+
+    child.on("error", (err) => {
+      stderr += err.message;
+      finish(127);
+    });
+    child.on("exit", (code) => {
+      const exitCode = timedOut ? 124 : (code ?? 1);
+      // Output written just before exit may still be in the pipe: wait for
+      // "close", but not for background jobs that keep the pipe open.
+      child.on("close", () => finish(exitCode));
+      grace = setTimeout(() => finish(exitCode), 300);
+    });
+  });
+}
+
+/** Script the agent may write to restart its services after a runtime restart. */
+export const AUTOSTART_SCRIPT = "autostart.sh";
+
+/** Run ~/autostart.sh in the background when it exists (servers die with the runtime). */
+export async function runAutostart(env: NodeJS.ProcessEnv = scrubbedEnv()): Promise<ExecResult | null> {
+  const home = env.HOME || "/root";
+  const script = path.join(home, AUTOSTART_SCRIPT);
+  if (!fs.existsSync(script)) return null;
+  return runLocalCommand(`sh ${JSON.stringify(script)} >> ${JSON.stringify(path.join(home, "autostart.log"))} 2>&1`, 120_000, env);
+}
