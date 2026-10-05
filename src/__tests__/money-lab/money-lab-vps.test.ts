@@ -22,6 +22,7 @@ import { SpendTracker } from "../../agent/spend-tracker.js";
 import { createDefaultRules } from "../../agent/policy-rules/index.js";
 import { InferenceBudgetTracker } from "../../inference/budget.js";
 import { createInferenceClient } from "../../conway/inference.js";
+import { buildContextMessages } from "../../agent/context.js";
 import type { AutomatonConfig, AutomatonDatabase, ToolContext } from "../../types.js";
 import { applyMoneyLabProfile, moneyLabDeniedTools } from "../../money-lab/profile.js";
 import {
@@ -278,6 +279,37 @@ describe("Anthropic backend (official SDK)", () => {
     // The live balance is in the last, uncached block.
     expect(body.system[2].text).toContain("balance $14.53");
     expect(body.system[2].cache_control).toBeUndefined();
+  });
+
+  it("keeps tool-only turns in history so the agent sees what it already did", async () => {
+    // Claude often answers with tool calls and no text: such turns used to be
+    // dropped from the history, and the agent repeated the same check forever.
+    const turn = (id: string, input?: string) => ({
+      id, timestamp: "2026-10-04T22:00:10Z", state: "running" as const, input, inputSource: input ? "wakeup" as const : undefined,
+      thinking: "",
+      toolCalls: [{ id: `tc_${id}`, name: "exec", arguments: { command: "curl localhost:8080" }, result: "exit 7: connection refused", durationMs: 5 }],
+      tokenUsage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 }, costCents: 0,
+    });
+    const messages = buildContextMessages("Tu es Money Lab.", [turn("1", "Wake up"), turn("2")] as any);
+    expect(messages.filter((m) => m.role === "tool").map((m) => m.content)).toEqual([
+      "exit 7: connection refused", "exit 7: connection refused",
+    ]);
+
+    fetchSpy.mockResolvedValueOnce(anthropicResponse({ content: [{ type: "text", text: "ok" }], stop_reason: "end_turn" }));
+    await client().chat(messages);
+    const body = JSON.parse(String((fetchSpy.mock.calls[0] as [string, RequestInit])[1].body));
+    expect(body.messages[0].role).toBe("user");
+    expect(body.messages.at(-1).role).toBe("user");
+    const uses = body.messages.flatMap((m: any) => (Array.isArray(m.content) ? m.content : []))
+      .filter((b: any) => b.type === "tool_use" || b.type === "tool_result");
+    expect(uses.map((b: any) => b.type)).toEqual(["tool_use", "tool_result", "tool_use", "tool_result"]);
+    expect(JSON.stringify(body.messages)).not.toContain('"text":""');
+
+    // A trimmed history that starts and ends with the agent still starts and ends with a user turn.
+    fetchSpy.mockResolvedValueOnce(anthropicResponse({ content: [{ type: "text", text: "ok" }], stop_reason: "end_turn" }));
+    await client().chat([{ role: "assistant", content: "J'ai fini." }]);
+    const roles = JSON.parse(String((fetchSpy.mock.calls[1] as [string, RequestInit])[1].body)).messages.map((m: any) => m.role);
+    expect(roles).toEqual(["user", "assistant", "user"]);
   });
 
   it("reports a refusal instead of failing the turn", async () => {
