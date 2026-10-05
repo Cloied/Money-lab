@@ -23,6 +23,8 @@ import { createDefaultRules } from "../../agent/policy-rules/index.js";
 import { InferenceBudgetTracker } from "../../inference/budget.js";
 import { createInferenceClient } from "../../conway/inference.js";
 import { buildContextMessages } from "../../agent/context.js";
+import { InferenceRouter } from "../../inference/router.js";
+import { ModelRegistry } from "../../inference/registry.js";
 import type { AutomatonConfig, AutomatonDatabase, ToolContext } from "../../types.js";
 import { applyMoneyLabProfile, moneyLabDeniedTools } from "../../money-lab/profile.js";
 import {
@@ -290,10 +292,20 @@ describe("Anthropic backend (official SDK)", () => {
       toolCalls: [{ id: `tc_${id}`, name: "exec", arguments: { command: "curl localhost:8080" }, result: "exit 7: connection refused", durationMs: 5 }],
       tokenUsage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 }, costCents: 0,
     });
-    const messages = buildContextMessages("Tu es Money Lab.", [turn("1", "Wake up"), turn("2")] as any);
-    expect(messages.filter((m) => m.role === "tool").map((m) => m.content)).toEqual([
+    const context = buildContextMessages("Tu es Money Lab.", [turn("1", "Wake up"), turn("2")] as any, {
+      content: "Wake up", source: "wakeup",
+    });
+    expect(context.filter((m) => m.role === "tool").map((m) => m.content)).toEqual([
       "exit 7: connection refused", "exit 7: connection refused",
     ]);
+    // The router prepares the messages for Anthropic before the client sends them.
+    const db = openDb();
+    const config = vpsConfig();
+    const router = new InferenceRouter(
+      db.raw, new ModelRegistry(db.raw), new InferenceBudgetTracker(db.raw, config.modelStrategy!),
+    );
+    const messages = router.transformMessagesForProvider(context, "anthropic");
+    db.close();
 
     fetchSpy.mockResolvedValueOnce(anthropicResponse({ content: [{ type: "text", text: "ok" }], stop_reason: "end_turn" }));
     await client().chat(messages);
@@ -303,6 +315,13 @@ describe("Anthropic backend (official SDK)", () => {
     const uses = body.messages.flatMap((m: any) => (Array.isArray(m.content) ? m.content : []))
       .filter((b: any) => b.type === "tool_use" || b.type === "tool_result");
     expect(uses.map((b: any) => b.type)).toEqual(["tool_use", "tool_result", "tool_use", "tool_result"]);
+    // Every tool_use is answered by a tool_result at the start of the next message.
+    body.messages.forEach((m: any, i: number) => {
+      const ids = (Array.isArray(m.content) ? m.content : []).filter((b: any) => b.type === "tool_use").map((b: any) => b.id);
+      if (ids.length === 0) return;
+      const next = body.messages[i + 1].content;
+      expect(next.slice(0, ids.length).map((b: any) => b.tool_use_id)).toEqual(ids);
+    });
     expect(JSON.stringify(body.messages)).not.toContain('"text":""');
 
     // A trimmed history that starts and ends with the agent still starts and ends with a user turn.

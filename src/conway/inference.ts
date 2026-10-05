@@ -434,6 +434,11 @@ function transformMessagesForAnthropic(
         last.content = last.content + "\n" + msg.content;
         continue;
       }
+      // Text after tool results joins the same user turn, after the results.
+      if (last && last.role === "user" && Array.isArray(last.content)) {
+        (last.content as Array<Record<string, unknown>>).push({ type: "text", text: msg.content });
+        continue;
+      }
       transformed.push({
         role: "user",
         content: msg.content,
@@ -443,7 +448,7 @@ function transformMessagesForAnthropic(
 
     if (msg.role === "assistant") {
       const content: Array<Record<string, unknown>> = [];
-      if (msg.content) {
+      if (msg.content && msg.content.trim()) {
         content.push({ type: "text", text: msg.content });
       }
       for (const toolCall of msg.tool_calls || []) {
