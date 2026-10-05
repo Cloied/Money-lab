@@ -165,7 +165,7 @@ export function createMoneyLabRules(): PolicyRule[] {
           return deny("MONEY_LAB_RUNTIME_PATH", "Writing runtime configuration, wallet, state or runtime code is disabled");
         }
 
-        if (name === "exec") {
+        if (name === "exec" || name === "schedule_job") {
           const command = String(request.args.command ?? "");
           if (command.includes(RUNTIME_ROOT) || PROTECTED_SHELL_PATTERNS.some((p) => p.test(command))) {
             return deny(

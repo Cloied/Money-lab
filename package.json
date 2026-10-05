@@ -58,6 +58,7 @@
     "cron-parser": "^4.9.0",
     "gray-matter": "^4.0.3",
     "js-tiktoken": "^1.0.21",
+    "lighthouse": "^12.8.2",
     "openai": "^6.24.0",
     "ora": "^8.0.0",
     "playwright-core": "1.56.1",

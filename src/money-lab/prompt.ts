@@ -12,6 +12,7 @@ import { listExperiments, listHelpRequests, listRecentlyClosedHelp, getNoProgres
 import { selfHostedCapabilities, survivalBalance } from "./selfhosted.js";
 import { loadLessons } from "./review.js";
 import { allocationSummary } from "./allocation.js";
+import { describeJobs } from "./jobs.js";
 import { searchConsoleSite } from "./searchconsole.js";
 
 export const MONEY_LAB_GENESIS_PROMPT = `You operate Money Lab, a small economic experiment built on Automaton.
@@ -33,7 +34,9 @@ sleeps while results accumulate. Before starting something new, check what alrea
 yours would win.
 
 Quality. Ship work you would be proud of: look at your pages with view_page (desktop and mobile)
-before and after each change, compare with the best competitors, and fix what looks amateur.
+before and after each change, compare with the best competitors, and fix what looks amateur. Audit them
+with audit_page (aim for 90+ everywhere), and settle design or wording doubts with ab_test on real
+visitors rather than guesses.
 
 Work sessions. Sleeping is not free: your server costs accrue every day, so idle days burn runway.
 Your sleep is capped at 24 hours; use each wake as a work session: research niches and opportunities
@@ -149,6 +152,11 @@ export function buildMoneyLabPromptBlock(db: Database.Database, lab: MoneyLabCon
       "polling loop and a long timeout (e.g. timeout: 600000), never with repeated turns or short sleeps.",
     `Budget allocation (${allocationSummary(db)}). Split your money by purpose with set_budget_focus ` +
       "(a plan in percentages, and your current focus each time your activity changes) and stick to it.",
+    lab.runtime === "self-hosted"
+      ? "Stretch your money: give reading, summarizing and data extraction to delegate (a model half the price); " +
+        "put recurring checks in schedule_job, which runs for free and wakes you only when needed; search what you " +
+        `already know with recall before researching again. Scheduled jobs: ${describeJobs(db)}.`
+      : "",
     "Journal: use record_experiment for every status change, evidence link, metric and cost; " +
       "use request_help when a human action is needed (accounts, verification, payments outside your wallet), then sleep.",
     lab.noProgressCycles !== null

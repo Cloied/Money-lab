@@ -178,6 +178,10 @@ export interface ToolContext {
   conway: ConwayClient;
   inference: InferenceClient;
   social?: SocialClientInterface;
+  /** Routes extra inference calls (Money Lab delegate) through the same budgets. */
+  inferenceRouter?: {
+    route(request: InferenceRequest, chat: (messages: any[], options: any) => Promise<any>): Promise<InferenceResult>;
+  };
 }
 
 export interface SocialClientInterface {
