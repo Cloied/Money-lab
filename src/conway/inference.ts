@@ -6,6 +6,7 @@
  */
 
 import fs from "fs";
+import { createLogger } from "../observability/logger.js";
 import Anthropic from "@anthropic-ai/sdk";
 import type {
   InferenceClient,
@@ -18,6 +19,7 @@ import type {
 } from "../types.js";
 import { ResilientHttpClient } from "./http-client.js";
 
+const logger = createLogger("inference");
 const INFERENCE_TIMEOUT_MS = 60_000;
 
 interface InferenceClientOptions {
@@ -296,6 +298,7 @@ function webResearchDigest(content: any[]): string {
   const queries: string[] = [];
   const fetched: string[] = [];
   const sources: string[] = [];
+  const errors: string[] = [];
   for (const block of content) {
     if (block?.type === "server_tool_use" && block.name === "web_search" && block.input?.query) {
       queries.push(String(block.input.query));
@@ -308,13 +311,21 @@ function webResearchDigest(content: any[]): string {
         if (r?.type === "web_search_result" && r.url) sources.push(`${r.title ?? ""} — ${r.url}`);
       }
     }
+    // Server tool errors come back as a result whose content is an error
+    // object (HTTP 200): surface them instead of dropping them silently.
+    if ((block?.type === "web_search_tool_result" || block?.type === "web_fetch_tool_result") &&
+      block.content && !Array.isArray(block.content) && block.content.error_code) {
+      errors.push(`${block.type === "web_search_tool_result" ? "web_search" : "web_fetch"}: ${block.content.error_code}`);
+    }
   }
+  if (errors.length) logger.warn(`[WEB TOOLS] ${errors.join("; ")}`);
   if (queries.length + fetched.length === 0) return "";
   return [
     "[Web research this turn]",
     queries.length ? `Searched: ${queries.map((q) => `"${q}"`).join(", ")}` : "",
     fetched.length ? `Read: ${fetched.join(", ")}` : "",
     sources.length ? `Results:\n${sources.slice(0, 10).map((s) => `- ${s}`).join("\n")}` : "",
+    errors.length ? `Errors: ${errors.join("; ")}` : "",
   ].filter(Boolean).join("\n");
 }
 
