@@ -59,6 +59,7 @@ Conway Cloud closed to new accounts, so `moneyLab.runtime: "self-hosted"` replac
 | Inference | `claude-sonnet-5-5` via the official `@anthropic-ai/sdk` (beta messages): `output_config.effort`, `tool_choice: auto`, `fallbacks: "default"` (`server-side-fallback-2026-07-01`), refusal handled; thinking blocks are never replayed because the loop rebuilds history every turn (the documented strip path for non-append-only harnesses) |
 | Prompt caching | Explicit `cache_control` breakpoints on the last tool and on the system prompt before `--- WORKLOG.md` and `--- MONEY LAB RULES` (the live balance stays uncached); the router bills cache reads at 0.1x and writes at 1.25x of the input price (`TokenUsage.cacheReadTokens` / `cacheWriteTokens`) |
 | Publishing | `expose_port` / `remove_port` removed (no proxy on a VPS; upstream local mode returned a localhost URL). The prompt tells the agent to run its own server above port 1024 and ask the owner to open the firewall or set up a host |
+| History | `buildContextMessages` keeps turns that have tool calls but no text (Claude often answers with tool calls only; upstream dropped those turns, so the agent never saw its own results and repeated them). The Anthropic transform drops empty text blocks and makes the request start and end with a user turn |
 | Models | Claude models seeded in the registry after `initialize()` (which disables non-baseline models) with first-party prices (hundredths of a cent per 1k tokens: Sonnet 5.5 20/100, Opus 5.5 40/200, Haiku 4.5 10/50) |
 | Survival | `survivalBalance`: funding + confirmed revenue - (inference + hosting + external + fees + refunds + agent payments + accrued declared hosting). Negative = dead: no inference, one owner notification, revival when funds or revenue arrive |
 | Owner channel | `TelegramChannel`: only `ownerChatId`; commands reuse the operator CLI; other text becomes an inbox message plus an operator wake; outbox for notifications (help requests, runtime pauses, death, revenue, `message_owner` tool, daily summary) |
@@ -148,7 +149,7 @@ mistaken for either.
 The `context-hardening` hang is a pre-existing upstream baseline failure in code this branch does
 not touch (`src/agent/context.ts`); it is why a plain `pnpm test` never finishes.
 
-`src/__tests__/money-lab/`: 55 tests (41 core + 14 VPS: survival, death/revival, Anthropic request shape and caching, Telegram, Stripe), including a simulated first cycle. Global `fetch` is replaced by a spy that
+`src/__tests__/money-lab/`: 56 tests (41 core + 15 VPS: survival, death/revival, Anthropic request shape and caching, Telegram, Stripe), including a simulated first cycle. Global `fetch` is replaced by a spy that
 throws, USDC balance reads are mocked, and no test starts a funded loop. Coverage maps to
 specification section 10: mocked mode has no network/payment effects and missing policy fails
 closed; pause blocks paid calls and top-ups while status reports hosting as separately billed;

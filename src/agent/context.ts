@@ -163,8 +163,10 @@ export function buildContextMessages(
       });
     }
 
-    // The agent's thinking as assistant message
-    if (turn.thinking) {
+    // The agent's thinking as assistant message. A turn with tool calls but
+    // no text (common with Claude) must still show its calls and results,
+    // or the model never sees what it already did and repeats it.
+    if (turn.thinking || turn.toolCalls.length > 0) {
       const msg: ChatMessage = {
         role: "assistant",
         content: turn.thinking,

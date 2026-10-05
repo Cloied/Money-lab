@@ -455,7 +455,7 @@ function transformMessagesForAnthropic(
         });
       }
       if (content.length === 0) {
-        content.push({ type: "text", text: "" });
+        continue; // the API rejects empty text blocks
       }
       // Merge consecutive assistant messages
       const last = transformed[transformed.length - 1];
@@ -491,6 +491,15 @@ function transformMessagesForAnthropic(
         content: [toolResultBlock],
       });
     }
+  }
+
+  // The API needs a user turn first and last (no assistant prefill on
+  // current models); a trimmed history can start or end with the agent.
+  if (transformed.length > 0 && transformed[0].role === "assistant") {
+    transformed.unshift({ role: "user", content: "[system] Earlier turns were trimmed." });
+  }
+  if (transformed.length > 0 && transformed[transformed.length - 1].role === "assistant") {
+    transformed.push({ role: "user", content: "[system] Continue." });
   }
 
   return {
