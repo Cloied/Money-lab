@@ -519,6 +519,17 @@ async function run(): Promise<void> {
       if (file) logger.info(`[MONEY LAB] Sauvegarde quotidienne : ${file}`);
     });
   }
+  if (moneyLab && selfHosted) {
+    const { runDueJobs } = await import("./money-lab/jobs.js");
+    every(60_000, "Tâches programmées", async () => {
+      await runDueJobs(db.raw, {
+        run: (command, timeout) => runLocalCommand(command, timeout),
+        wake: (reason) => insertWakeEvent(db.raw, "money_lab_job", reason),
+        // No wake while dead or sleeping on a budget cap: the cycle would be blocked.
+        canWake: () => db.getAgentState() !== "dead" && !String(db.getKV("sleep_reason") ?? "").startsWith("plafond"),
+      });
+    });
+  }
   if (moneyLab?.stripe) {
     const stripeCfg = moneyLab.stripe;
     const stripeKey = process.env[stripeCfg.apiKeyEnv];

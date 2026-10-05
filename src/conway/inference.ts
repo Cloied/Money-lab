@@ -282,6 +282,10 @@ async function chatViaOpenAiCompatible(params: {
 const ANTHROPIC_WEB_TOOL_MODELS = new Set([
   "claude-sonnet-5-5", "claude-opus-5-5", "claude-opus-5", "claude-fable-5-1", "claude-opus-4-8",
 ]);
+/** Models that accept output_config.effort (Haiku 4.5 rejects it). */
+const ANTHROPIC_EFFORT_MODELS = new Set([
+  "claude-sonnet-5-5", "claude-opus-5-5", "claude-opus-5", "claude-fable-5-1", "claude-opus-4-8",
+]);
 const WEB_SEARCH_MAX_USES = 5;
 const WEB_FETCH_MAX_USES = 5;
 const WEB_FETCH_MAX_TOKENS = 15_000;
@@ -370,7 +374,7 @@ async function chatViaAnthropic(params: {
     }
   }
   if (params.temperature !== undefined) body.temperature = params.temperature;
-  if (params.effort) body.output_config = { effort: params.effort };
+  if (params.effort && ANTHROPIC_EFFORT_MODELS.has(params.model)) body.output_config = { effort: params.effort };
   // Server tools first, so the cache breakpoint on the last client tool
   // covers the whole (stable) tool list.
   // Only agent turns (which carry client tools) get them, not summaries.

@@ -21,7 +21,10 @@ import path from "path";
 import { findBrowser, shellQuote } from "./selfhosted.js";
 import { browse } from "./browser.js";
 import { searchAnalytics, searchConsoleSite } from "./searchconsole.js";
-import { BUDGET_CATEGORIES, allocationSummary, isBudgetCategory, setBudgetPlan, setFocus } from "./allocation.js";
+import { BUDGET_CATEGORIES, allocationSummary, isBudgetCategory, recordFocusSpend, setBudgetPlan, setFocus } from "./allocation.js";
+import { delegate } from "./delegate.js";
+import { JOB_TIMEOUT_MS, JOB_WAKE_MODES, MAX_EVERY_MINUTES, MIN_EVERY_MINUTES, describeJobs, jobLogFile, listJobs, removeJob, upsertJob } from "./jobs.js";
+import { formatRecall, recall } from "./recall.js";
 
 /** Marker the Anthropic client turns into an image block (recent results only). */
 export const SCREENSHOT_MARKER = /\[\[image:([^\]\s]+\.png)\]\]/g;
@@ -259,6 +262,117 @@ export function createMoneyLabTools(): AutomatonTool[] {
         } catch (err: any) {
           return `Search Console error: ${String(err?.message ?? err).slice(0, 300)}`;
         }
+      },
+    },
+    {
+      name: "delegate",
+      description:
+        "Hand a simple task to a cheaper model (Claude Haiku 4.5, about half the price of your model): summarize " +
+        "long pages, extract or sort data, compare documents, draft text. Give it the task and the material " +
+        "(text, your own files, up to 5 URLs it downloads itself) instead of reading long content yourself. " +
+        "It has no tools and no memory: include everything it needs. Its cost counts toward your budget.",
+      category: "survival",
+      riskLevel: "safe",
+      parameters: {
+        type: "object",
+        properties: {
+          task: { type: "string", description: "Exactly what to produce, e.g. \"List each competitor's price and free-plan limits as a table\"" },
+          text: { type: "string", description: "Material to work on" },
+          files: { type: "array", items: { type: "string" }, description: "Your files, e.g. ~/research/niches.md" },
+          urls: { type: "array", items: { type: "string" }, description: "Up to 5 http(s) pages to download and read" },
+          max_tokens: { type: "integer", description: "Answer length cap, default 4000 (max 8000)" },
+        },
+        required: ["task"],
+      },
+      execute: async (args, ctx) => {
+        if (!ctx.inferenceRouter) return "delegate is not available in this runtime.";
+        try {
+          const result = await delegate(
+            {
+              task: String(args.task ?? ""),
+              text: typeof args.text === "string" ? args.text : undefined,
+              files: stringList(args.files),
+              urls: stringList(args.urls),
+              maxTokens: Number.isInteger(args.max_tokens) ? (args.max_tokens as number) : undefined,
+            },
+            {
+              router: ctx.inferenceRouter,
+              chat: (msgs, opts) => ctx.inference.chat(msgs, opts),
+              home: process.env.HOME || "/root",
+              sessionId: ctx.db.getKV("session_id") || "default",
+            },
+          );
+          recordFocusSpend(ctx.db.raw, result.costCents);
+          return result.text;
+        } catch (err: any) {
+          return `Delegation failed: ${String(err?.message ?? err).slice(0, 300)}`;
+        }
+      },
+    },
+    {
+      name: "schedule_job",
+      description:
+        "Schedule a shell command the runtime runs on its own, for free (no inference): check that a site " +
+        "answers, collect stats, watch a ranking or a competitor page. You are woken only when it matters: " +
+        "wake on_failure (default: when the command starts failing), on_change (when its output changes) or " +
+        "never (read the log yourself). Output is logged in ~/.money-lab/jobs/<name>.log. Wakes are limited to " +
+        `one per hour. Actions: add (replaces a job with the same name), remove, list, run (once now, to test). ` +
+        `Commands run ${JOB_TIMEOUT_MS / 1000}s at most, without secrets in their environment.`,
+      category: "vm",
+      riskLevel: "caution",
+      parameters: {
+        type: "object",
+        properties: {
+          action: { type: "string", enum: ["add", "remove", "list", "run"] },
+          name: { type: "string", description: "e.g. site-check" },
+          command: { type: "string", description: "For add, e.g. curl -fsS -o /dev/null -w '%{http_code}' https://org.github.io/site/" },
+          every_minutes: { type: "integer", description: `For add, ${MIN_EVERY_MINUTES}-${MAX_EVERY_MINUTES}` },
+          wake: { type: "string", enum: [...JOB_WAKE_MODES] },
+        },
+        required: ["action"],
+      },
+      execute: async (args, ctx) => {
+        if (ctx.identity.sandboxId) return "schedule_job is only available on a self-hosted server.";
+        const name = String(args.name ?? "");
+        switch (args.action) {
+          case "add": {
+            const job = upsertJob(ctx.db.raw, { name, command: args.command, everyMinutes: args.every_minutes, wake: args.wake });
+            if (typeof job === "string") return job;
+            return `Scheduled "${job.name}" every ${job.everyMinutes} min (wake ${job.wake}); first run within a minute. ` +
+              "Test it now with action run.";
+          }
+          case "remove":
+            return removeJob(ctx.db.raw, name) ? `Removed "${name}".` : `No job named "${name}".`;
+          case "run": {
+            const job = listJobs(ctx.db.raw).find((j) => j.name === name);
+            if (!job) return `No job named "${name}".`;
+            const result = await ctx.conway.exec(job.command, JOB_TIMEOUT_MS);
+            return `exit ${result.exitCode}\n${`${result.stdout}${result.stderr ? `\n[stderr] ${result.stderr}` : ""}`.slice(-2000)}`;
+          }
+          default:
+            return `Jobs: ${describeJobs(ctx.db.raw)}. Logs: ${path.dirname(jobLogFile("x"))}/`;
+        }
+      },
+    },
+    {
+      name: "recall",
+      description:
+        "Search your own memory for free: your notes (~/research, ~/notes), library (~/library), skills, " +
+        "LESSONS.md, WORKLOG.md and the experiment journal. Use it before researching something again.",
+      category: "memory",
+      riskLevel: "safe",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "Keywords, e.g. \"competitor pricing invoice\"" },
+          limit: { type: "integer", description: "Passages to return, default 8 (max 20)" },
+        },
+        required: ["query"],
+      },
+      execute: async (args, ctx) => {
+        const query = String(args.query ?? "");
+        const limit = Math.min(20, Math.max(1, Number.isInteger(args.limit) ? (args.limit as number) : 8));
+        return formatRecall(query, recall(query, { home: process.env.HOME || "/root", db: ctx.db.raw, limit }));
       },
     },
     {

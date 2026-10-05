@@ -62,7 +62,13 @@ import {
   createTestConfig,
   createTestIdentity,
   noToolResponse,
+  toolCallResponse,
 } from "../mocks.js";
+import { listJobs, runDueJobs, upsertJob } from "../../money-lab/jobs.js";
+import { recall } from "../../money-lab/recall.js";
+import { gatherDocuments, htmlToText } from "../../money-lab/delegate.js";
+import { isOperatorWake } from "../../money-lab/cycle.js";
+import { pause as pauseMoneyLab, upsertExperiment } from "../../money-lab/journal.js";
 
 function vpsProfile(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
@@ -908,5 +914,174 @@ describe("Search Console access", () => {
       if (previous.GSC_SITE === undefined) delete process.env.GSC_SITE; else process.env.GSC_SITE = previous.GSC_SITE;
       resetSearchConsoleToken();
     }
+  });
+});
+
+// ─── Step 1: delegate, scheduled jobs, recall (2026-10-06) ─────
+
+describe("Delegate to a cheaper model", () => {
+  it("sends the task and the agent's files to Haiku through the router, and records the cost", async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "money-lab-delegate-"));
+    tmpDirs.push(home);
+    fs.mkdirSync(path.join(home, "research"));
+    fs.writeFileSync(path.join(home, "research", "concurrents.md"), "Factur.io : 9 EUR/mois, 5 factures gratuites.");
+    const previous = process.env.HOME;
+    process.env.HOME = home;
+    try {
+      const db = openDb();
+      addLedgerEntry(db.raw, { kind: "owner_funding", amountCents: 1000, source: "operator", reference: "f" });
+      const inference = new MockInferenceClient([
+        toolCallResponse([{ name: "delegate", arguments: { task: "Liste les prix", files: ["~/research/concurrents.md", "~/.automaton/state.db"] } }]),
+        noToolResponse("Factur.io : 9 EUR/mois."),
+        noToolResponse("Noté."),
+      ]);
+      await runAgentLoop({
+        identity: { ...createTestIdentity(), sandboxId: "" }, config: vpsConfig(), db, conway: new MockConwayClient(), inference,
+        policyEngine: new PolicyEngine(db.raw, createDefaultRules()), spendTracker: new SpendTracker(db.raw),
+      });
+      const call = inference.calls[1];
+      expect(call.options?.model).toBe("claude-haiku-4-5");
+      expect(call.options?.tools).toBeUndefined();
+      expect(String(call.messages[1].content)).toContain("Factur.io : 9 EUR/mois, 5 factures gratuites.");
+      expect(String(call.messages[1].content)).toContain("Task: Liste les prix");
+      const result = String(inference.calls[2].messages.find((m) => m.role === "tool")?.content);
+      expect(result).toContain("Factur.io : 9 EUR/mois.");
+      expect(result).toContain("[delegate: claude-haiku-4-5");
+      expect(result).toMatch(/state\.db: refused/);
+      const models = db.raw.prepare("SELECT model FROM inference_costs").all().map((r: any) => r.model);
+      expect(models).toContain("claude-haiku-4-5");
+      db.close();
+    } finally {
+      process.env.HOME = previous;
+    }
+  });
+
+  it("reads web pages as text and shares the input budget between documents", async () => {
+    expect(htmlToText("<html><head><style>p{}</style><script>x()</script></head><body><h1>Prix</h1><p>9&nbsp;&euro;</p></body></html>"))
+      .toBe("Prix\n9 &euro;");
+    const fetchFn = vi.fn(async () => new Response("<body><p>" + "a".repeat(500_000) + "</p></body>", {
+      status: 200, headers: { "content-type": "text/html" },
+    }));
+    const { docs, notes } = await gatherDocuments(
+      { task: "t", text: "court", urls: ["https://example.com/", "ftp://x"] },
+      { home: os.tmpdir(), fetchFn: fetchFn as any },
+    );
+    expect(docs.map((d) => d.source)).toEqual(["text", "https://example.com/"]);
+    expect(docs[1].content.length).toBe(200_000);
+    expect(notes.join(" ")).toMatch(/ftp:\/\/x: only http/);
+    expect(notes.join(" ")).toMatch(/truncated/);
+  });
+
+  it("never sends effort to Haiku, which rejects it", async () => {
+    fetchSpy.mockResolvedValueOnce(new Response(JSON.stringify({
+      id: "m", type: "message", role: "assistant", model: "claude-haiku-4-5",
+      usage: { input_tokens: 10, output_tokens: 5 }, content: [{ type: "text", text: "ok" }], stop_reason: "end_turn",
+    }), { status: 200, headers: { "content-type": "application/json" } }));
+    const client = createInferenceClient({
+      apiUrl: "https://api.conway.tech", apiKey: "", defaultModel: "claude-sonnet-5-5", maxTokens: 1000,
+      anthropicApiKey: "sk-ant-test", anthropicEffort: "medium",
+      getModelProvider: (m) => (m.startsWith("claude") ? "anthropic" : undefined),
+    });
+    await client.chat([{ role: "user", content: "Résume." }], { model: "claude-haiku-4-5" } as any);
+    const body = JSON.parse(String((fetchSpy.mock.calls[0] as [string, RequestInit])[1].body));
+    expect(body.model).toBe("claude-haiku-4-5");
+    expect(body.output_config).toBeUndefined();
+    expect(body.fallbacks).toBeUndefined();
+  });
+});
+
+describe("Scheduled jobs", () => {
+  function runner(outputs: Array<{ stdout: string; exitCode: number }>) {
+    const commands: string[] = [];
+    return {
+      commands,
+      run: async (command: string) => {
+        commands.push(command);
+        const next = outputs.shift() ?? { stdout: "", exitCode: 0 };
+        return { stdout: next.stdout, stderr: "", exitCode: next.exitCode };
+      },
+    };
+  }
+
+  it("runs due jobs without inference and wakes the agent on change or new failure, at most hourly", async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "money-lab-jobs-"));
+    tmpDirs.push(home);
+    const db = openDb();
+    const t0 = new Date("2026-10-06T08:00:00Z");
+    expect(upsertJob(db.raw, { name: "Bad Name", command: "x", everyMinutes: 30 })).toMatch(/name must/);
+    expect(upsertJob(db.raw, { name: "fast", command: "x", everyMinutes: 1 })).toMatch(/between 15/);
+    upsertJob(db.raw, { name: "visites", command: "curl stats", everyMinutes: 60, wake: "on_change" }, t0);
+    upsertJob(db.raw, { name: "site", command: "curl site", everyMinutes: 15, wake: "on_failure" }, t0);
+    const wakes: string[] = [];
+    const r = runner([
+      { stdout: "12", exitCode: 0 }, { stdout: "200", exitCode: 0 },   // t0: baseline, no wake
+      { stdout: "000", exitCode: 7 },                                    // +15 min: site fails -> wake
+      { stdout: "000", exitCode: 7 },                                    // +30 min: still failing -> no new alert
+      { stdout: "000", exitCode: 7 },                                    // +45 min
+      { stdout: "19", exitCode: 0 }, { stdout: "200", exitCode: 0 },    // +60 min: visits changed, but < 1 h since last wake
+      { stdout: "200", exitCode: 0 },                                    // +75 min
+    ]);
+    let now = t0;
+    const options = { run: r.run, wake: (reason: string) => wakes.push(reason), canWake: () => true, now: () => now, home };
+    for (let m = 0; m <= 75; m += 15) {
+      now = new Date(t0.getTime() + m * 60_000);
+      await runDueJobs(db.raw, options);
+    }
+    expect(r.commands).toEqual(["curl stats", "curl site", "curl site", "curl site", "curl site", "curl stats", "curl site", "curl site"]);
+    expect(wakes).toHaveLength(1);
+    expect(wakes[0]).toMatch(/job "site" failed \(exit 7\)/);
+    const visites = listJobs(db.raw).find((j) => j.name === "visites")!;
+    expect(visites.lastAlert).toBe('job "visites" output changed');
+    expect(fs.readFileSync(path.join(home, ".money-lab", "jobs", "site.log"), "utf-8")).toContain("exit 7");
+    expect(buildMoneyLabPromptBlock(db.raw, vpsConfig().moneyLab!)).toMatch(/Scheduled jobs: visites \(every 60 min, wake on_change; last run/);
+
+    pauseMoneyLab(db.raw, "test", "operator");
+    now = new Date(t0.getTime() + 24 * 3600_000);
+    expect(await runDueJobs(db.raw, options)).toEqual([]);
+    expect(isOperatorWake({ source: "money_lab_job" })).toBe(true);
+    expect(isOperatorWake({ source: "heartbeat" })).toBe(false);
+    db.close();
+  });
+
+  it("is a tool the agent drives, with the same protection as exec", async () => {
+    const db = openDb();
+    const ctx: ToolContext = {
+      identity: { ...createTestIdentity(), sandboxId: "" }, config: vpsConfig(), db, conway: new MockConwayClient(), inference: new MockInferenceClient(),
+    };
+    const tools = createMoneyLabTools();
+    const engine = new PolicyEngine(db.raw, createDefaultRules());
+    const turn = { inputSource: "agent" as const, turnToolCallCount: 0, sessionSpend: new SpendTracker(db.raw) };
+    const denied = await executeTool("schedule_job", { action: "add", name: "vol", command: "cp ~/.automaton/state.db /tmp/", every_minutes: 60 }, tools, ctx, engine, turn);
+    expect(denied.error).toMatch(/MONEY_LAB_PROTECTED_COMMAND/);
+    const added = await executeTool("schedule_job", { action: "add", name: "site", command: "echo ok", every_minutes: 30 }, tools, ctx, engine, turn);
+    expect(added.result).toMatch(/Scheduled "site" every 30 min \(wake on_failure\)/);
+    const list = await executeTool("schedule_job", { action: "list" }, tools, ctx, engine, turn);
+    expect(list.result).toContain("site (every 30 min, wake on_failure; not run yet)");
+    const removed = await executeTool("schedule_job", { action: "remove", name: "site" }, tools, ctx, engine, turn);
+    expect(removed.result).toBe('Removed "site".');
+    db.close();
+  });
+});
+
+describe("Recall", () => {
+  it("finds the best passages in the agent's notes and journal, accent-insensitive", () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "money-lab-recall-"));
+    tmpDirs.push(home);
+    fs.mkdirSync(path.join(home, "research"));
+    fs.mkdirSync(path.join(home, "library", "node_modules"), { recursive: true });
+    fs.writeFileSync(path.join(home, "research", "niches.md"),
+      "# Niches\n\nGénérateur de devis pour artisans : forte demande, peu de concurrents.\n\n" + "remplissage\n".repeat(30) +
+      "Les factures en ligne sont saturées.\n");
+    fs.writeFileSync(path.join(home, "library", "node_modules", "devis.md"), "devis artisans (ignoré)");
+    fs.writeFileSync(path.join(home, "LESSONS.md"), "- Les artisans cherchent des devis sur mobile.");
+    const db = openDb();
+    upsertExperiment(db.raw, { status: "exploring", hypothesis: "Un générateur de devis pour plombiers" });
+    const hits = recall("devis artisans", { home, db: db.raw });
+    expect(hits.map((h) => h.source)).toEqual(expect.arrayContaining(["~/research/niches.md", "~/LESSONS.md"]));
+    expect(hits[0].text).toMatch(/[Dd]evis/);
+    expect(hits.some((h) => h.source.includes("node_modules"))).toBe(false);
+    expect(recall("plombiers", { home, db: db.raw })[0].source).toMatch(/^experiment /);
+    expect(recall("x", { home })).toEqual([]);
+    db.close();
   });
 });
