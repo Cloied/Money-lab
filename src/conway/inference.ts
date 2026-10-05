@@ -5,6 +5,7 @@
  * The automaton pays for its own thinking through Conway credits.
  */
 
+import fs from "fs";
 import Anthropic from "@anthropic-ai/sdk";
 import type {
   InferenceClient,
@@ -32,6 +33,8 @@ interface InferenceClientOptions {
   getModelProvider?: (modelId: string) => string | undefined;
   /** Anthropic effort level (output_config.effort); omitted = model default. */
   anthropicEffort?: AnthropicEffort;
+  /** Offer Anthropic's server-side web search and web fetch tools. */
+  anthropicWebTools?: boolean;
 }
 
 type AnthropicEffort = "low" | "medium" | "high" | "xhigh" | "max";
@@ -112,6 +115,7 @@ export function createInferenceClient(
         temperature: opts?.temperature,
         anthropicApiKey: anthropicApiKey as string,
         effort: options.anthropicEffort,
+        webTools: options.anthropicWebTools,
         signal: (opts as { signal?: AbortSignal } | undefined)?.signal,
       });
     }
@@ -272,6 +276,48 @@ async function chatViaOpenAiCompatible(params: {
   };
 }
 
+/** Models with the dynamic-filtering web tools (web_search/web_fetch _20260209). */
+const ANTHROPIC_WEB_TOOL_MODELS = new Set([
+  "claude-sonnet-5-5", "claude-opus-5-5", "claude-opus-5", "claude-fable-5-1", "claude-opus-4-8",
+]);
+const WEB_SEARCH_MAX_USES = 5;
+const WEB_FETCH_MAX_USES = 5;
+const WEB_FETCH_MAX_TOKENS = 15_000;
+/** Web search is billed $10 per 1,000 searches. */
+const WEB_SEARCH_CENTS = 1;
+const MAX_PAUSE_CONTINUATIONS = 3;
+
+/**
+ * Server tool results are not replayed (the loop rebuilds its history from
+ * text and client tool calls), so keep a compact trace of what was searched
+ * and read: the agent can fetch a source again or cite it later.
+ */
+function webResearchDigest(content: any[]): string {
+  const queries: string[] = [];
+  const fetched: string[] = [];
+  const sources: string[] = [];
+  for (const block of content) {
+    if (block?.type === "server_tool_use" && block.name === "web_search" && block.input?.query) {
+      queries.push(String(block.input.query));
+    }
+    if (block?.type === "server_tool_use" && block.name === "web_fetch" && block.input?.url) {
+      fetched.push(String(block.input.url));
+    }
+    if (block?.type === "web_search_tool_result" && Array.isArray(block.content)) {
+      for (const r of block.content) {
+        if (r?.type === "web_search_result" && r.url) sources.push(`${r.title ?? ""} — ${r.url}`);
+      }
+    }
+  }
+  if (queries.length + fetched.length === 0) return "";
+  return [
+    "[Web research this turn]",
+    queries.length ? `Searched: ${queries.map((q) => `"${q}"`).join(", ")}` : "",
+    fetched.length ? `Read: ${fetched.join(", ")}` : "",
+    sources.length ? `Results:\n${sources.slice(0, 10).map((s) => `- ${s}`).join("\n")}` : "",
+  ].filter(Boolean).join("\n");
+}
+
 /** Models that accept the server-side refusal fallback in its "default" form. */
 const ANTHROPIC_DEFAULT_FALLBACK_MODELS = new Set(["claude-sonnet-5-5", "claude-opus-5-5", "claude-opus-5", "claude-fable-5-1"]);
 
@@ -283,6 +329,7 @@ async function chatViaAnthropic(params: {
   temperature?: number;
   anthropicApiKey: string;
   effort?: AnthropicEffort;
+  webTools?: boolean;
   signal?: AbortSignal;
 }): Promise<InferenceResponse> {
   const transformed = transformMessagesForAnthropic(params.messages);
@@ -301,14 +348,24 @@ async function chatViaAnthropic(params: {
   if (transformed.system) body.system = anthropicSystemBlocks(transformed.system);
   if (params.temperature !== undefined) body.temperature = params.temperature;
   if (params.effort) body.output_config = { effort: params.effort };
-  if (params.tools && params.tools.length > 0) {
-    body.tools = params.tools.map((tool, index, all) => ({
-      name: tool.function.name,
-      description: tool.function.description,
-      input_schema: tool.function.parameters,
-      // The tool list is identical on every turn: cache it.
-      ...(index === all.length - 1 ? { cache_control: { type: "ephemeral" } } : {}),
-    }));
+  // Server tools first, so the cache breakpoint on the last client tool
+  // covers the whole (stable) tool list.
+  // Only agent turns (which carry client tools) get them, not summaries.
+  const serverTools = params.webTools && (params.tools?.length ?? 0) > 0 && ANTHROPIC_WEB_TOOL_MODELS.has(params.model)
+    ? [
+      { type: "web_search_20260209", name: "web_search", max_uses: WEB_SEARCH_MAX_USES },
+      { type: "web_fetch_20260209", name: "web_fetch", max_uses: WEB_FETCH_MAX_USES, max_content_tokens: WEB_FETCH_MAX_TOKENS },
+    ]
+    : [];
+  const clientTools = (params.tools ?? []).map((tool, index, all) => ({
+    name: tool.function.name,
+    description: tool.function.description,
+    input_schema: tool.function.parameters,
+    // The tool list is identical on every turn: cache it.
+    ...(index === all.length - 1 ? { cache_control: { type: "ephemeral" } } : {}),
+  }));
+  if (serverTools.length + clientTools.length > 0) {
+    body.tools = [...serverTools, ...clientTools];
     body.tool_choice = { type: "auto" };
   }
   const betas: string[] = [];
@@ -319,20 +376,40 @@ async function chatViaAnthropic(params: {
   }
 
   const client = new Anthropic({ apiKey: params.anthropicApiKey });
-  let data: any;
-  try {
-    data = await client.beta.messages.create(
-      { ...body, ...(betas.length ? { betas } : {}) } as any,
-      params.signal ? { signal: params.signal } : undefined,
-    );
-  } catch (error) {
-    if (error instanceof Anthropic.APIError) {
-      throw new Error(`Inference error (anthropic): ${error.status}: ${error.message}`);
+  const send = async (requestBody: Record<string, unknown>): Promise<any> => {
+    try {
+      return await client.beta.messages.create(
+        { ...requestBody, ...(betas.length ? { betas } : {}) } as any,
+        params.signal ? { signal: params.signal } : undefined,
+      );
+    } catch (error) {
+      if (error instanceof Anthropic.APIError) {
+        throw new Error(`Inference error (anthropic): ${error.status}: ${error.message}`);
+      }
+      throw error;
     }
-    throw error;
+  };
+  let data: any = await send(body);
+  const content: any[] = Array.isArray(data.content) ? [...data.content] : [];
+  const usageTotals = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, searches: 0 };
+  const addUsage = (u: any) => {
+    usageTotals.input += u?.input_tokens || 0;
+    usageTotals.output += u?.output_tokens || 0;
+    usageTotals.cacheRead += u?.cache_read_input_tokens || 0;
+    usageTotals.cacheWrite += u?.cache_creation_input_tokens || 0;
+    usageTotals.searches += u?.server_tool_use?.web_search_requests || 0;
+  };
+  addUsage(data.usage);
+  // A long server-side tool loop (web search/fetch) pauses: re-send the
+  // assistant turn as is and the API resumes where it stopped.
+  for (let i = 0; data.stop_reason === "pause_turn" && i < MAX_PAUSE_CONTINUATIONS; i++) {
+    data = await send({
+      ...body,
+      messages: [...transformed.messages, { role: "assistant", content: [...content] }],
+    });
+    if (Array.isArray(data.content)) content.push(...data.content);
+    addUsage(data.usage);
   }
-
-  const content: any[] = Array.isArray(data.content) ? data.content : [];
   const toolUseBlocks = content.filter((c) => c?.type === "tool_use");
   const toolCalls: InferenceToolCall[] | undefined =
     toolUseBlocks.length > 0
@@ -346,23 +423,27 @@ async function chatViaAnthropic(params: {
         }))
       : undefined;
 
-  const textContent = content
-    .filter((c) => c?.type === "text")
-    .map((block) => String(block.text || ""))
-    .join("\n")
-    .trim();
+  const research = webResearchDigest(content);
+  const textContent = [
+    content
+      .filter((c) => c?.type === "text")
+      .map((block) => String(block.text || ""))
+      .join("\n")
+      .trim(),
+    research,
+  ].filter(Boolean).join("\n\n");
 
-  const usageData = data.usage ?? {};
-  const cacheReadTokens = usageData.cache_read_input_tokens || 0;
-  const cacheWriteTokens = usageData.cache_creation_input_tokens || 0;
-  const promptTokens = (usageData.input_tokens || 0) + cacheReadTokens + cacheWriteTokens;
-  const completionTokens = usageData.output_tokens || 0;
+  const cacheReadTokens = usageTotals.cacheRead;
+  const cacheWriteTokens = usageTotals.cacheWrite;
+  const promptTokens = usageTotals.input + cacheReadTokens + cacheWriteTokens;
+  const completionTokens = usageTotals.output;
   const usage: TokenUsage = {
     promptTokens,
     completionTokens,
     totalTokens: promptTokens + completionTokens,
     cacheReadTokens,
     cacheWriteTokens,
+    serverToolCents: usageTotals.searches * WEB_SEARCH_CENTS,
   };
 
   if (data.stop_reason === "refusal") {
@@ -420,6 +501,9 @@ function transformMessagesForAnthropic(
 ): { system?: string; messages: Array<Record<string, unknown>> } {
   const systemParts: string[] = [];
   const transformed: Array<Record<string, unknown>> = [];
+  // Screenshots (view_page) are sent as images for the most recent results
+  // only; older ones stay as text to bound the request size.
+  const imageBudget = { remaining: recentImagePaths(messages, MAX_IMAGES_PER_REQUEST) };
 
   for (const msg of messages) {
     if (msg.role === "system") {
@@ -481,7 +565,7 @@ function transformMessagesForAnthropic(
       const toolResultBlock = {
         type: "tool_result",
         tool_use_id: msg.tool_call_id || "unknown_tool_call",
-        content: msg.content,
+        content: toolResultContent(msg.content, imageBudget),
       };
 
       const last = transformed[transformed.length - 1];
@@ -511,6 +595,37 @@ function transformMessagesForAnthropic(
     system: systemParts.length > 0 ? systemParts.join("\n\n") : undefined,
     messages: transformed,
   };
+}
+
+const MAX_IMAGES_PER_REQUEST = 2;
+const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
+const IMAGE_MARKER = /\[\[image:([^\]\s]+\.png)\]\]/g;
+
+function recentImagePaths(messages: ChatMessage[], limit: number): Set<string> {
+  const paths: string[] = [];
+  for (const msg of messages) {
+    if (msg.role !== "tool" || !msg.content) continue;
+    for (const m of msg.content.matchAll(IMAGE_MARKER)) paths.push(m[1]);
+  }
+  return new Set(paths.slice(-limit));
+}
+
+function toolResultContent(text: string, budget: { remaining: Set<string> }): unknown {
+  if (!text || !text.includes("[[image:")) return text;
+  const images: Array<Record<string, unknown>> = [];
+  const stripped = text.replace(IMAGE_MARKER, (_all, file: string) => {
+    if (!budget.remaining.has(file)) return "(older screenshot not shown)";
+    try {
+      const data = fs.readFileSync(file);
+      if (data.length > MAX_IMAGE_BYTES) return "(screenshot too large to show)";
+      images.push({ type: "image", source: { type: "base64", media_type: "image/png", data: data.toString("base64") } });
+      return "";
+    } catch {
+      return "(screenshot file missing)";
+    }
+  }).trim();
+  if (images.length === 0) return stripped || "(no content)";
+  return [{ type: "text", text: stripped || "Screenshot:" }, ...images];
 }
 
 function parseToolArguments(raw: string): Record<string, unknown> {

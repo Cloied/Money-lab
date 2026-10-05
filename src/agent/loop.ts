@@ -69,6 +69,8 @@ import { automaticTopupsAllowed, hasInferenceLimits, moneyLabDeniedTools } from 
 import { seedAnthropicModels, survivalBalance } from "../money-lab/selfhosted.js";
 import { createMoneyLabTools } from "../money-lab/tools.js";
 import { paidCallBlockReason } from "../money-lab/guard.js";
+import { REVIEW_INSTRUCTIONS, ensureReviewClock, isReviewDue, markReviewed } from "../money-lab/review.js";
+import { recordFocusSpend } from "../money-lab/allocation.js";
 import { MONEY_LAB_WAKE_REASON_KEY, OWNER_TELEGRAM_SENDER, ensureMoneyLabSchema, pause as pauseMoneyLab, queueOwnerNotification } from "../money-lab/journal.js";
 
 const logger = createLogger("loop");
@@ -398,11 +400,19 @@ export async function runAgentLoop(
     financial,
     db,
   });
+  // Weekly review: marked done only once a paid turn actually runs, so a
+  // paused or budget-blocked wake does not skip it.
+  let reviewPending = false;
   if (moneyLab) {
     const reason = db.getKV(MONEY_LAB_WAKE_REASON_KEY);
     if (reason) {
       wakeupInput += `\n\nWake-up reason: ${reason}. Check what changed before anything else.`;
       db.deleteKV(MONEY_LAB_WAKE_REASON_KEY);
+    }
+    ensureReviewClock(db.raw);
+    if (isReviewDue(db.raw)) {
+      reviewPending = true;
+      wakeupInput += `\n\n${REVIEW_INSTRUCTIONS}`;
     }
   }
 
@@ -724,6 +734,13 @@ export async function runAgentLoop(
           running = false;
           break;
         }
+      }
+
+      if (moneyLab) recordFocusSpend(db.raw, routerResult.costCents);
+
+      if (reviewPending && routerResult.finishReason !== "budget_exceeded") {
+        markReviewed(db.raw);
+        reviewPending = false;
       }
 
       // Build a compatible response for the rest of the loop

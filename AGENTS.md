@@ -6,7 +6,7 @@ identity, scope and constraints are defined here and in the Money Lab specificat
 
 ## Scope
 - Lean first-run scope only. Do not build deferred architecture: SaaS/dashboard, multi-tenant engine,
-  marketplace, model framework, vector database, ROI engines, concurrent experiments, payment server,
+  marketplace, model framework, vector database, ROI engines, payment server,
   comprehensive ledger/broker, unrestricted self-modification.
 - Keep upstream Automaton code and its MIT LICENSE. Prefer small patches under src/money-lab/ over
   edits to upstream modules; behaviour must stay unchanged when no moneyLab block is configured.
@@ -21,6 +21,10 @@ identity, scope and constraints are defined here and in the Money Lab specificat
 - Owner decision (2026-10-04): Conway Cloud is closed; the default runtime is self-hosted on a VPS
   (Anthropic Claude Sonnet 5.5, Telegram owner channel, Stripe revenue sync). The bot's ultimate goal
   is survival: only provider- or owner-confirmed revenue extends its balance.
+- Owner decision (2026-10-05): full autonomy. The bot may run a portfolio of up to 3 experiments, use
+  web search/fetch, see pages (view_page), publish in its own GitHub organization and read its analytics
+  with narrowly scoped credentials it can read (GH_TOKEN, GOATCOUNTER_TOKEN), split its budget by purpose,
+  sleep at most 24 h, and must hold a weekly review that maintains ~/LESSONS.md.
 - In-process limits are not tamper-proof (exec can bypass them). Never describe them as secure isolation.
 - Unknown cost is never free. Funding is not revenue; estimated income is not cash.
 - Tests must not make network or payment calls (src/__tests__/money-lab replaces fetch with a failing spy).

@@ -141,6 +141,8 @@ export interface TokenUsage {
   cacheReadTokens?: number;
   /** Part of promptTokens written to the provider's prompt cache (Anthropic). */
   cacheWriteTokens?: number;
+  /** Server-side tool charges in cents (Anthropic web search). */
+  serverToolCents?: number;
 }
 
 // ─── Tool System ─────────────────────────────────────────────────

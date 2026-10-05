@@ -179,7 +179,8 @@ export class InferenceRouter {
       ? estimatedCostCents
       : Math.ceil(
         (billedInputTokens / 1000) * model.costPer1kInput / 100 +
-        (outputTokens / 1000) * model.costPer1kOutput / 100,
+        (outputTokens / 1000) * model.costPer1kOutput / 100 +
+        (response.usage?.serverToolCents || 0),
       );
 
     // 8. Record cost

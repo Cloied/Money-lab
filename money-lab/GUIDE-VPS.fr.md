@@ -155,6 +155,30 @@ ufw allow 8080/tcp
 ```
 Le site sera alors visible à `http://ADRESSE_IP:8080`. Pour le refermer : `ufw delete allow 8080/tcp`.
 
+## Donner des mains et des yeux au bot
+
+Ces accès le rendent autonome : il publie, lit ses statistiques, regarde ses pages et cherche sur le web.
+
+1. **Outils sur le serveur** (en root) :
+   ```sh
+   apt -y install gh poppler-utils
+   wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+   apt -y install ./google-chrome-stable_current_amd64.deb && rm google-chrome-stable_current_amd64.deb
+   ```
+2. **Son organisation GitHub** : sur github.com, « + » → *New organization* → plan *Free*, à ton nom.
+   Transfère-y ses dépôts (*Settings → Transfer*). Puis *Settings → Developer settings → Fine-grained
+   tokens → Generate* : *Resource owner* = l'organisation, *All repositories*, permissions
+   *Administration*, *Contents*, *Pages* en *Read and write*, expiration 90 jours.
+3. **GoatCounter** : *Settings → API* → nouveau jeton avec *Read statistics* uniquement.
+4. Ajoute dans `/etc/money-lab.env` (`nano /etc/money-lab.env`) : `GH_TOKEN=…`, `GITHUB_ORG=…`,
+   `GOATCOUNTER_SITE=…`, `GOATCOUNTER_TOKEN=…`, puis `systemctl restart money-lab`.
+
+Ces deux jetons sont **lisibles par le bot** (c'est voulu) : limite-les comme indiqué. Le pire qu'il
+puisse faire avec, c'est modifier ses propres dépôts ou lire ses propres statistiques.
+
+La recherche web (outils Anthropic) est active d'office : environ 1 centime par recherche, compté dans
+son budget.
+
 ## Tes interventions
 
 Le bot travaille seul. Il te sollicite seulement pour : créer des comptes à ton nom (hébergement,

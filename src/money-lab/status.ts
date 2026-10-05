@@ -18,6 +18,12 @@ import {
   listHelpRequests,
   summarizeFinances,
 } from "./journal.js";
+import { getBudgetPlan, getFocus, weeklySpend } from "./allocation.js";
+
+const CATEGORY_FR: Record<string, string> = {
+  research: "recherche", build: "construction", marketing: "marketing", learning: "apprentissage",
+  operations: "fonctionnement", unassigned: "non classé",
+};
 
 function usd(cents: number | null): string {
   if (cents === null) return "inconnu";
@@ -61,6 +67,13 @@ export function formatStatus(
   out.push(`  Aujourd'hui : ${usd(inferenceGetDailyCost(db))} / ${limit(lab.inference.dailyCents)}`);
   out.push(`  Heure en cours : ${usd(inferenceGetHourlyCost(db))} / ${limit(lab.inference.hourlyCents)}`);
   out.push(`  Plafond par appel : ${limit(lab.inference.perCallCents)} — modèle ${lab.inference.model ?? "choisi par le runtime"}`);
+  {
+    const plan = getBudgetPlan(db);
+    const spend = weeklySpend(db);
+    out.push("", "Répartition du budget (semaine en cours) :");
+    out.push(`  Plan : ${plan ? Object.entries(plan).map(([c, p]) => `${CATEGORY_FR[c] ?? c} ${p} %`).join(", ") : "pas encore défini"}`);
+    out.push(`  Dépensé : ${Object.keys(spend).length ? Object.entries(spend).map(([c, v]) => `${CATEGORY_FR[c] ?? c} ${usd(v)}`).join(", ") : "rien"} — activité actuelle : ${CATEGORY_FR[getFocus(db)] ?? getFocus(db)}`);
+  }
   out.push("", `Paiements par l'agent (achats de crédits, x402, transferts) : ${lab.payments === "allowed" ? "AUTORISÉS" : "désactivés"}`);
   if (lab.payments === "allowed") {
     out.push(`  Payé aujourd'hui : ${usd(paymentsSpentTodayCents(db))} / ${limit(lab.paymentLimits.dailyCents)} — par paiement : ${limit(lab.paymentLimits.perPaymentCents)}`);

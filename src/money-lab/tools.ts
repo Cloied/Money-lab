@@ -16,6 +16,15 @@ import {
   type ExperimentStatus,
 } from "./journal.js";
 import { formatStatus } from "./status.js";
+import fs from "fs";
+import path from "path";
+import { findBrowser, shellQuote } from "./selfhosted.js";
+import { BUDGET_CATEGORIES, allocationSummary, isBudgetCategory, setBudgetPlan, setFocus } from "./allocation.js";
+
+/** Marker the Anthropic client turns into an image block (recent results only). */
+export const SCREENSHOT_MARKER = /\[\[image:([^\]\s]+\.png)\]\]/g;
+const VIEWPORTS: Record<string, [number, number]> = { desktop: [1280, 1600], mobile: [390, 844] };
+const KEEP_SCREENSHOTS = 20;
 
 function optionalString(value: unknown): string | null | undefined {
   if (value === undefined) return undefined;
@@ -40,7 +49,7 @@ export function createMoneyLabTools(): AutomatonTool[] {
       name: "record_experiment",
       description:
         "Create or update a Money Lab experiment record. Omit id to create. Evidence is appended (links with dates), " +
-        "metrics are merged. Amounts are integer USD cents; use null when unknown. Only one experiment may be 'building'.",
+        "metrics are merged. Amounts are integer USD cents; use null when unknown.",
       category: "memory",
       riskLevel: "safe",
       parameters: {
@@ -133,6 +142,94 @@ export function createMoneyLabTools(): AutomatonTool[] {
         }
         queueOwnerNotification(ctx.db.raw, `🤖 ${text.slice(0, 3500)}`);
         return "Message queued for the owner.";
+      },
+    },
+    {
+      name: "view_page",
+      description:
+        "Take a screenshot of a web page (yours or a competitor's) and look at it: layout, design, readability, " +
+        "mobile rendering. Use it before and after changing a page.",
+      category: "vm",
+      riskLevel: "safe",
+      parameters: {
+        type: "object",
+        properties: {
+          url: { type: "string", description: "http(s) URL, e.g. https://org.github.io/site/ or http://localhost:8080" },
+          viewport: {
+            type: "string",
+            enum: ["desktop", "mobile", "print"],
+            description: "desktop (1280x1600, default), mobile (390x844) or print: the first page of the printed PDF",
+          },
+        },
+        required: ["url"],
+      },
+      execute: async (args, ctx) => {
+        if (ctx.identity.sandboxId) return "view_page is only available on a self-hosted server.";
+        const browser = findBrowser();
+        if (!browser) {
+          return "No headless browser on this server. Ask the owner (request_help) to install Google Chrome.";
+        }
+        let url: URL;
+        try {
+          url = new URL(String(args.url));
+        } catch {
+          return "Invalid URL.";
+        }
+        if (url.protocol !== "http:" && url.protocol !== "https:") return "Only http(s) URLs can be viewed.";
+        const viewport = args.viewport === "mobile" || args.viewport === "print" ? args.viewport : "desktop";
+        const [width, height] = VIEWPORTS[viewport === "print" ? "desktop" : viewport];
+        const dir = path.join(process.env.HOME || "/root", ".money-lab", "screenshots");
+        fs.mkdirSync(dir, { recursive: true });
+        const base = path.join(dir, `${Date.now()}-${viewport}`);
+        const file = `${base}.png`;
+        const chrome = `${shellQuote(browser)} --headless=new --no-sandbox --disable-gpu --hide-scrollbars ` +
+          `--window-size=${width},${height} --virtual-time-budget=5000`;
+        const command = viewport === "print"
+          // Print exactly what a visitor gets, then render the first PDF page.
+          ? `${chrome} --no-pdf-header-footer --print-to-pdf=${shellQuote(`${base}.pdf`)} ${shellQuote(url.toString())} && ` +
+            `pdftoppm -png -r 80 -f 1 -l 1 -singlefile ${shellQuote(`${base}.pdf`)} ${shellQuote(base)}`
+          : `${chrome} --screenshot=${shellQuote(file)} ${shellQuote(url.toString())}`;
+        const result = await ctx.conway.exec(command, 45_000);
+        fs.rmSync(`${base}.pdf`, { force: true });
+        if (!fs.existsSync(file)) {
+          const hint = viewport === "print" && /pdftoppm/.test(result.stderr)
+            ? " (pdftoppm missing: ask the owner to install poppler-utils)"
+            : "";
+          return `Screenshot failed (exit ${result.exitCode})${hint}: ${(result.stderr || result.stdout).slice(-500)}`;
+        }
+        const old = fs.readdirSync(dir).filter((f) => f.endsWith(".png")).sort().slice(0, -KEEP_SCREENSHOTS);
+        for (const f of old) fs.rmSync(path.join(dir, f), { force: true });
+        return `Screenshot of ${url} (${viewport}, ${width}x${height}) attached below.\n[[image:${file}]]`;
+      },
+    },
+    {
+      name: "set_budget_focus",
+      description:
+        "Declare what you are spending on now (research, build, marketing, learning, operations) and optionally " +
+        "set your budget plan as integer percentages per category (total at most 100). Every paid turn is " +
+        "attributed to the current focus; compare plan and actual spend at each review.",
+      category: "survival",
+      riskLevel: "safe",
+      parameters: {
+        type: "object",
+        properties: {
+          focus: { type: "string", enum: [...BUDGET_CATEGORIES] },
+          plan: {
+            type: "object",
+            description: "e.g. {\"research\": 25, \"build\": 40, \"marketing\": 15, \"learning\": 10, \"operations\": 10}",
+          },
+        },
+        required: ["focus"],
+      },
+      execute: async (args, ctx) => {
+        if (!isBudgetCategory(args.focus)) return `Unknown focus. Use one of: ${BUDGET_CATEGORIES.join(", ")}.`;
+        if (args.plan !== undefined) {
+          if (!args.plan || typeof args.plan !== "object" || Array.isArray(args.plan)) return "plan must be an object.";
+          const error = setBudgetPlan(ctx.db.raw, args.plan as Record<string, unknown>);
+          if (error) return error;
+        }
+        setFocus(ctx.db.raw, args.focus);
+        return `Budget ${allocationSummary(ctx.db.raw)}`;
       },
     },
     {

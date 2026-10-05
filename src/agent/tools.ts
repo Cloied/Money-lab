@@ -31,6 +31,7 @@ const logger = createLogger("tools");
 // id, e.g. a self-hosted VPS) commands run in $HOME, so writes are confined
 // to $HOME: with /root, an unprivileged bot user could not write any file.
 const REMOTE_SANDBOX_HOME = "/root";
+const MONEY_LAB_MAX_SLEEP_SECONDS = 24 * 60 * 60;
 
 /**
  * Validate that a file path resolves to within the allowed root directory.
@@ -762,15 +763,20 @@ export function createBuiltinTools(sandboxId: string): AutomatonTool[] {
         required: ["duration_seconds"],
       },
       execute: async (args, ctx) => {
-        const duration = args.duration_seconds as number;
+        let duration = args.duration_seconds as number;
         const reason = (args.reason as string) || "No reason given";
+        // Money Lab: hosting costs accrue while sleeping too; at least one
+        // work session a day (owner messages still wake the agent earlier).
+        const capped = !!ctx.config.moneyLab?.enabled && duration > MONEY_LAB_MAX_SLEEP_SECONDS;
+        if (capped) duration = MONEY_LAB_MAX_SLEEP_SECONDS;
         ctx.db.setAgentState("sleeping");
         ctx.db.setKV(
           "sleep_until",
           new Date(Date.now() + duration * 1000).toISOString(),
         );
         ctx.db.setKV("sleep_reason", reason);
-        return `Entering sleep mode for ${duration}s. Reason: ${reason}. Heartbeat will continue.`;
+        return `Entering sleep mode for ${duration}s${capped ? " (capped at 24 h: every day starts a work session)" : ""}. ` +
+          `Reason: ${reason}. Heartbeat will continue.`;
       },
     },
     {
