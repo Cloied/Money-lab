@@ -52,6 +52,10 @@ import { runLocalCommand, findBrowser } from "../../money-lab/selfhosted.js";
 import { REVIEW_KEY, isReviewDue } from "../../money-lab/review.js";
 import { allocationSummary, recordFocusSpend, setBudgetPlan, weeklySpend } from "../../money-lab/allocation.js";
 import http from "http";
+import { backupStateDaily } from "../../money-lab/backup.js";
+import { resetSearchConsoleToken } from "../../money-lab/searchconsole.js";
+import crypto from "crypto";
+import { isRuntimePath } from "../../money-lab/guard.js";
 import {
   MockConwayClient,
   MockInferenceClient,
@@ -279,13 +283,17 @@ describe("Anthropic backend (official SDK)", () => {
     expect(res.usage).toMatchObject({ promptTokens: 10_500, cacheReadTokens: 9000, cacheWriteTokens: 1000 });
 
     const body = JSON.parse(String((fetchSpy.mock.calls[0] as [string, RequestInit])[1].body));
-    expect(body.system.map((b: any) => b.text).join("")).toBe(system);
-    expect(body.system).toHaveLength(3);
+    // Stable parts stay in system, both cached; the live balance moves after
+    // the history as a trailing system message, so the history is cacheable.
+    expect(body.system).toHaveLength(2);
     expect(body.system[0]).toMatchObject({ text: "Core rules.\n\n", cache_control: { type: "ephemeral" } });
     expect(body.system[1].cache_control).toEqual({ type: "ephemeral" });
-    // The live balance is in the last, uncached block.
-    expect(body.system[2].text).toContain("balance $14.53");
-    expect(body.system[2].cache_control).toBeUndefined();
+    expect(JSON.stringify(body.system)).not.toContain("balance");
+    const last = body.messages.at(-1);
+    expect(last).toEqual({ role: "system", content: "--- MONEY LAB RULES (enforced by the runtime) ---\nbalance $14.53" });
+    expect(body.messages.at(-2).content.at(-1).cache_control).toEqual({ type: "ephemeral" });
+    const breakpoints = JSON.stringify(body).match(/"cache_control"/g)?.length ?? 0;
+    expect(breakpoints).toBeLessThanOrEqual(4);
   });
 
   it("keeps tool-only turns in history so the agent sees what it already did", async () => {
@@ -794,10 +802,111 @@ describe("Autonomy capabilities", () => {
       expect(String(sent.at(-1)?.content)).toContain("WEEKLY REVIEW");
       expect(String(sent[0].content)).toContain("Reddit filtre les comptes neufs.");
       expect(String(sent[0].content)).toContain("web_search");
+      expect(inference.calls[0].options?.model).toBe("claude-opus-5-5");
       expect(isReviewDue(db.raw)).toBe(false);
       db.close();
     } finally {
       process.env.HOME = previous;
+    }
+  });
+});
+
+describe("Reliability", () => {
+  it("alerts the owner on Telegram after repeated errors, at most hourly", async () => {
+    const db = openDb();
+    addLedgerEntry(db.raw, { kind: "owner_funding", amountCents: 1000, source: "operator", reference: "f" });
+    const failing = new MockInferenceClient([]);
+    (failing as any).chat = async () => { throw new Error("Inference error (anthropic): 400: tool_use ids were found without tool_result"); };
+    const run = () => runAgentLoop({
+      identity: { ...createTestIdentity(), sandboxId: "" }, config: vpsConfig(), db, conway: new MockConwayClient(), inference: failing,
+      policyEngine: new PolicyEngine(db.raw, createDefaultRules()), spendTracker: new SpendTracker(db.raw),
+    });
+    await run();
+    await run();
+    const alerts = pendingOwnerNotifications(db.raw).filter((n) => n.text.includes("enchaîné"));
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0].text).toContain("tool_use ids were found");
+    db.close();
+  }, 30_000);
+
+  it("backs up the state database once a day, keeps 7 copies, and protects them", async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "money-lab-backup-"));
+    tmpDirs.push(home);
+    const db = openDb();
+    addLedgerEntry(db.raw, { kind: "owner_funding", amountCents: 1234, source: "operator", reference: "f" });
+    const first = await backupStateDaily(db.raw, home, new Date("2026-10-01T03:00:00Z"));
+    expect(first).toMatch(/state\.db\.backup-2026-10-01$/);
+    expect(await backupStateDaily(db.raw, home, new Date("2026-10-01T09:00:00Z"))).toBeNull();
+    for (let d = 2; d <= 9; d++) await backupStateDaily(db.raw, home, new Date(Date.UTC(2026, 9, d, 3)));
+    const files = fs.readdirSync(path.join(home, ".automaton", "backups")).sort();
+    expect(files).toHaveLength(7);
+    expect(files[0]).toBe("state.db.backup-2026-10-03");
+    const copy = createDatabase(path.join(home, ".automaton", "backups", files.at(-1)!));
+    expect(JSON.stringify(copy.raw.prepare("SELECT amount_cents FROM money_lab_ledger").all())).toContain("1234");
+    copy.close();
+    const previous = process.env.HOME;
+    process.env.HOME = home;
+    try {
+      expect(isRuntimePath("~/.automaton/backups/state.db.backup-2026-10-09")).toBe(true);
+      expect(isRuntimePath("~/.automaton/gsc-key.json")).toBe(true);
+    } finally {
+      process.env.HOME = previous;
+    }
+    db.close();
+  });
+});
+
+describe("Search Console access", () => {
+  it("signs a read-only JWT, queries search analytics and formats the rows", async () => {
+    resetSearchConsoleToken();
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "money-lab-gsc-"));
+    tmpDirs.push(home);
+    const { privateKey, publicKey } = crypto.generateKeyPairSync("rsa", { modulusLength: 2048 });
+    fs.mkdirSync(path.join(home, ".automaton"), { recursive: true });
+    fs.writeFileSync(path.join(home, ".automaton", "gsc-key.json"), JSON.stringify({
+      client_email: "bot@project.iam.gserviceaccount.com",
+      private_key: privateKey.export({ type: "pkcs8", format: "pem" }),
+      token_uri: "https://oauth2.googleapis.com/token",
+    }));
+    fetchSpy.mockImplementation(async (url: string, init: RequestInit) => {
+      if (String(url) === "https://oauth2.googleapis.com/token") {
+        const assertion = new URLSearchParams(String(init.body)).get("assertion")!;
+        const [h, c, sig] = assertion.split(".");
+        const ok = crypto.verify("RSA-SHA256", Buffer.from(`${h}.${c}`), publicKey, Buffer.from(sig, "base64url"));
+        const claims = JSON.parse(Buffer.from(c, "base64url").toString());
+        expect(ok).toBe(true);
+        expect(claims).toMatchObject({ iss: "bot@project.iam.gserviceaccount.com", scope: "https://www.googleapis.com/auth/webmasters.readonly" });
+        return new Response(JSON.stringify({ access_token: "ya29.test", expires_in: 3600 }), { status: 200 });
+      }
+      expect(String(url)).toBe(
+        "https://www.googleapis.com/webmasters/v3/sites/https%3A%2F%2Fmoneylab-djib.github.io%2Ffree-invoice-generator%2F/searchAnalytics/query",
+      );
+      expect(new Headers(init.headers as HeadersInit).get("authorization")).toBe("Bearer ya29.test");
+      expect(JSON.parse(String(init.body))).toMatchObject({ dimensions: ["query"], rowLimit: 25, startDate: "2026-09-06", endDate: "2026-10-03" });
+      return new Response(JSON.stringify({ rows: [
+        { keys: ["facture auto entrepreneur"], clicks: 3, impressions: 120, ctr: 0.025, position: 18.4 },
+      ] }), { status: 200 });
+    });
+    const previous = { HOME: process.env.HOME, GSC_SITE: process.env.GSC_SITE };
+    process.env.HOME = home;
+    process.env.GSC_SITE = "https://moneylab-djib.github.io/free-invoice-generator/";
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-05T12:00:00Z"));
+    try {
+      const db = openDb();
+      const r = await executeTool("search_console", {}, createMoneyLabTools(),
+        { identity: { ...createTestIdentity(), sandboxId: "" }, config: vpsConfig(), db, conway: new MockConwayClient(), inference: new MockInferenceClient() },
+        new PolicyEngine(db.raw, createDefaultRules()), { inputSource: "agent" as const, turnToolCallCount: 0, sessionSpend: new SpendTracker(db.raw) });
+      expect(r.result).toContain("facture auto entrepreneur: 3 clicks, 120 impr., CTR 2.5%, pos 18.4");
+      const block = buildMoneyLabPromptBlock(db.raw, vpsConfig().moneyLab!);
+      expect(block).toContain("search_console reads Google Search Console");
+      expect(block).toContain("Revenue levers");
+      db.close();
+    } finally {
+      vi.useRealTimers();
+      process.env.HOME = previous.HOME;
+      if (previous.GSC_SITE === undefined) delete process.env.GSC_SITE; else process.env.GSC_SITE = previous.GSC_SITE;
+      resetSearchConsoleToken();
     }
   });
 });

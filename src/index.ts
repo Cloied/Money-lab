@@ -512,6 +512,13 @@ async function run(): Promise<void> {
       logger.warn(`[MONEY LAB] Telegram configuré mais ${moneyLab.telegram.botTokenEnv} est absent.`);
     }
   }
+  if (moneyLab) {
+    const { backupStateDaily } = await import("./money-lab/backup.js");
+    every(60 * 60_000, "Sauvegarde", async () => {
+      const file = await backupStateDaily(db.raw);
+      if (file) logger.info(`[MONEY LAB] Sauvegarde quotidienne : ${file}`);
+    });
+  }
   if (moneyLab?.stripe) {
     const stripeCfg = moneyLab.stripe;
     const stripeKey = process.env[stripeCfg.apiKeyEnv];

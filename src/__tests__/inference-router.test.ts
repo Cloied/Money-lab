@@ -344,6 +344,23 @@ describe("InferenceRouter", () => {
       expect(result.finishReason).toBe("budget_exceeded");
     });
 
+    it("uses a requested model, and falls back to the normal one when it exceeds the per-call ceiling", async () => {
+      registry.upsert({ ...registry.get("gpt-5.2")!, modelId: "big-model", costPer1kInput: 2000, costPer1kOutput: 2000 });
+      const capped = new InferenceRouter(db, registry, new InferenceBudgetTracker(db, {
+        ...DEFAULT_MODEL_STRATEGY_CONFIG,
+        perCallCeilingCents: 30,
+      }));
+      const chat = async (_m: unknown, opts: { model: string }) =>
+        ({ message: { content: opts.model }, usage: { promptTokens: 10, completionTokens: 10 }, finishReason: "stop" });
+      const request = (content: string) => ({
+        messages: [{ role: "user" as const, content }], taskType: "agent_turn" as const, tier: "normal" as const,
+        sessionId: "s", maxTokens: 100, model: "big-model",
+      });
+      expect((await capped.route(request("short"), chat)).model).toBe("big-model");
+      expect((await capped.route(request("x".repeat(40_000)), chat)).model).toBe("gpt-5.2");
+      expect((await capped.route({ ...request("short"), model: "unknown-model" }, chat)).model).toBe("gpt-5.2");
+    });
+
     it("enforces session budget when configured", async () => {
       const sessionBudget = new InferenceBudgetTracker(db, {
         ...DEFAULT_MODEL_STRATEGY_CONFIG,

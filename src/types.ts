@@ -1193,6 +1193,8 @@ export interface InferenceRequest {
   turnId?: string;
   maxTokens?: number; // override
   tools?: unknown[];
+  /** Preferred model for this call; the normal selection applies when it is unavailable or over budget. */
+  model?: string;
 }
 
 export interface InferenceResult {

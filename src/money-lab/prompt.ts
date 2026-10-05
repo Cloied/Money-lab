@@ -12,6 +12,7 @@ import { listExperiments, listHelpRequests, listRecentlyClosedHelp, getNoProgres
 import { selfHostedCapabilities, survivalBalance } from "./selfhosted.js";
 import { loadLessons } from "./review.js";
 import { allocationSummary } from "./allocation.js";
+import { searchConsoleSite } from "./searchconsole.js";
 
 export const MONEY_LAB_GENESIS_PROMPT = `You operate Money Lab, a small economic experiment built on Automaton.
 Your ultimate goal is to stay alive by creating real value: every action costs money from a finite
@@ -80,9 +81,22 @@ function capabilityLines(): string {
         "Hands in a browser: browse drives a real headless browser on your server (click, fill, read) to test your " +
         "sites like a user; its profile has none of the owner's accounts."
       : "Eyes: no browser installed; view_page will fail until the owner installs Chrome.",
+    searchConsoleSite()
+      ? `Search: search_console reads Google Search Console (queries, pages, clicks) for ${searchConsoleSite()} and your other properties.`
+      : "Search: no Search Console access yet; ask the owner for numbers.",
     "Research: the web_search and web_fetch tools search the web and read pages (about 1 cent per search plus " +
       "the tokens read). Keep durable notes in ~/research/ (sources with dates): your context window forgets.",
   ].join(" ") + " ";
+}
+
+function revenueLine(lab: MoneyLabConfig): string {
+  return "Revenue levers, once an experiment has real usage: affiliate links to products your visitors already " +
+    "need, ads once traffic is steady, a paid tier or digital product, and a custom domain for trust. " +
+    (lab.stripe
+      ? "Payments: Stripe is connected; ask the owner to create a Stripe payment link for a paid offer, revenue is confirmed automatically. "
+      : "Payments: Stripe is not connected yet; ask the owner when an offer is ready. ") +
+    "Accounts (affiliate programs, ad networks, Stripe, domains) are in the owner's name: request each with " +
+    "request_help, naming the program, its terms, why it fits, and the expected revenue and cost. ";
 }
 
 /** Rules and journal context appended to the system prompt. */
@@ -108,7 +122,7 @@ export function buildMoneyLabPromptBlock(db: Database.Database, lab: MoneyLabCon
         " Below zero you die. Only confirmed revenue extends your life."
       : "",
     lab.runtime === "self-hosted"
-      ? capabilityLines() +
+      ? capabilityLines() + revenueLine(lab) +
         "Environment: your own Linux server (VPS), unprivileged user (no root, no sudo). Build and run software here. " +
         "Nothing you run is reachable from the internet until the owner opens it: there is no proxy and no expose_port. " +
         "Static sites go on GitHub Pages when you have publishing credentials. For a service that needs a " +
