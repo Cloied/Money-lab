@@ -159,7 +159,7 @@ function model(body) {
       const offered = new Set(body.tools.map((t) => t.name));
       for (const t of ["exec", "write_file", "record_experiment", "request_help", "message_owner", "sleep"]) if (!offered.has(t)) fail(`tool ${t} not offered`);
       for (const t of ["spawn_child", "expose_port", "create_sandbox", "topup_credits"]) if (offered.has(t)) fail(`tool ${t} offered`);
-      for (const t of ["web_search", "web_fetch", "view_page", "browse", "set_budget_focus", "idea", "delegate", "schedule_job", "recall", "audit_page", "ab_test"]) if (!offered.has(t)) fail(`tool ${t} not offered`);
+      for (const t of ["web_search", "web_fetch", "view_page", "browse", "set_budget_focus", "idea", "delegate", "schedule_job", "recall", "audit_page", "ab_test", "check_domain", "render_image", "post_social"]) if (!offered.has(t)) fail(`tool ${t} not offered`);
       const trailing = body.messages.at(-1).role === "system" ? body.messages.at(-1).content : "";
       if (!trailing.includes("SURVIVAL: balance")) fail("live state not sent as a trailing system message");
       if (body.system.map((b) => b.text).join("").includes("SURVIVAL: balance")) fail("live state still in the cached system prefix");

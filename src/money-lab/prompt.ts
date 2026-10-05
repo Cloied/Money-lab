@@ -15,6 +15,7 @@ import { allocationSummary } from "./allocation.js";
 import { describeJobs } from "./jobs.js";
 import { describePipeline } from "./ideas.js";
 import { searchConsoleSite } from "./searchconsole.js";
+import { blueskyCredentials } from "./social.js";
 
 export const MONEY_LAB_GENESIS_PROMPT = `You operate Money Lab, a small economic experiment built on Automaton.
 Your ultimate goal is to stay alive by creating real value: every action costs money from a finite
@@ -98,6 +99,19 @@ function capabilityLines(): string {
     searchConsoleSite()
       ? `Search: search_console reads Google Search Console (queries, pages, clicks) for ${searchConsoleSite()} and your other properties.`
       : "Search: no Search Console access yet; ask the owner for numbers.",
+    "Domain: check_domain shows which names are free. A single brand domain with each tool on its own path " +
+      "(brand.fr/devis/) builds search reputation faster than many domains or subdomains; use subdomains only for " +
+      "clearly separate brands. Your call. Ask the owner to buy it with request_help (your choice, two alternatives, " +
+      "the yearly price, why), then serve it from one GitHub Pages repository with a CNAME file, give the owner the DNS " +
+      "records (A 185.199.108.153, 185.199.109.153, 185.199.110.153, 185.199.111.153; CNAME www to " +
+      `${cap.githubOrg ? cap.githubOrg.toLowerCase() : "<org>"}.github.io) and enable HTTPS once DNS resolves.`,
+    (() => {
+      const bsky = blueskyCredentials();
+      return (bsky
+        ? `Social: Bluesky account @${bsky.handle}; share with post_social (the owner approves drafts while approval is on). `
+        : "Social: no account yet; ask the owner for a Bluesky account (request_help) once you have something worth sharing. ") +
+        "Make visuals with render_image (link previews, square posts, banners).";
+    })(),
     "Research: the web_search and web_fetch tools search the web and read pages (about 1 cent per search plus " +
       "the tokens read). Keep durable notes in ~/research/ (sources with dates): your context window forgets.",
   ].join(" ") + " ";

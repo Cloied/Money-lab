@@ -530,6 +530,15 @@ async function run(): Promise<void> {
       });
     });
   }
+  if (moneyLab) {
+    const { blueskyCredentials, publishApproved } = await import("./money-lab/social.js");
+    if (blueskyCredentials()) {
+      every(60_000, "Bluesky", async () => {
+        await publishApproved(db.raw);
+      });
+      logger.info("[MONEY LAB] Publication Bluesky active.");
+    }
+  }
   if (moneyLab?.stripe) {
     const stripeCfg = moneyLab.stripe;
     const stripeKey = process.env[stripeCfg.apiKeyEnv];

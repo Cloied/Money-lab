@@ -13,7 +13,7 @@
   status/summary, no-progress sleep, integration note, Conway checklist (features verified in docs/FEATURES.md).
 - Checks run (command, result, date):
   - likma project feature verify (types/money-lab/build): pass, 2026-10-03
-  - pnpm exec vitest run --exclude src/__tests__/context-hardening.test.ts: 1697/1697 pass (plan step 1 bis), 2026-10-06
+  - pnpm exec vitest run --exclude src/__tests__/context-hardening.test.ts: 1700/1700 pass (plan step 3 code), 2026-10-06
   - node money-lab/e2e/harness.mjs (real process, strict fake Anthropic/Telegram/Stripe): PASS, 2026-10-05
     (upstream d8f8168 baseline: 1614/1614)
 - First supervised run (owner-approved, 2026-10-04, OVH VPS, $15 funding): Telegram works; the agent
@@ -42,6 +42,8 @@
 - Owner decision 2026-10-06 (plan step 1 bis, money-lab/PLAN.fr.md): the agent copied a common invoice
   tool; it must now research, score ideas on 9 criteria, have them challenged by Opus and wait 6 h
   before an experiment can become active (runtime-enforced). Not yet measured live.
+- Plan step 3 code (2026-10-06): check_domain, render_image, Bluesky post_social with owner approval on
+  Telegram; view_page blank-band fix. Owner still to buy the domain and create the Bluesky account.
 - Blockers and known regressions:
   - Upstream context-hardening.test.ts hangs on unmodified upstream; upstream CI masks it as a warning.
   - In-process limits are bypassable through exec; supervised run only.
