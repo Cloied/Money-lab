@@ -20,6 +20,7 @@ import fs from "fs";
 import path from "path";
 import { findBrowser, shellQuote } from "./selfhosted.js";
 import { browse } from "./browser.js";
+import { searchAnalytics, searchConsoleSite } from "./searchconsole.js";
 import { BUDGET_CATEGORIES, allocationSummary, isBudgetCategory, setBudgetPlan, setFocus } from "./allocation.js";
 
 /** Marker the Anthropic client turns into an image block (recent results only). */
@@ -229,6 +230,34 @@ export function createMoneyLabTools(): AutomatonTool[] {
           return await browse(args as any);
         } catch (err: any) {
           return `Browser error: ${String(err?.message ?? err).split("\n")[0].slice(0, 400)}`;
+        }
+      },
+    },
+    {
+      name: "search_console",
+      description:
+        "Read Google Search Console analytics (read-only) for your sites: which search queries, pages, " +
+        "countries or devices bring impressions and clicks. Data lags about 2 days.",
+      category: "survival",
+      riskLevel: "safe",
+      parameters: {
+        type: "object",
+        properties: {
+          dimension: { type: "string", enum: ["query", "page", "date", "country", "device"], description: "Default query" },
+          days: { type: "integer", description: "1-90, default 28" },
+          site: { type: "string", description: "Property, e.g. https://org.github.io/site/ (default: the owner's setting)" },
+        },
+      },
+      execute: async (args) => {
+        const site = (typeof args.site === "string" && args.site) || searchConsoleSite();
+        if (!site) return "Search Console is not set up (no key or property). Ask the owner.";
+        const dimension = ["query", "page", "date", "country", "device"].includes(String(args.dimension))
+          ? (args.dimension as "query") : "query";
+        const days = Math.min(90, Math.max(1, Number.isInteger(args.days) ? (args.days as number) : 28));
+        try {
+          return await searchAnalytics({ site, dimension, days });
+        } catch (err: any) {
+          return `Search Console error: ${String(err?.message ?? err).slice(0, 300)}`;
         }
       },
     },

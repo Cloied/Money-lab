@@ -356,7 +356,19 @@ async function chatViaAnthropic(params: {
     max_tokens: params.tokenLimit,
     messages: transformed.messages,
   };
-  if (transformed.system) body.system = anthropicSystemBlocks(transformed.system);
+  if (transformed.system) {
+    const split = splitVolatileSystem(transformed.system, params.model, transformed.messages);
+    if (split) {
+      // Stable system blocks, then the history (cached up to its last block),
+      // then the live state as a trailing system message: the history is
+      // read from the cache on the next turn instead of being re-billed.
+      body.system = split.system;
+      transformed.messages = [...split.messages, { role: "system", content: split.volatile }];
+      body.messages = transformed.messages;
+    } else {
+      body.system = anthropicSystemBlocks(transformed.system);
+    }
+  }
   if (params.temperature !== undefined) body.temperature = params.temperature;
   if (params.effort) body.output_config = { effort: params.effort };
   // Server tools first, so the cache breakpoint on the last client tool
@@ -493,6 +505,34 @@ async function chatViaAnthropic(params: {
  * is cached; a prompt without markers is sent as one uncached block.
  */
 const SYSTEM_CACHE_BOUNDARIES = ["--- WORKLOG.md", "--- MONEY LAB RULES"];
+
+/** Start of the per-turn system content (Money Lab rules, skills, live status). */
+const VOLATILE_SYSTEM_MARKER = "--- MONEY LAB RULES";
+/** Models that accept a role "system" message inside messages (no beta header). */
+const MID_CONVERSATION_SYSTEM_MODELS = new Set([
+  "claude-sonnet-5-5", "claude-opus-5-5", "claude-opus-5", "claude-fable-5-1", "claude-opus-4-8",
+]);
+
+export function splitVolatileSystem(
+  system: string,
+  model: string,
+  messages: Array<Record<string, unknown>>,
+): { system: Array<Record<string, unknown>>; messages: Array<Record<string, unknown>>; volatile: string } | null {
+  const at = system.indexOf(VOLATILE_SYSTEM_MARKER);
+  const last = messages[messages.length - 1];
+  if (at <= 0 || !MID_CONVERSATION_SYSTEM_MODELS.has(model) || !last || last.role !== "user") return null;
+  const blocks = anthropicSystemBlocks(system.slice(0, at));
+  blocks[blocks.length - 1] = { ...blocks[blocks.length - 1], cache_control: { type: "ephemeral" } };
+  const content = typeof last.content === "string"
+    ? [{ type: "text", text: last.content }]
+    : [...(last.content as Array<Record<string, unknown>>)];
+  content[content.length - 1] = { ...content[content.length - 1], cache_control: { type: "ephemeral" } };
+  return {
+    system: blocks,
+    messages: [...messages.slice(0, -1), { ...last, content }],
+    volatile: system.slice(at),
+  };
+}
 
 export function anthropicSystemBlocks(system: string): Array<Record<string, unknown>> {
   const blocks: Array<Record<string, unknown>> = [];

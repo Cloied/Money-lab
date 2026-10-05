@@ -44,6 +44,8 @@ const PROTECTED_RUNTIME_ENTRIES = [
   "config.json",
   "state.db",
   "constitution.md",
+  "backups",
+  "gsc-key.json",
 ];
 
 /** Root of the installed runtime code (src/ or dist/ parent). */
@@ -53,6 +55,7 @@ const PROTECTED_SHELL_PATTERNS: RegExp[] = [
   /\bautomaton\.json\b/,
   /\bwallet\.json\b/,
   /\bstate\.db\b/,
+  /\bgsc-key\.json\b/,
   /\.automaton\/(config\.json|constitution\.md)/,
   /\b(CONWAY_API_KEY|ANTHROPIC_API_KEY|OPENAI_API_KEY|TELEGRAM_BOT_TOKEN|STRIPE_API_KEY)\b/,
   // The parent process environment holds the secrets the shell does not get.

@@ -22,6 +22,7 @@ const SITE_PORT = 18080 + Math.floor(Math.random() * 1000);
 const DURATION_MS = Number(process.env.E2E_SECONDS || 150) * 1000;
 
 const findings = [];
+const cacheState = { prev: null, hits: 0, misses: 0 };
 const fail = (msg) => { findings.push(msg); console.log(`  ✗ ${msg}`); };
 const ok = (msg) => console.log(`  ✓ ${msg}`);
 const log = [];
@@ -64,8 +65,16 @@ function validate(body) {
   if (!Array.isArray(msgs) || msgs.length === 0) errs.push("no messages");
   else {
     if (msgs[0].role !== "user") errs.push("first message is not user");
-    if (msgs.at(-1).role !== "user") errs.push("last message is not user (prefill rejected)");
+    // A trailing mid-conversation system message must follow a user turn.
+    const lastConv = msgs.at(-1).role === "system" ? msgs.at(-2) : msgs.at(-1);
+    if (!lastConv || lastConv.role !== "user") errs.push("last message is not user (prefill rejected)");
     msgs.forEach((m, i) => {
+      if (m.role === "system") {
+        if (i !== msgs.length - 1 && msgs[i + 1]?.role !== "assistant") errs.push(`messages.${i}: system message not last`);
+        if (i === 0 || msgs[i - 1].role !== "user") errs.push(`messages.${i}: system message must follow a user turn`);
+        if (typeof m.content !== "string" || !m.content.trim()) errs.push(`messages.${i}: empty system message`);
+        return;
+      }
       if (!["user", "assistant"].includes(m.role)) errs.push(`messages.${i}: role ${m.role}`);
       if (i > 0 && msgs[i - 1].role === m.role) errs.push(`messages.${i}: consecutive ${m.role} turns`);
       const blocks = typeof m.content === "string" ? [{ type: "text", text: m.content }] : m.content;
@@ -151,7 +160,10 @@ function model(body) {
       for (const t of ["exec", "write_file", "record_experiment", "request_help", "message_owner", "sleep"]) if (!offered.has(t)) fail(`tool ${t} not offered`);
       for (const t of ["spawn_child", "expose_port", "create_sandbox", "topup_credits"]) if (offered.has(t)) fail(`tool ${t} offered`);
       for (const t of ["web_search", "web_fetch", "view_page", "browse", "set_budget_focus"]) if (!offered.has(t)) fail(`tool ${t} not offered`);
-      const sys = body.system.map((b) => b.text).join("");
+      const trailing = body.messages.at(-1).role === "system" ? body.messages.at(-1).content : "";
+      if (!trailing.includes("SURVIVAL: balance")) fail("live state not sent as a trailing system message");
+      if (body.system.map((b) => b.text).join("").includes("SURVIVAL: balance")) fail("live state still in the cached system prefix");
+      const sys = body.system.map((b) => b.text).join("") + trailing;
       if (!/SURVIVAL: balance/.test(sys)) fail("survival line missing from system prompt");
       if (!/autostart\.sh/.test(sys)) fail("prompt does not mention autostart.sh");
       return respond([use("exec", { command: "mkdir -p ~/site && printf '<h1>Factures</h1>' > ~/site/index.html && ls ~/site" })]);
@@ -236,6 +248,15 @@ const server = http.createServer(async (req, res) => {
     const body = JSON.parse(raw);
     log.push({ at: Date.now(), kind: "anthropic", step, body });
     const errs = validate(body);
+    // Simulated prompt cache: the previous request's history breakpoint is a hit
+    // if this request starts with exactly the same messages up to that point.
+    const strip = (m) => JSON.stringify(m, (k, v) => (k === "cache_control" ? undefined : v));
+    const bp = body.messages.findLastIndex((m) => Array.isArray(m.content) && m.content.some((b) => b.cache_control));
+    if (cacheState.prev && cacheState.prev.bp >= 0) {
+      const same = cacheState.prev.msgs.slice(0, cacheState.prev.bp + 1).every((m, i) => body.messages[i] && strip(body.messages[i]) === m);
+      same ? cacheState.hits++ : cacheState.misses++;
+    }
+    cacheState.prev = { bp, msgs: body.messages.map(strip) };
     if (errs.length) {
       fail(`Anthropic would reject request (step ${step}): ${errs.join("; ")}`);
       return send(400, { type: "error", error: { type: "invalid_request_error", message: errs[0] } });
@@ -359,6 +380,9 @@ if (!/Financement propriétaire : 20\.00 USD/.test(status)) fail("/fonds 5 not b
 if (!/Revenu confirmé par le fournisseur : 10\.80 USD/.test(status)) fail("Stripe EUR charge not booked as 10.80 USD confirmed revenue");
 if (/Autre devise/.test(status)) fail("other-currency charge imported");
 const spent = status.match(/dépensé ([\d.]+) USD/);
+const total = cacheState.hits + cacheState.misses;
+console.log(`  history cache: ${cacheState.hits}/${total} consecutive requests reuse the previous history`);
+if (total > 0 && cacheState.hits / total < 0.5) fail(`history cache hit rate too low (${cacheState.hits}/${total})`);
 console.log(`  spent per status: ${spent?.[1]} USD over ${log.filter((l) => l.kind === "anthropic").length} Anthropic requests`);
 if (/Error|ERROR|FATAL/.test(out)) {
   for (const line of out.split("\n").filter((l) => /ERROR|FATAL|Error:/.test(l)).slice(0, 15)) console.log(`  log: ${line.slice(0, 300)}`);

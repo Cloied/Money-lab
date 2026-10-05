@@ -27,7 +27,7 @@ import type {
 import { DEFAULT_MODEL_STRATEGY_CONFIG } from "../types.js";
 import type { PolicyEngine } from "./policy-engine.js";
 import { buildSystemPrompt, buildWakeupPrompt } from "./system-prompt.js";
-import { buildContextMessages, trimContext } from "./context.js";
+import { DEFAULT_TOKEN_BUDGET, buildContextMessages, trimContext } from "./context.js";
 import {
   createBuiltinTools,
   loadInstalledTools,
@@ -69,7 +69,7 @@ import { automaticTopupsAllowed, hasInferenceLimits, moneyLabDeniedTools } from 
 import { seedAnthropicModels, survivalBalance } from "../money-lab/selfhosted.js";
 import { createMoneyLabTools } from "../money-lab/tools.js";
 import { paidCallBlockReason } from "../money-lab/guard.js";
-import { REVIEW_INSTRUCTIONS, ensureReviewClock, isReviewDue, markReviewed } from "../money-lab/review.js";
+import { REVIEW_INSTRUCTIONS, REVIEW_MODEL, REVIEW_MODEL_TURNS, ensureReviewClock, isReviewDue, markReviewed } from "../money-lab/review.js";
 import { recordFocusSpend } from "../money-lab/allocation.js";
 import { MONEY_LAB_WAKE_REASON_KEY, OWNER_TELEGRAM_SENDER, ensureMoneyLabSchema, pause as pauseMoneyLab, queueOwnerNotification } from "../money-lab/journal.js";
 
@@ -78,6 +78,8 @@ const MAX_TOOL_CALLS_PER_TURN = 10;
 const MAX_CONSECUTIVE_ERRORS = 5;
 const MAX_REPETITIVE_TURNS = 3;
 const MONEY_LAB_IDLE_SLEEP_MS = 15 * 60_000;
+const MONEY_LAB_WINDOW = 20;
+const MONEY_LAB_WINDOW_STEP = 10;
 
 export interface AgentLoopOptions {
   identity: AutomatonIdentity;
@@ -403,6 +405,7 @@ export async function runAgentLoop(
   // Weekly review: marked done only once a paid turn actually runs, so a
   // paused or budget-blocked wake does not skip it.
   let reviewPending = false;
+  let reviewModelTurns = 0;
   if (moneyLab) {
     const reason = db.getKV(MONEY_LAB_WAKE_REASON_KEY);
     if (reason) {
@@ -412,6 +415,7 @@ export async function runAgentLoop(
     ensureReviewClock(db.raw);
     if (isReviewDue(db.raw)) {
       reviewPending = true;
+      reviewModelTurns = REVIEW_MODEL_TURNS;
       wakeupInput += `\n\n${REVIEW_INSTRUCTIONS}`;
     }
   }
@@ -548,15 +552,20 @@ export async function runAgentLoop(
 
       // Build context — filter out purely idle turns (only status checks)
       // to prevent the model from continuing a status-check pattern
-      const allTurns = db.getRecentTurns(20);
+      // Money Lab: the window grows by one turn per turn and only drops its
+      // oldest 10 turns every 10 turns, so the history stays a stable,
+      // cacheable prefix 9 turns out of 10 (a sliding window changes it every turn).
+      const allTurns = moneyLab
+        ? db.getRecentTurns(MONEY_LAB_WINDOW + MONEY_LAB_WINDOW_STEP - 1)
+          .slice(-(MONEY_LAB_WINDOW + (db.getTurnCount() % MONEY_LAB_WINDOW_STEP)))
+        : db.getRecentTurns(20);
       const meaningfulTurns = allTurns.filter((t) => {
         if (t.toolCalls.length === 0) return true; // text-only turns are meaningful
         return t.toolCalls.some((tc) => !isIdleOnlyTool(tc.name));
       });
       // Keep at least the last 2 turns for continuity, even if idle
-      const recentTurns = trimContext(
-        meaningfulTurns.length > 0 ? meaningfulTurns : allTurns.slice(-2),
-      );
+      const keptTurns = meaningfulTurns.length > 0 ? meaningfulTurns : allTurns.slice(-2);
+      const recentTurns = moneyLab ? keptTurns : trimContext(keptTurns);
       const systemPrompt = buildSystemPrompt({
         identity,
         config,
@@ -588,7 +597,9 @@ export async function runAgentLoop(
         pendingInput,
         // Money Lab on a server does most work through exec: only identical
         // calls are repetition, not three different commands.
-        moneyLab ? { repeatByCall: true } : undefined,
+        // A larger turn budget keeps the summary split from moving every turn
+        // (the cached history is billed at a tenth of the input price).
+        moneyLab ? { repeatByCall: true, budget: { ...DEFAULT_TOKEN_BUDGET, recentTurns: 100_000 } } : undefined,
       );
 
       // Inject memory block after system prompt, before conversation history
@@ -702,6 +713,7 @@ export async function runAgentLoop(
           tools: inferenceTools,
           // Money Lab bounds output tokens so the per-call estimate holds.
           ...(moneyLab ? { maxTokens: config.maxTokensPerTurn } : {}),
+          ...(reviewModelTurns > 0 ? { model: REVIEW_MODEL } : {}),
         },
         (msgs, opts) => inference.chat(msgs, { ...opts, tools: inferenceTools }),
       );
@@ -737,6 +749,10 @@ export async function runAgentLoop(
       }
 
       if (moneyLab) recordFocusSpend(db.raw, routerResult.costCents);
+      if (reviewModelTurns > 0) {
+        reviewModelTurns--;
+        log(config, `[MONEY LAB] Weekly review turn on ${routerResult.model}.`);
+      }
 
       if (reviewPending && routerResult.finishReason !== "budget_exceeded") {
         markReviewed(db.raw);
@@ -1055,6 +1071,19 @@ export async function runAgentLoop(
           config,
           `[FATAL] ${MAX_CONSECUTIVE_ERRORS} consecutive errors. Sleeping.`,
         );
+        // Money Lab: tell the owner instead of failing silently (at most hourly).
+        if (moneyLab) {
+          const last = Number(db.getKV("money_lab.last_error_alert") ?? "0");
+          if (Date.now() - last > 60 * 60_000) {
+            db.setKV("money_lab.last_error_alert", String(Date.now()));
+            queueOwnerNotification(
+              db.raw,
+              `⚠️ Le bot a enchaîné ${MAX_CONSECUTIVE_ERRORS} erreurs et se repose 5 minutes avant de réessayer.\n` +
+                `Dernière erreur : ${String(err?.message ?? err).slice(0, 300)}\n` +
+                "Si ce message revient, regarde les logs (journalctl -u money-lab) ou mets-le en pause (/pause).",
+            );
+          }
+        }
         db.setAgentState("sleeping");
         onStateChange?.("sleeping");
         db.setKV(

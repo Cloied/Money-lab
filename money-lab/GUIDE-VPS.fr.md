@@ -176,10 +176,28 @@ Ces accès le rendent autonome : il publie, lit ses statistiques, regarde ses pa
 Ces deux jetons sont **lisibles par le bot** (c'est voulu) : limite-les comme indiqué. Le pire qu'il
 puisse faire avec, c'est modifier ses propres dépôts ou lire ses propres statistiques.
 
+5. **Google Search Console** (facultatif, lecture seule) : sur https://console.cloud.google.com, crée un
+   projet, active l'API *Google Search Console API*, puis *IAM → Comptes de service → Créer* (aucun
+   rôle) → onglet *Clés* → *Ajouter une clé → JSON* (un fichier se télécharge). Dans Search Console,
+   *Paramètres → Utilisateurs et autorisations → Ajouter* : l'adresse du compte de service
+   (`...@...iam.gserviceaccount.com`), autorisation *Restreint*. Copie le fichier sur le serveur sans
+   l'afficher : `scp fichier.json root@IP:/home/moneylab/.automaton/gsc-key.json`, puis en root
+   `chown moneylab: /home/moneylab/.automaton/gsc-key.json && chmod 600 /home/moneylab/.automaton/gsc-key.json`.
+   Ajoute `GSC_SITE=https://ton-site/` (l'adresse exacte de la propriété) dans `/etc/money-lab.env` et
+   redémarre. Ce fichier est protégé : le bot ne peut pas le lire avec ses outils, seul le programme s'en sert.
+
 La recherche web (outils Anthropic) est active d'office : environ 1 centime par recherche, compté dans
 son budget.
 
 ## Tes interventions
+
+Pour gagner de l'argent, le bot te demandera (via `request_help`) : un nom de domaine (domaine
+personnalisé GitHub Pages), l'inscription à un programme d'affiliation, une régie publicitaire ou un
+lien de paiement Stripe. Pour que les ventes Stripe soient comptées automatiquement, refais l'étape 3
+puis relance la configuration (étape 7) sans `--no-stripe`.
+
+Le bilan hebdomadaire utilise Claude Opus 5.5 (plus fort, environ deux fois plus cher) pour ses
+4 premiers tours, puis revient à Sonnet ; il reste soumis aux mêmes plafonds.
 
 Le bot travaille seul. Il te sollicite seulement pour : créer des comptes à ton nom (hébergement,
 Stripe, domaine, réseaux publicitaires), payer, confirmer les revenus hors Stripe et tout ce qui est

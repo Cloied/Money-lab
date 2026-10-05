@@ -45,8 +45,9 @@ export class InferenceRouter {
   ): Promise<InferenceResult> {
     const { messages, taskType, tier, sessionId, turnId, tools } = request;
 
-    // 1. Select model from routing matrix
-    const model = this.selectModel(tier, taskType);
+    // 1. Select model: a requested model (e.g. a stronger one for a review)
+    // if enabled and within the per-call budget, else the routing matrix.
+    const model = this.preferredModel(request) ?? this.selectModel(tier, taskType);
     if (!model) {
       return {
         content: "",
@@ -211,6 +212,21 @@ export class InferenceRouter {
       finishReason: response.finishReason || "stop",
       ...(costEstimated ? { costEstimated: true } : {}),
     };
+  }
+
+  private preferredModel(request: InferenceRequest): ModelEntry | null {
+    if (!request.model) return null;
+    const entry = this.registry.get(request.model);
+    if (!entry || !entry.enabled) return null;
+    const ceiling = this.budget.config.perCallCeilingCents;
+    if (ceiling > 0) {
+      const tokens = request.messages.reduce((sum, m) => sum + (m.content?.length || 0) / 4, 0);
+      const estimate = Math.ceil(
+        (tokens / 1000) * entry.costPer1kInput / 100 + (request.maxTokens || 1000) / 1000 * entry.costPer1kOutput / 100,
+      );
+      if (estimate > ceiling) return null;
+    }
+    return entry;
   }
 
   /**

@@ -16,6 +16,9 @@ export const REVIEW_KEY = "money_lab.last_review_at";
 export const REVIEW_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
 export const LESSONS_FILE = "LESSONS.md";
 const LESSONS_MAX_CHARS = 4000;
+/** The weekly review's first turns, where the strategic decisions are made, use the stronger model. */
+export const REVIEW_MODEL = "claude-opus-5-5";
+export const REVIEW_MODEL_TURNS = 4;
 
 export const REVIEW_INSTRUCTIONS = `WEEKLY REVIEW (required in this wake cycle, before anything else):
 1. Gather this week's evidence for every experiment: visits and referrers from your analytics, owner

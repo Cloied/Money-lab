@@ -1,5 +1,5 @@
 # Working status
-- Updated: 2026-10-04
+- Updated: 2026-10-05
 - Branch / commit: claude/money-lab-first-run-bezu7x on upstream Automaton d8f816881fd24b6f5e3d616e59edec387a447667 (0.2.1)
 - Current goal: self-hosted VPS runtime (Claude Sonnet 5.5, Telegram, Stripe, survival goal); development only, no launch.
 - Accepted decisions:
@@ -13,7 +13,7 @@
   status/summary, no-progress sleep, integration note, Conway checklist (features verified in docs/FEATURES.md).
 - Checks run (command, result, date):
   - likma project feature verify (types/money-lab/build): pass, 2026-10-03
-  - pnpm exec vitest run --exclude src/__tests__/context-hardening.test.ts: 1680/1680 pass (interactive browser added), 2026-10-05
+  - pnpm exec vitest run --exclude src/__tests__/context-hardening.test.ts: 1684/1684 pass (improvements 1-5), 2026-10-05
   - node money-lab/e2e/harness.mjs (real process, strict fake Anthropic/Telegram/Stripe): PASS, 2026-10-05
     (upstream d8f8168 baseline: 1614/1614)
 - First supervised run (owner-approved, 2026-10-04, OVH VPS, $15 funding): Telegram works; the agent
@@ -31,6 +31,10 @@
 - Owner decision 2026-10-05 (full autonomy): web search/fetch, view_page screenshots (incl. print/PDF),
   own GitHub organization and analytics tokens readable by the bot, budget split by purpose, 24 h sleep
   cap, weekly review with ~/LESSONS.md, portfolio of up to 3 experiments. Not yet measured live.
+- Owner decision 2026-10-05 (improvements 1-5): history prompt caching (chunked 20-29 turn window,
+  live state in a trailing system message), Telegram alert on repeated errors and daily state.db
+  backup, revenue levers in the prompt (accounts stay the owner's), read-only Search Console tool,
+  Opus 5.5 for the first 4 turns of the weekly review. Not yet measured live.
 - Blockers and known regressions:
   - Upstream context-hardening.test.ts hangs on unmodified upstream; upstream CI masks it as a warning.
   - In-process limits are bypassable through exec; supervised run only.
