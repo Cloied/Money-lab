@@ -191,6 +191,7 @@ export const SECRET_ENV_VARS = [
   "CONWAY_API_KEY",
   "TELEGRAM_BOT_TOKEN",
   "STRIPE_API_KEY",
+  "BLUESKY_APP_PASSWORD",
 ] as const;
 
 /** Copy of the environment without secrets, for the agent's shell. */

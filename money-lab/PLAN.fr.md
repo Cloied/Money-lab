@@ -9,9 +9,23 @@ CAPTCHA, pas tes comptes personnels, pas de dépassement des plafonds.
 | 1 | `delegate` (Haiku, 2× moins cher), `schedule_job` (tâches gratuites), `recall` (mémoire) | Mise à jour | Fait (2026-10-06) |
 | 1 bis | Réfléchir avant de construire : entonnoir d'idées notées, critique par Opus, 6 h de réflexion, lancement bloqué sans idée validée | Mise à jour | Fait (2026-10-06) |
 | 2 | `audit_page` (Lighthouse), `ab_test` (tests A/B sans cookies) | Mise à jour | Fait (2026-10-06) |
-| 3 | Nom de domaine choisi par le bot (il vérifie la disponibilité et te demande l'achat), réseau social Bluesky, création d'images pour les réseaux | Acheter le domaine, créer le compte Bluesky | À faire |
+| 3 | Nom de domaine choisi par le bot (`check_domain`, il te demande l'achat), images pour les réseaux (`render_image`), publication Bluesky validée par toi (`post_social`, `/publier`) | Acheter le domaine, créer le compte Bluesky | Code fait (2026-10-06), comptes à créer |
 | 4 | Adresse e-mail dédiée (après le domaine) | Créer l'adresse | À faire |
 | 5 | Revenus : Stripe, affiliation, publicité | Statut, comptes | Après le reste |
+
+## Étape 3 : domaine, images, réseaux
+
+- **Domaine.** `check_domain` interroge les registres (RDAP, gratuit) : libre ou pris, avec la date
+  d'expiration. Le bot choisit lui-même entre un domaine unique (outils dans des dossiers,
+  `marque.fr/devis/`, conseillé pour Google) et des sous-domaines. Il te demande l'achat avec son choix,
+  deux alternatives, le prix et ses raisons. Il prépare ensuite GitHub Pages et te donne les
+  enregistrements DNS à saisir chez OVH.
+- **Images.** `render_image` : il dessine en HTML/CSS et Chrome produit un PNG aux formats des réseaux
+  (aperçu de lien 1200×630, carré 1080×1080, portrait, story, bannière). Gratuit.
+- **Bluesky.** `post_social` : il rédige, tu reçois chaque brouillon sur Telegram et tu réponds
+  `/publier <id>` ou `/rejeter <id> [raison]`. Au plus 3 publications par jour, ni réponses ni messages
+  privés. `/publications auto` supprime la validation, `/publications validation` la remet. Le mot de
+  passe d'application est lu par le programme, jamais par le bot.
 
 ## Étape 1 bis : réfléchir avant de construire
 

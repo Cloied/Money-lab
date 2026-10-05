@@ -21,6 +21,8 @@ import {
   OWNER_TELEGRAM_SENDER,
 } from "./journal.js";
 
+import { approvalRequired, decidePost, describePosts, setApprovalMode } from "./social.js";
+
 const KV_OFFSET = "money_lab.telegram_offset";
 const KV_SUMMARY_DAY = "money_lab.telegram_summary_day";
 const MAX_MESSAGE = 3900;
@@ -35,6 +37,9 @@ export const TELEGRAM_HELP = `Commandes Money Lab :
 /non <id> [raison] — demande refusée
 /fonds <montant $> [réf] — ajouter des fonds (ex : /fonds 21.50)
 /revenu <montant $> <réf> — revenu hors Stripe, confirmé par toi
+/publier <id> — publier une publication proposée par le bot
+/rejeter <id> [raison] — refuser une publication
+/publications [auto|validation] — voir les publications, ou changer le mode
 /aide — cette liste
 Tout autre message est transmis au bot.`;
 
@@ -156,6 +161,21 @@ export class TelegramChannel {
         const cents = parseDollars(args[0]);
         if (cents === null || !args[1]) return "Usage : /revenu <montant en $> <référence> — ex : /revenu 12.00 vente-42";
         return run(["ledger-add", "confirmed_revenue", String(cents), args[1], "revenu confirmé via Telegram"]);
+      }
+      case "/publier":
+      case "/rejeter": {
+        const [id, ...note] = args;
+        if (!id) return `Usage : ${command} <id>${command === "/rejeter" ? " [raison]" : ""}`;
+        return decidePost(this.raw, id, command === "/publier", note.join(" "));
+      }
+      case "/publications": {
+        if (args[0] === "auto" || args[0] === "validation") {
+          setApprovalMode(this.raw, args[0] === "auto" ? "auto" : "required");
+          return args[0] === "auto"
+            ? "Mode automatique : le bot publie sans validation (3 publications par jour au maximum)."
+            : "Mode validation : chaque publication attend ton /publier.";
+        }
+        return `Mode : ${approvalRequired(this.raw) ? "validation" : "automatique"}\n${describePosts(this.raw)}`;
       }
       default:
         return `Commande inconnue.\n\n${TELEGRAM_HELP}`;

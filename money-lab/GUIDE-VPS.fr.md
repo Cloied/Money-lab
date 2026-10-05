@@ -186,6 +186,16 @@ puisse faire avec, c'est modifier ses propres dépôts ou lire ses propres stati
    Ajoute `GSC_SITE=https://ton-site/` (l'adresse exacte de la propriété) dans `/etc/money-lab.env` et
    redémarre. Ce fichier est protégé : le bot ne peut pas le lire avec ses outils, seul le programme s'en sert.
 
+6. **Bluesky** (quand le bot aura quelque chose à montrer) : crée un compte sur https://bsky.app avec une
+   adresse e-mail à toi, puis *Paramètres → Confidentialité et sécurité → Mots de passe d'application →
+   Ajouter*. Mets dans `/etc/money-lab.env` : `BLUESKY_HANDLE=ton-compte.bsky.social` et
+   `BLUESKY_APP_PASSWORD=xxxx-xxxx-xxxx-xxxx`, puis redémarre. Le bot ne voit pas ce mot de passe. Chaque
+   publication t'arrive sur Telegram : `/publier <id>` ou `/rejeter <id> [raison]`.
+7. **Nom de domaine** (quand le bot le demande) : achète le nom qu'il propose chez OVH (*Noms de domaine →
+   Commander*), puis dans *Zone DNS* ajoute les enregistrements qu'il t'indique (4 lignes A vers
+   185.199.108.153 à 185.199.111.153, et `www` en CNAME vers son organisation GitHub). Réponds `/ok <id>`
+   à sa demande : il termine la configuration lui-même.
+
 La recherche web (outils Anthropic) est active d'office : environ 1 centime par recherche, compté dans
 son budget.
 

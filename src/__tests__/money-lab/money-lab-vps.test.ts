@@ -72,6 +72,9 @@ import { auditPage, summarizeLighthouse } from "../../money-lab/audit.js";
 import { abVerdict } from "../../money-lab/abtest.js";
 import { CRITERIA, getIdea, listIdeas } from "../../money-lab/ideas.js";
 import { parseVerdict } from "../../money-lab/critic.js";
+import { checkDomains } from "../../money-lab/domain.js";
+import { renderImage } from "../../money-lab/image.js";
+import { draftPost, linkFacets, listPosts, publishApproved } from "../../money-lab/social.js";
 import { pause as pauseMoneyLab, upsertExperiment } from "../../money-lab/journal.js";
 
 function vpsProfile(overrides: Record<string, unknown> = {}): Record<string, unknown> {
@@ -636,6 +639,10 @@ describe("Autonomy capabilities", () => {
         const file = String(r.result).match(/\[\[image:(.+\.png)\]\]/)?.[1];
         expect(file, `${viewport}: ${r.result}${r.error ?? ""}`).toBeTruthy();
         expect(fs.statSync(file!).size).toBeGreaterThan(1000);
+        if (viewport === "desktop") {
+          const header = fs.readFileSync(file!).subarray(16, 24);
+          expect([header.readUInt32BE(0), header.readUInt32BE(4)]).toEqual([1280, 1600]);
+        }
       }
       const shot = String((await executeTool("view_page", { url: `http://127.0.0.1:${port}/` }, tools, toolCtx(db, conway), engine, turnCtx(db))).result);
       expect((await executeTool("view_page", { url: "file:///etc/passwd" }, tools, toolCtx(db, conway), engine, turnCtx(db))).result)
@@ -1290,5 +1297,104 @@ describe("Idea pipeline", () => {
     expect(parseVerdict("Verdict: **NO-GO**")).toBe("NO-GO");
     expect(parseVerdict("Verdict: go")).toBe("GO");
     expect(parseVerdict("rien")).toBe(null);
+  });
+});
+
+// ─── Step 3: domain, images, Bluesky (2026-10-06) ──────────────
+
+describe("Domain availability", () => {
+  it("reads registry RDAP answers: 404 free, 200 taken with expiry", async () => {
+    const fetchFn = vi.fn(async (url: string) => {
+      if (url.endsWith("/devis-artisan.fr")) return new Response("{}", { status: 404 });
+      if (url.endsWith("/google.fr")) {
+        return new Response(JSON.stringify({ events: [{ eventAction: "expiration", eventDate: "2027-12-30T00:00:00Z" }] }), { status: 200 });
+      }
+      return new Response("", { status: 503 });
+    });
+    const text = await checkDomains(["Devis-Artisan.fr", "https://google.fr/", "bad name", "slow.com"], fetchFn as any);
+    expect(fetchFn).toHaveBeenCalledWith("https://rdap.org/domain/devis-artisan.fr", expect.anything());
+    expect(text).toContain("FREE devis-artisan.fr: no registration found");
+    expect(text).toContain("TAKEN google.fr: registered, expires 2027-12-30");
+    expect(text).toContain("INVALID bad name");
+    expect(text).toContain("? slow.com: registry answered HTTP 503");
+  });
+});
+
+describe("Image rendering", () => {
+  it("renders an HTML design at a network preset with Chrome and shows it to the agent", async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "money-lab-image-"));
+    tmpDirs.push(home);
+    const renders: unknown[][] = [];
+    const render = async (url: string, out: string, width: number, height: number) => {
+      renders.push([url, width, height]);
+      fs.writeFileSync(out, Buffer.alloc(2048));
+    };
+    const text = await renderImage({ name: "og-devis", html: "<h1>Devis en 2 minutes</h1>", preset: "og" }, { render, home });
+    expect(renders[0]).toEqual([`file://${path.join(home, "images", "src", "og-devis.html")}`, 1200, 630]);
+    expect(fs.readFileSync(path.join(home, "images", "src", "og-devis.html"), "utf-8")).toContain("width:1200px;height:630px");
+    expect(text).toContain(`[[image:${path.join(home, "images", "og-devis.png")}]]`);
+    expect(await renderImage({ name: "Bad Name", html: "x", preset: "og" }, { render, home })).toMatch(/name must/);
+    expect(await renderImage({ name: "x", html: "x" }, { render, home })).toMatch(/Choose a preset/);
+    expect(await renderImage({ name: "x", file: "/etc/passwd", preset: "square" }, { render, home })).toMatch(/home directory/);
+    const failing = async () => { throw new Error("Browser closed\nstack"); };
+    expect(await renderImage({ name: "y", html: "x", preset: "square" }, { render: failing, home })).toBe("Rendering failed: Browser closed");
+  });
+});
+
+describe("Bluesky posting", () => {
+  it("sends drafts to the owner, publishes approved ones with clickable links and an image, at most 3 a day", async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "money-lab-social-"));
+    tmpDirs.push(home);
+    fs.mkdirSync(path.join(home, "images"));
+    fs.writeFileSync(path.join(home, "images", "og.png"), Buffer.from([137, 80, 78, 71]));
+    const db = openDb();
+    const now = new Date("2026-10-06T10:00:00Z");
+    const text = "Nouveau : générez un devis d'artisan en 2 minutes → https://devis-artisan.fr/plombier/ (gratuit)";
+    expect(draftPost(db.raw, { text: "é".repeat(301) }, { home, now })).toMatch(/limited to 300/);
+    expect(draftPost(db.raw, { text: "x", image: "/etc/hosts" }, { home, now })).toMatch(/~\/images/);
+    expect(draftPost(db.raw, { text: "x", image: "~/images/og.png" }, { home, now })).toMatch(/alt is required/);
+    const post = draftPost(db.raw, { text, image: "~/images/og.png", alt: "Aperçu du générateur de devis" }, { home, now }) as any;
+    expect(post.status).toBe("pending");
+    const notice = pendingOwnerNotifications(db.raw).at(-1)!.text;
+    expect(notice).toContain(`/publier ${post.id}`);
+    expect(notice).toContain(text);
+
+    const channel = new TelegramChannel("TOKEN", 42, db, vpsConfig(), (async () => new Response("{}")) as any);
+    expect(channel.handleOwnerText(`/publier ${post.id}`, 1)).toMatch(/validée/);
+    expect(channel.handleOwnerText(`/publier ${post.id}`, 2)).toMatch(/déjà traitée/);
+
+    const calls: Array<{ url: string; init: RequestInit }> = [];
+    const fetchFn = vi.fn(async (url: string, init: RequestInit) => {
+      calls.push({ url, init });
+      if (url.endsWith("createSession")) return new Response(JSON.stringify({ accessJwt: "jwt", did: "did:plc:abc" }));
+      if (url.endsWith("uploadBlob")) return new Response(JSON.stringify({ blob: { $type: "blob", ref: { $link: "bafy" }, mimeType: "image/png", size: 4 } }));
+      return new Response(JSON.stringify({ uri: "at://did:plc:abc/app.bsky.feed.post/3kxyz", cid: "c" }));
+    });
+    const env = { BLUESKY_HANDLE: "@moneylab.bsky.social", BLUESKY_APP_PASSWORD: "xxxx-xxxx-xxxx-xxxx" };
+    expect(await publishApproved(db.raw, { env, fetchFn: fetchFn as any, now: () => now })).toBe(1);
+    expect(JSON.parse(String(calls[0].init.body))).toEqual({ identifier: "moneylab.bsky.social", password: "xxxx-xxxx-xxxx-xxxx" });
+    expect(new Headers(calls[1].init.headers as HeadersInit).get("authorization")).toBe("Bearer jwt");
+    const record = JSON.parse(String(calls[2].init.body)).record;
+    expect(record.embed.images[0]).toMatchObject({ alt: "Aperçu du générateur de devis", image: { ref: { $link: "bafy" } } });
+    const facet = record.facets[0];
+    expect(Buffer.from(text).subarray(facet.index.byteStart, facet.index.byteEnd).toString()).toBe("https://devis-artisan.fr/plombier/");
+    expect(listPosts(db.raw)[0]).toMatchObject({ status: "posted", url: "https://bsky.app/profile/moneylab.bsky.social/post/3kxyz" });
+    expect(pendingOwnerNotifications(db.raw).at(-1)!.text).toContain("Publié sur Bluesky");
+
+    expect(channel.handleOwnerText("/publications auto", 3)).toMatch(/Mode automatique/);
+    expect((draftPost(db.raw, { text: "Deuxième" }, { home, now }) as any).status).toBe("approved");
+    draftPost(db.raw, { text: "Troisième" }, { home, now });
+    expect(draftPost(db.raw, { text: "Quatrième" }, { home, now })).toMatch(/At most 3 posts a day/);
+    expect(channel.handleOwnerText("/publications", 4)).toContain("Mode : automatique");
+    expect(linkFacets("pas de lien")).toEqual([]);
+
+    const ctx: ToolContext = {
+      identity: { ...createTestIdentity(), sandboxId: "" }, config: vpsConfig(), db, conway: new MockConwayClient(), inference: new MockInferenceClient(),
+    };
+    const r = await executeTool("exec", { command: "echo $BLUESKY_APP_PASSWORD" }, [...createBuiltinTools(""), ...createMoneyLabTools()], ctx,
+      new PolicyEngine(db.raw, createDefaultRules()), { inputSource: "agent" as const, turnToolCallCount: 0, sessionSpend: new SpendTracker(db.raw) });
+    expect(r.error).toMatch(/MONEY_LAB_PROTECTED_COMMAND/);
+    expect(scrubbedEnv({ PATH: "/bin", BLUESKY_APP_PASSWORD: "s" })).toEqual({ PATH: "/bin" });
+    db.close();
   });
 });

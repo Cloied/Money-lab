@@ -33,6 +33,9 @@ import {
   markIdeaLaunched, rankedIdeas, upsertIdea,
 } from "./ideas.js";
 import { challengeIdea } from "./critic.js";
+import { checkDomains } from "./domain.js";
+import { IMAGE_PRESETS, playwrightRender, renderImage } from "./image.js";
+import { blueskyCredentials, describePosts, draftPost } from "./social.js";
 
 /** Marker the Anthropic client turns into an image block (recent results only). */
 export const SCREENSHOT_MARKER = /\[\[image:([^\]\s]+\.png)\]\]/g;
@@ -290,13 +293,23 @@ export function createMoneyLabTools(): AutomatonTool[] {
         const file = `${base}.png`;
         const chrome = `${shellQuote(browser)} --headless=new --no-sandbox --disable-gpu --hide-scrollbars ` +
           `--window-size=${width},${height} --virtual-time-budget=5000`;
-        const command = viewport === "print"
+        let result = { exitCode: 0, stdout: "", stderr: "" };
+        if (viewport === "print") {
           // Print exactly what a visitor gets, then render the first PDF page.
-          ? `${chrome} --no-pdf-header-footer --print-to-pdf=${shellQuote(`${base}.pdf`)} ${shellQuote(url.toString())} && ` +
-            `pdftoppm -png -r 80 -f 1 -l 1 -singlefile ${shellQuote(`${base}.pdf`)} ${shellQuote(base)}`
-          : `${chrome} --screenshot=${shellQuote(file)} ${shellQuote(url.toString())}`;
-        const result = await ctx.conway.exec(command, 45_000);
-        fs.rmSync(`${base}.pdf`, { force: true });
+          result = await ctx.conway.exec(
+            `${chrome} --no-pdf-header-footer --print-to-pdf=${shellQuote(`${base}.pdf`)} ${shellQuote(url.toString())} && ` +
+            `pdftoppm -png -r 80 -f 1 -l 1 -singlefile ${shellQuote(`${base}.pdf`)} ${shellQuote(base)}`,
+            45_000,
+          );
+          fs.rmSync(`${base}.pdf`, { force: true });
+        } else {
+          // Exact viewport (Chrome's own --screenshot leaves a blank band at the bottom).
+          try {
+            await playwrightRender(browser)(url.toString(), file, width, height);
+          } catch (err: any) {
+            result = { exitCode: 1, stdout: "", stderr: String(err?.message ?? err).split("\n")[0] };
+          }
+        }
         if (!fs.existsSync(file)) {
           const hint = viewport === "print" && /pdftoppm/.test(result.stderr)
             ? " (pdftoppm missing: ask the owner to install poppler-utils)"
@@ -420,6 +433,89 @@ export function createMoneyLabTools(): AutomatonTool[] {
           default:
             return describeAbTests(ctx.db.raw);
         }
+      },
+    },
+    {
+      name: "check_domain",
+      description:
+        "Check whether domain names are free to buy (public registry data, free). Use it to shortlist names, " +
+        "then ask the owner with request_help to buy your favourite, with two alternatives, the price and why.",
+      category: "survival",
+      riskLevel: "safe",
+      parameters: {
+        type: "object",
+        properties: {
+          domains: { type: "array", items: { type: "string" }, description: "Up to 20 names, e.g. [\"devis-artisan.fr\", \"devisartisan.com\"]" },
+        },
+        required: ["domains"],
+      },
+      execute: async (args) => checkDomains(stringList(args.domains) ?? []),
+    },
+    {
+      name: "render_image",
+      description:
+        "Create an image for social networks or your sites: design it in HTML/CSS (text, colours, layout, inline " +
+        "SVG, your screenshots) and the server's Chrome renders it to ~/images/<name>.png at the right size. " +
+        "Presets: " + Object.entries(IMAGE_PRESETS).map(([k, [w, h]]) => `${k} ${w}x${h}`).join(", ") +
+        " (og = link preview). You see the result to check it.",
+      category: "vm",
+      riskLevel: "safe",
+      parameters: {
+        type: "object",
+        properties: {
+          name: { type: "string", description: "File name without extension, e.g. og-devis-plombier" },
+          html: { type: "string", description: "The design (a full page or a body fragment sized to the image)" },
+          file: { type: "string", description: "Or an HTML file in your home directory" },
+          preset: { type: "string", enum: Object.keys(IMAGE_PRESETS) },
+          width: { type: "integer" },
+          height: { type: "integer" },
+        },
+        required: ["name"],
+      },
+      execute: async (args, ctx) => {
+        if (ctx.identity.sandboxId) return "render_image is only available on a self-hosted server.";
+        const browser = findBrowser();
+        if (!browser) return "No headless browser on this server. Ask the owner (request_help) to install Google Chrome.";
+        return renderImage(
+          {
+            name: String(args.name ?? ""),
+            html: typeof args.html === "string" ? args.html : undefined,
+            file: typeof args.file === "string" ? args.file : undefined,
+            preset: typeof args.preset === "string" ? args.preset : undefined,
+            width: args.width as number | undefined,
+            height: args.height as number | undefined,
+          },
+          { render: playwrightRender(browser), home: process.env.HOME || "/root" },
+        );
+      },
+    },
+    {
+      name: "post_social",
+      description:
+        "Share your work on Bluesky (the owner's account for you): draft a post (300 characters max, links become " +
+        "clickable, optional image from ~/images with alt text). While the owner requires approval, each draft is " +
+        "sent to them and published only once approved. At most 3 posts a day. Post things people find useful " +
+        "(a tool, a tip, a result), never spam, never reply to or message strangers. Actions: draft, list.",
+      category: "survival",
+      riskLevel: "caution",
+      parameters: {
+        type: "object",
+        properties: {
+          action: { type: "string", enum: ["draft", "list"] },
+          text: { type: "string" },
+          image: { type: "string", description: "e.g. ~/images/og-devis.png" },
+          alt: { type: "string", description: "Image description, required with an image" },
+        },
+        required: ["action"],
+      },
+      execute: async (args, ctx) => {
+        if (args.action !== "draft") return describePosts(ctx.db.raw);
+        if (!blueskyCredentials()) return "No Bluesky account yet. Ask the owner with request_help when you have something worth sharing.";
+        const post = draftPost(ctx.db.raw, args, { home: process.env.HOME || "/root" });
+        if (typeof post === "string") return post;
+        return post.status === "pending"
+          ? `Draft ${post.id} sent to the owner for approval; it is published once approved. Do not wait for it.`
+          : `Post ${post.id} queued: it is published within a minute.`;
       },
     },
     {
