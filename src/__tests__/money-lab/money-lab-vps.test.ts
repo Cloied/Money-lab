@@ -686,10 +686,25 @@ describe("Autonomy capabilities", () => {
     expect(res.message.content).toContain('Searched: "invoice generator niche"');
     expect(res.message.content).toContain("Concurrent A — https://a.example");
 
+    // A server tool error (HTTP 200, error object) is reported, not dropped.
+    fetchSpy.mockResolvedValueOnce(reply({
+      content: [
+        { type: "server_tool_use", id: "srv_2", name: "web_search", input: { query: "niche" } },
+        { type: "web_search_tool_result", tool_use_id: "srv_2", content: { type: "web_search_tool_result_error", error_code: "unavailable" } },
+        { type: "text", text: "La recherche a échoué." },
+      ],
+      stop_reason: "end_turn",
+      usage: { input_tokens: 10, output_tokens: 5 },
+    }));
+    const failed = await client.chat([{ role: "user", content: "Cherche." }],
+      { tools: [{ type: "function", function: { name: "exec", description: "run", parameters: { type: "object", properties: {} } } }] } as any);
+    expect(failed.message.content).toContain("Errors: web_search: unavailable");
+    fetchSpy.mockClear();
+
     // Summaries and other tool-less calls never search.
     fetchSpy.mockResolvedValueOnce(reply({ content: [{ type: "text", text: "ok" }], stop_reason: "end_turn", usage: { input_tokens: 1, output_tokens: 1 } }));
     await client.chat([{ role: "user", content: "Résume." }]);
-    expect(JSON.parse(String((fetchSpy.mock.calls[2] as [string, RequestInit])[1].body)).tools).toBeUndefined();
+    expect(JSON.parse(String((fetchSpy.mock.calls[0] as [string, RequestInit])[1].body)).tools).toBeUndefined();
   });
 
   it("splits the budget by purpose and attributes spend to the current focus", async () => {
