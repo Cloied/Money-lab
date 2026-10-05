@@ -69,7 +69,7 @@ import { automaticTopupsAllowed, hasInferenceLimits, moneyLabDeniedTools } from 
 import { seedAnthropicModels, survivalBalance } from "../money-lab/selfhosted.js";
 import { createMoneyLabTools } from "../money-lab/tools.js";
 import { paidCallBlockReason } from "../money-lab/guard.js";
-import { OWNER_TELEGRAM_SENDER, ensureMoneyLabSchema, pause as pauseMoneyLab, queueOwnerNotification } from "../money-lab/journal.js";
+import { MONEY_LAB_WAKE_REASON_KEY, OWNER_TELEGRAM_SENDER, ensureMoneyLabSchema, pause as pauseMoneyLab, queueOwnerNotification } from "../money-lab/journal.js";
 
 const logger = createLogger("loop");
 const MAX_TOOL_CALLS_PER_TURN = 10;
@@ -392,12 +392,19 @@ export async function runAgentLoop(
   const isFirstRun = db.getTurnCount() === 0;
 
   // Build wakeup prompt
-  const wakeupInput = buildWakeupPrompt({
+  let wakeupInput = buildWakeupPrompt({
     identity,
     config,
     financial,
     db,
   });
+  if (moneyLab) {
+    const reason = db.getKV(MONEY_LAB_WAKE_REASON_KEY);
+    if (reason) {
+      wakeupInput += `\n\nWake-up reason: ${reason}. Check what changed before anything else.`;
+      db.deleteKV(MONEY_LAB_WAKE_REASON_KEY);
+    }
+  }
 
   // Transition to running
   db.setAgentState("running");

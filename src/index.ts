@@ -40,6 +40,7 @@ import { applyMoneyLabProfile, automaticTopupsAllowed, MoneyLabConfigError } fro
 import { installMoneyLabPaymentGuard } from "./money-lab/guard.js";
 import { ensureMoneyLabSchema, getPauseState, journalFingerprint } from "./money-lab/journal.js";
 import { afterWakeCycle, isOperatorWake } from "./money-lab/cycle.js";
+import { MONEY_LAB_WAKE_REASON_KEY } from "./money-lab/journal.js";
 import {
   createSelfHostedClient,
   markRunStarted,
@@ -625,6 +626,9 @@ async function run(): Promise<void> {
             logger.info(
               `[${new Date().toISOString()}] Woken by ${wakeEvent.source}: ${wakeEvent.reason}`,
             );
+            // Money Lab: tell the agent why it was woken (help answered,
+            // owner message, funds added...) instead of letting it guess.
+            if (moneyLab) db.setKV(MONEY_LAB_WAKE_REASON_KEY, wakeEvent.reason);
             db.deleteKV("sleep_until");
             break;
           }

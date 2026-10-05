@@ -377,7 +377,7 @@ export function resolveHelpRequest(
     ).run(status, note, now(), id);
     db.prepare(
       "INSERT INTO wake_events (source, reason, payload) VALUES ('money_lab_operator', ?, ?)",
-    ).run(`Help request ${id} ${status}`, JSON.stringify({ helpRequestId: id, status }));
+    ).run(`Help request ${id} ${status}${note ? ` by the owner: ${note}` : ""}`, JSON.stringify({ helpRequestId: id, status }));
     return { outcome: "updated" as const, request: getHelpRequest(db, id) };
   })();
 }
@@ -567,3 +567,6 @@ export function ownerNotificationsToday(db: DB): number {
 
 /** Sender of owner messages relayed from Telegram (only the owner's chat is accepted). */
 export const OWNER_TELEGRAM_SENDER = "owner (Telegram)";
+
+/** KV key holding the reason of the operator event that ended the last sleep. */
+export const MONEY_LAB_WAKE_REASON_KEY = "money_lab.wake_reason";
