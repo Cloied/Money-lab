@@ -24,7 +24,8 @@ identity, scope and constraints are defined here and in the Money Lab specificat
 - Owner decision (2026-10-05): full autonomy. The bot may run a portfolio of up to 3 experiments, use
   web search/fetch, see pages (view_page), publish in its own GitHub organization and read its analytics
   with narrowly scoped credentials it can read (GH_TOKEN, GOATCOUNTER_TOKEN), split its budget by purpose,
-  sleep at most 24 h, and must hold a weekly review that maintains ~/LESSONS.md.
+  sleep at most 24 h, and must hold a weekly review that maintains ~/LESSONS.md. It also drives a headless
+  browser (browse) with its own profile; it must never use the owner's accounts or create accounts.
 - In-process limits are not tamper-proof (exec can bypass them). Never describe them as secure isolation.
 - Unknown cost is never free. Funding is not revenue; estimated income is not cash.
 - Tests must not make network or payment calls (src/__tests__/money-lab replaces fetch with a failing spy).

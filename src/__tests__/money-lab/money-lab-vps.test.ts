@@ -650,6 +650,49 @@ describe("Autonomy capabilities", () => {
     }
   }, 60_000);
 
+  it.skipIf(!browser)("browse drives a real browser: open, list, fill, click, read, screenshot", async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "money-lab-hands-"));
+    tmpDirs.push(home);
+    const server = http.createServer((_req, res) => {
+      res.writeHead(200, { "content-type": "text/html" });
+      res.end(`<title>Facture</title><input id="qty" value="1"><input name="price" value="0">
+        <button onclick="document.getElementById('tot').textContent=(qty.value*document.querySelector('[name=price]').value).toFixed(2)">Calculer</button>
+        <p>Total : <span id="tot">0.00</span></p>`);
+    });
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
+    const url = `http://127.0.0.1:${(server.address() as any).port}/`;
+    const previous = { HOME: process.env.HOME, MONEY_LAB_BROWSER: process.env.MONEY_LAB_BROWSER };
+    process.env.HOME = home;
+    process.env.MONEY_LAB_BROWSER = browser!;
+    try {
+      const db = openDb();
+      const tools = createMoneyLabTools();
+      const engine = new PolicyEngine(db.raw, createDefaultRules());
+      const run = async (args: Record<string, unknown>) =>
+        String((await executeTool("browse", args, tools, toolCtx(db), engine, turnCtx(db))).result);
+      expect(await run({ action: "goto", url })).toContain("Title: Facture");
+      const elements = await run({ action: "elements" });
+      expect(elements).toContain("#qty");
+      expect(elements).toContain('input[name="price"]');
+      expect(elements).toContain('button:has-text("Calculer")');
+      await run({ action: "fill", selector: "#qty", value: "3" });
+      await run({ action: "fill", selector: 'input[name="price"]', value: "12.5" });
+      await run({ action: "click", selector: 'button:has-text("Calculer")' });
+      expect(await run({ action: "text", selector: "#tot" })).toContain("37.50");
+      expect(await run({ action: "screenshot" })).toMatch(/\[\[image:.+\.png\]\]/);
+      expect(await run({ action: "click", selector: "#missing" })).toMatch(/Browser error/);
+      expect(await run({ action: "goto", url: "file:///etc/passwd" })).toMatch(/Only http/);
+      expect(await run({ action: "close" })).toBe("Browser closed.");
+      expect(fs.existsSync(path.join(home, ".money-lab", "browser-profile"))).toBe(true);
+      db.close();
+    } finally {
+      process.env.HOME = previous.HOME;
+      if (previous.MONEY_LAB_BROWSER === undefined) delete process.env.MONEY_LAB_BROWSER;
+      else process.env.MONEY_LAB_BROWSER = previous.MONEY_LAB_BROWSER;
+      server.close();
+    }
+  }, 90_000);
+
   it("offers web search and fetch, resumes a paused turn, bills searches and keeps a trace", async () => {
     const reply = (body: Record<string, unknown>) => new Response(JSON.stringify({
       id: "m", type: "message", role: "assistant", model: "claude-sonnet-5-5", ...body,

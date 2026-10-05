@@ -76,7 +76,9 @@ function capabilityLines(): string {
         `(see https://www.goatcounter.com/api).`
       : "Analytics: no analytics token; ask the owner for visit numbers.",
     cap.browser
-      ? "Eyes: view_page shows you a screenshot of any page (desktop, mobile, or print for the PDF a visitor gets)."
+      ? "Eyes: view_page shows you a screenshot of any page (desktop, mobile, or print for the PDF a visitor gets). " +
+        "Hands in a browser: browse drives a real headless browser on your server (click, fill, read) to test your " +
+        "sites like a user; its profile has none of the owner's accounts."
       : "Eyes: no browser installed; view_page will fail until the owner installs Chrome.",
     "Research: the web_search and web_fetch tools search the web and read pages (about 1 cent per search plus " +
       "the tokens read). Keep durable notes in ~/research/ (sources with dates): your context window forgets.",

@@ -150,7 +150,7 @@ function model(body) {
       const offered = new Set(body.tools.map((t) => t.name));
       for (const t of ["exec", "write_file", "record_experiment", "request_help", "message_owner", "sleep"]) if (!offered.has(t)) fail(`tool ${t} not offered`);
       for (const t of ["spawn_child", "expose_port", "create_sandbox", "topup_credits"]) if (offered.has(t)) fail(`tool ${t} offered`);
-      for (const t of ["web_search", "web_fetch", "view_page", "set_budget_focus"]) if (!offered.has(t)) fail(`tool ${t} not offered`);
+      for (const t of ["web_search", "web_fetch", "view_page", "browse", "set_budget_focus"]) if (!offered.has(t)) fail(`tool ${t} not offered`);
       const sys = body.system.map((b) => b.text).join("");
       if (!/SURVIVAL: balance/.test(sys)) fail("survival line missing from system prompt");
       if (!/autostart\.sh/.test(sys)) fail("prompt does not mention autostart.sh");
