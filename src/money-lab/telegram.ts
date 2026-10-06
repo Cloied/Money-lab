@@ -23,6 +23,7 @@ import {
 } from "./journal.js";
 
 import { approvalRequired, decidePost, describePosts, setApprovalMode } from "./social.js";
+import { withSecrets } from "./selfhosted.js";
 
 const KV_OFFSET = "money_lab.telegram_offset";
 const KV_SUMMARY_DAY = "money_lab.telegram_summary_day";
@@ -236,7 +237,7 @@ export class TelegramChannel {
 export function createTelegramChannel(
   db: AutomatonDatabase,
   config: AutomatonConfig,
-  env: NodeJS.ProcessEnv = process.env,
+  env: NodeJS.ProcessEnv = withSecrets(),
   fetchFn: FetchFn = fetch,
 ): TelegramChannel | null {
   const tg = config.moneyLab?.telegram;

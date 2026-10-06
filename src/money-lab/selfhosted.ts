@@ -207,10 +207,40 @@ export function environmentProtected(): boolean {
   }
 }
 
+/** Secret variable names: the fixed list plus the owner's configured key variables. */
+const secretNames = new Set<string>(SECRET_ENV_VARS);
+/** Secrets moved out of process.env by sealSecrets(). */
+const sealed = new Map<string, string>();
+
+/** Treat more variables as secrets (the owner may name the Telegram or Stripe variable). */
+export function registerSecretEnvNames(names: Array<string | null | undefined>): void {
+  for (const name of names) if (name) secretNames.add(name);
+}
+
+/**
+ * Move the secrets out of process.env. Every process the runtime starts
+ * afterwards (git, curl, which, browsers, the agent's shell) inherits none
+ * of them, even for the instant it runs; the runtime reads them back with
+ * withSecrets().
+ */
+export function sealSecrets(env: NodeJS.ProcessEnv = process.env): void {
+  for (const name of secretNames) {
+    const value = env[name];
+    if (value === undefined) continue;
+    sealed.set(name, value);
+    delete env[name];
+  }
+}
+
+/** The environment with the sealed secrets, for the runtime's own reads. */
+export function withSecrets(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  return { ...Object.fromEntries(sealed), ...env };
+}
+
 /** Copy of the environment without secrets, for the agent's shell. */
 export function scrubbedEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
   const copy: NodeJS.ProcessEnv = { ...env };
-  for (const key of SECRET_ENV_VARS) delete copy[key];
+  for (const key of secretNames) delete copy[key];
   return copy;
 }
 
