@@ -53,8 +53,10 @@ function optionalCents(value: unknown): number | null | undefined {
   return Number(value);
 }
 
+/** A list the model may send as an array or as one string (one item per line). */
 function stringList(value: unknown): string[] | undefined {
-  if (value === undefined) return undefined;
+  if (value === undefined || value === null) return undefined;
+  if (typeof value === "string") return value.split("\n").map((v) => v.trim()).filter(Boolean);
   if (!Array.isArray(value)) throw new Error("Expected an array of strings");
   return value.map((v) => String(v));
 }

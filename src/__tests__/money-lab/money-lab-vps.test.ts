@@ -808,7 +808,7 @@ describe("Autonomy capabilities", () => {
     db.close();
   });
 
-  it("caps sleep at 24 h and runs a weekly review that reads the agent's lessons", async () => {
+  it("caps sleep at 6 h and runs a weekly review that reads the agent's lessons", async () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), "money-lab-review-"));
     tmpDirs.push(home);
     fs.writeFileSync(path.join(home, "LESSONS.md"), "- Reddit filtre les comptes neufs.");
@@ -826,8 +826,8 @@ describe("Autonomy capabilities", () => {
       for (const id of ["a", "b", "c", "d", "e"]) upsertIdea(db.raw, { id, title: id, problem: "p", scores });
       expect(journalFingerprint(db.raw)).not.toBe(fingerprint);
       const s = await executeTool("sleep", { duration_seconds: 604800, reason: "attente" }, tools, toolCtx(db), engine, turnCtx(db));
-      expect(s.result).toMatch(/capped at 24 h/);
-      expect(new Date(db.getKV("sleep_until")!).getTime() - Date.now()).toBeLessThanOrEqual(24 * 3600 * 1000);
+      expect(s.result).toMatch(/capped at 6 h/);
+      expect(new Date(db.getKV("sleep_until")!).getTime() - Date.now()).toBeLessThanOrEqual(6 * 3600 * 1000);
 
       addLedgerEntry(db.raw, { kind: "owner_funding", amountCents: 1000, source: "operator", reference: "f" });
       db.setKV(REVIEW_KEY, new Date(Date.now() - 8 * 24 * 3600 * 1000).toISOString());
@@ -1300,6 +1300,9 @@ describe("Idea pipeline", () => {
     expect(await call("record_experiment", { status: "building", hypothesis: "Encore un générateur de factures" }))
       .toMatch(/only through an approved idea/);
     expect(await call("record_experiment", { status: "exploring", hypothesis: "Recherche de niches" })).toMatch(/recorded with status exploring/);
+    // Evidence sent as one string (one item per line) is accepted, not an error.
+    expect(await call("record_experiment", { status: "exploring", hypothesis: "Niches", evidence: "https://a.example 2026-10-05, vu\nhttps://b.example" }))
+      .toMatch(/recorded with status exploring/);
     for (const [id, n] of [["a", 8], ["b", 7], ["c", 6], ["d", 5], ["e", 4]] as const) await full(id, n);
     await call("idea", { action: "challenge", id: "a" });
     await call("idea", { action: "update", id: "a", response_to_critic: "Pris en compte." });
