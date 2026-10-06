@@ -70,6 +70,7 @@ import { automaticTopupsAllowed, hasInferenceLimits, moneyLabDeniedTools } from 
 import { seedAnthropicModels, survivalBalance } from "../money-lab/selfhosted.js";
 import { createMoneyLabTools } from "../money-lab/tools.js";
 import { paidCallBlockReason } from "../money-lab/guard.js";
+import { recordHealthEvent } from "../money-lab/health.js";
 import { REVIEW_INSTRUCTIONS, REVIEW_MODEL, REVIEW_MODEL_TURNS, ensureReviewClock, isReviewDue, markReviewed } from "../money-lab/review.js";
 import { recordFocusSpend } from "../money-lab/allocation.js";
 import { MONEY_LAB_WAKE_REASON_KEY, OWNER_TELEGRAM_SENDER, ensureMoneyLabSchema, pause as pauseMoneyLab, queueOwnerNotification } from "../money-lab/journal.js";
@@ -1091,6 +1092,7 @@ export async function runAgentLoop(
     } catch (err: any) {
       consecutiveErrors++;
       log(config, `[ERROR] Turn failed: ${err.message}`);
+      if (moneyLab) recordHealthEvent(db.raw, "turn", String(err?.message ?? err));
 
       // Money Lab: retry the same input with its messages still claimed.
       if (moneyLab && attemptInput && consecutiveErrors < MAX_CONSECUTIVE_ERRORS) {

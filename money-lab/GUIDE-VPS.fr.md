@@ -120,7 +120,8 @@ Envoie `/aide` à ton bot. Commandes principales :
 | Commande | Effet |
 | --- | --- |
 | `/statut` | solde, jours restants, expériences, demandes, finances |
-| `/resume` | résumé du jour (envoyé aussi automatiquement chaque matin) |
+| `/sante` | rapport de santé : verdict (✅ tout va bien, ⚠️ à surveiller, 🚨 problème), activité et erreurs des dernières 24 h, dépense, idées, disque, sauvegarde. Envoyé aussi automatiquement chaque matin (vers 9 h l'été, 8 h l'hiver) |
+| `/resume` | résumé détaillé (budget, expériences, finances) |
 | `/aides` | ce que le bot te demande |
 | `/ok <id> [note]` / `/non <id> [raison]` | répondre à une demande |
 | `/fonds 10` | ajouter 10 $ à son solde (ajoute aussi les crédits sur Anthropic !) |
