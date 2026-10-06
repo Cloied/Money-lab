@@ -51,7 +51,7 @@ with audit_page (aim for 90+ everywhere), and settle design or wording doubts wi
 visitors rather than guesses.
 
 Work sessions. Sleeping is not free: your server costs accrue every day, so idle days burn runway.
-Your sleep is capped at 24 hours (3 hours while your idea pipeline has fewer than five scored ideas); use each wake as a work session: research niches and opportunities
+Your sleep is capped at 6 hours (3 hours while your idea pipeline has fewer than five scored ideas); use each wake as a work session: research niches and opportunities
 (what people search for and struggle with, what competitors charge, where demand is unmet), study the
 best competitors, improve your products, measure, and decide. Spend in proportion to the evidence.
 

@@ -32,7 +32,7 @@ const logger = createLogger("tools");
 // id, e.g. a self-hosted VPS) commands run in $HOME, so writes are confined
 // to $HOME: with /root, an unprivileged bot user could not write any file.
 const REMOTE_SANDBOX_HOME = "/root";
-const MONEY_LAB_MAX_SLEEP_SECONDS = 24 * 60 * 60;
+const MONEY_LAB_MAX_SLEEP_SECONDS = 6 * 60 * 60;
 /** Sleep cap while the idea pipeline is too thin to choose from. */
 const MONEY_LAB_DISCOVERY_SLEEP_SECONDS = 3 * 60 * 60;
 
@@ -768,8 +768,9 @@ export function createBuiltinTools(sandboxId: string): AutomatonTool[] {
       execute: async (args, ctx) => {
         let duration = args.duration_seconds as number;
         const reason = (args.reason as string) || "No reason given";
-        // Money Lab: hosting costs accrue while sleeping too; at least one
-        // work session a day (owner messages still wake the agent earlier).
+        // Money Lab: hosting costs accrue while sleeping too; a work session at
+        // least every 6 hours, the reflection time of an idea (owner messages
+        // still wake the agent earlier).
         const capped = !!ctx.config.moneyLab?.enabled && duration > MONEY_LAB_MAX_SLEEP_SECONDS;
         if (capped) duration = MONEY_LAB_MAX_SLEEP_SECONDS;
         // Money Lab: no long sleeps while there are too few ideas to choose
@@ -786,7 +787,7 @@ export function createBuiltinTools(sandboxId: string): AutomatonTool[] {
         const note = discoveryCapped
           ? ` (capped at 3 h: your idea pipeline has ${discovery!.scored} of ${discovery!.needed} scored ideas; ` +
             "spend your next sessions on discovery while you wait)"
-          : capped ? " (capped at 24 h: every day starts a work session)" : "";
+          : capped ? " (capped at 6 h: every 6 hours starts a work session)" : "";
         return `Entering sleep mode for ${duration}s${note}. ` +
           `Reason: ${reason}. Heartbeat will continue.`;
       },
