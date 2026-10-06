@@ -18,6 +18,7 @@ import { getKV, getNoProgressCycles, getPauseState, listHelpRequests, OWNER_TELE
 import { activeExperimentCount, ideaTotal, listIdeas } from "./ideas.js";
 import { listPosts } from "./social.js";
 import { survivalBalance } from "./selfhosted.js";
+import { inferenceGetDailyCost } from "../state/database.js";
 
 const EVENTS_KEY = "money_lab.health_events";
 const MAX_EVENTS = 200;
@@ -131,6 +132,10 @@ export function buildHealthReport(
   const lastTurn = db.prepare("SELECT timestamp, thinking FROM turns ORDER BY timestamp DESC LIMIT 1").get() as
     | { timestamp: string; thinking: string }
     | undefined;
+  // Many turns are tool calls without text: show the last one that said something.
+  const lastNote = db.prepare("SELECT thinking FROM turns WHERE TRIM(thinking) != '' ORDER BY timestamp DESC LIMIT 1").get() as
+    | { thinking: string }
+    | undefined;
   const toolCalls = count(db, "SELECT COUNT(*) AS n FROM tool_calls WHERE created_at >= ?", since);
   const toolErrors = db.prepare(
     "SELECT name, COUNT(*) AS n FROM tool_calls WHERE created_at >= ? AND error IS NOT NULL GROUP BY name ORDER BY n DESC",
@@ -140,7 +145,7 @@ export function buildHealthReport(
   lines.push(`  ${turns} tours de réflexion, ${toolCalls} actions${toolErrorCount ? ` (${toolErrorCount} en erreur)` : ""}`);
   if (lastTurn) {
     lines.push(`  Dernier tour : ${ago(Date.parse(lastTurn.timestamp), nowMs)}`);
-    const note = lastTurn.thinking.replace(/\s+/g, " ").trim();
+    const note = (lastNote?.thinking ?? "").replace(/\s+/g, " ").trim();
     if (note) lines.push(`  Sa dernière note : « ${note.slice(0, 220)}${note.length > 220 ? "…" : ""} »`);
   }
   if (!paused && state !== "dead") {
@@ -186,15 +191,25 @@ export function buildHealthReport(
   }
 
   // ── Money ──
-  const spent24h = count(db, "SELECT COALESCE(SUM(cost_cents), 0) AS n FROM inference_costs WHERE created_at >= ?", since);
+  // The cap is per UTC day: a rolling 24 h window can legitimately hold up to
+  // two days of capped spending, so each UTC day is compared on its own.
+  const today = now.toISOString().slice(0, 10);
+  const yesterday = new Date(nowMs - DAY_MS).toISOString().slice(0, 10);
+  const spentToday = inferenceGetDailyCost(db, today);
+  const spentYesterday = inferenceGetDailyCost(db, yesterday);
+  const cap = lab.inference.dailyCents;
   lines.push("", "Argent :");
-  lines.push(`  IA sur 24 h : ${usd(spent24h)}${lab.inference.dailyCents !== null ? ` (plafond ${usd(lab.inference.dailyCents)}/jour)` : ""}`);
-  if (lab.inference.dailyCents && spent24h > lab.inference.dailyCents * 1.2) {
-    problems.push("la dépense IA sur 24 h dépasse nettement le plafond journalier");
+  lines.push(`  IA aujourd'hui (depuis minuit UTC) : ${usd(spentToday)}${cap !== null ? ` / ${usd(cap)}` : ""}`);
+  lines.push(`  IA hier : ${usd(spentYesterday)}`);
+  // A call is allowed while the estimate fits, so the real cost can pass the
+  // cap by a little; far beyond it means the cap is not holding.
+  if (cap && spentToday > cap * 1.2) problems.push("la dépense IA d'aujourd'hui dépasse nettement le plafond journalier");
+  if (cap && spentYesterday > cap * 1.2) {
+    watch.push(`hier, la dépense IA (${usd(spentYesterday)}) a dépassé le plafond actuel (${usd(cap)}), sauf si tu l'as changé depuis`);
   }
   if (lab.runtime === "self-hosted") {
     const s = survivalBalance(db, lab, now);
-    lines.push(`  Solde : ${usd(s.balanceCents)}${s.daysLeft !== null ? ` — environ ${Math.floor(s.daysLeft)} jours au rythme actuel` : ""}`);
+    lines.push(`  Solde : ${usd(s.balanceCents)}${s.daysLeft !== null ? ` — environ ${Math.floor(s.daysLeft)} jours au rythme actuel (${usd(s.burnPerDayCents)}/jour)` : ""}`);
     if (s.daysLeft !== null && s.daysLeft < 3 && s.balanceCents >= 0) watch.push("moins de 3 jours de fonds");
   }
 
