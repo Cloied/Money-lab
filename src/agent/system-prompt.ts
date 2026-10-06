@@ -784,12 +784,19 @@ function loadSoulMd(): string | null {
 /**
  * Load WORKLOG.md from the automaton's state directory.
  */
+const WORKLOG_MAX_CHARS = 12_000;
+
 function loadWorklog(): string | null {
   try {
     const home = process.env.HOME || "/root";
     const worklogPath = path.join(home, ".automaton", "WORKLOG.md");
     if (fs.existsSync(worklogPath)) {
-      return fs.readFileSync(worklogPath, "utf-8");
+      // Sent with every request: an ever-growing log would make every turn
+      // dearer. Keep the most recent part.
+      const content = fs.readFileSync(worklogPath, "utf-8");
+      return content.length > WORKLOG_MAX_CHARS
+        ? `[Earlier entries cut: keep WORKLOG.md under ${WORKLOG_MAX_CHARS} characters]\n${content.slice(-WORKLOG_MAX_CHARS)}`
+        : content;
     }
   } catch {
     // Ignore errors

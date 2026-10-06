@@ -255,11 +255,17 @@ const MAX_OUTPUT = 1024 * 1024;
  * the timeout; their later output is read and discarded so they never get
  * SIGPIPE. On timeout the whole process group is killed.
  */
+/** Longest a single command may run (a forgotten "sleep 1d" must not hold the bot). */
+export const MAX_COMMAND_MS = 30 * 60_000;
+
 export function runLocalCommand(
   command: string,
-  timeoutMs = 30_000,
+  requestedTimeout: unknown = 30_000,
   env: NodeJS.ProcessEnv = scrubbedEnv(),
 ): Promise<ExecResult> {
+  // The model may send the timeout as text or a huge number.
+  const requested = Number(requestedTimeout);
+  const timeoutMs = Number.isFinite(requested) && requested > 0 ? Math.min(Math.max(requested, 1_000), MAX_COMMAND_MS) : 30_000;
   return new Promise((resolve) => {
     let stdout = "";
     let stderr = "";

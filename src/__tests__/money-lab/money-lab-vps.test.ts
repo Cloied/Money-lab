@@ -14,7 +14,7 @@ vi.mock("../../conway/x402.js", async (importOriginal) => {
   return { ...actual, getUsdcBalance: vi.fn(async () => 0) };
 });
 
-import { createDatabase } from "../../state/database.js";
+import { createDatabase, recoverInboxClaims } from "../../state/database.js";
 import { runAgentLoop } from "../../agent/loop.js";
 import { createBuiltinTools, executeTool } from "../../agent/tools.js";
 import { PolicyEngine } from "../../agent/policy-engine.js";
@@ -1851,4 +1851,88 @@ describe("Sealed secrets", () => {
       delete process.env.BLUESKY_HANDLE;
     }
   });
+});
+
+describe("Owner messages are never lost", () => {
+  const status = (db: AutomatonDatabase, id: string) =>
+    db.raw.prepare("SELECT status, retry_count AS retries FROM inbox_messages WHERE id = ?").get(id) as { status: string; retries: number };
+  const ownerMessage = (db: AutomatonDatabase, id: string) => db.insertInboxMessage({
+    id, from: OWNER_TELEGRAM_SENDER, to: "", content: "Commence la recherche de niches.",
+    signedAt: new Date().toISOString(), createdAt: new Date().toISOString(),
+  });
+  const run = (db: AutomatonDatabase, config: AutomatonConfig, inference: MockInferenceClient) => runAgentLoop({
+    identity: { ...createTestIdentity(), sandboxId: "" }, config, db, conway: new MockConwayClient(), inference,
+    policyEngine: new PolicyEngine(db.raw, createDefaultRules()), spendTracker: new SpendTracker(db.raw),
+  });
+
+  it("keeps a message that arrived while the daily budget was spent, and reads it at the next wake", async () => {
+    const db = openDb();
+    addLedgerEntry(db.raw, { kind: "owner_funding", amountCents: 5000, source: "operator", reference: "f" });
+    const config = vpsConfig({ inference: { model: "claude-sonnet-5-5", effort: "medium", perCallCents: null, hourlyCents: null, dailyCents: 100, maxOutputTokens: 16000 } });
+    recordInference(db, 100);
+    ownerMessage(db, "tg_501");
+    const inference = new MockInferenceClient([noToolResponse("Je lis.")]);
+    for (let i = 0; i < 4; i++) {
+      db.deleteKV("sleep_until");
+      await run(db, config, inference);
+    }
+    expect(inference.calls).toHaveLength(0);
+    expect(status(db, "tg_501")).toEqual({ status: "received", retries: 0 });
+    db.raw.prepare("DELETE FROM inference_costs").run();
+    db.deleteKV("sleep_until");
+    await run(db, config, inference);
+    expect(String(inference.calls[0].messages.at(-1)?.content)).toContain("Commence la recherche de niches.");
+    expect(status(db, "tg_501").status).toBe("processed");
+    db.close();
+  }, 30_000);
+
+  it("survives API outages and restarts", async () => {
+    const db = openDb();
+    addLedgerEntry(db.raw, { kind: "owner_funding", amountCents: 5000, source: "operator", reference: "f" });
+    ownerMessage(db, "tg_502");
+    const failing = new MockInferenceClient([]);
+    (failing as any).chat = async () => { throw new Error("Inference error (anthropic): 529 overloaded"); };
+    await run(db, vpsConfig(), failing);
+    await run(db, vpsConfig(), failing);
+    expect(status(db, "tg_502").status).toBe("received");
+    // A restart in the middle of a turn leaves the message claimed.
+    db.raw.prepare("UPDATE inbox_messages SET status = 'in_progress', retry_count = 1 WHERE id = 'tg_502'").run();
+    expect(recoverInboxClaims(db.raw)).toBe(1);
+    expect(status(db, "tg_502")).toEqual({ status: "received", retries: 0 });
+    db.close();
+  }, 60_000);
+});
+
+describe("A failed turn is retried with its input", () => {
+  it("keeps the weekly review instructions and the owner's message after an API error", async () => {
+    const db = openDb();
+    addLedgerEntry(db.raw, { kind: "owner_funding", amountCents: 5000, source: "operator", reference: "f" });
+    db.setKV(REVIEW_KEY, new Date(Date.now() - 8 * 24 * 3600 * 1000).toISOString());
+    db.insertInboxMessage({ id: "tg_900", from: OWNER_TELEGRAM_SENDER, to: "", content: "Pense au bilan.",
+      signedAt: new Date().toISOString(), createdAt: new Date().toISOString() });
+    const inference = new MockInferenceClient([noToolResponse("Bilan fait.")]);
+    const realChat = inference.chat.bind(inference);
+    let failures = 2;
+    (inference as any).chat = async (messages: any, options: any) => {
+      if (failures-- > 0) {
+        inference.calls.push({ messages, options });
+        throw new Error("Inference error (anthropic): 529 overloaded");
+      }
+      return realChat(messages, options);
+    };
+    await runAgentLoop({
+      identity: { ...createTestIdentity(), sandboxId: "" }, config: vpsConfig(), db, conway: new MockConwayClient(), inference,
+      policyEngine: new PolicyEngine(db.raw, createDefaultRules()), spendTracker: new SpendTracker(db.raw),
+    });
+    expect(inference.calls).toHaveLength(3);
+    for (const call of inference.calls) {
+      const last = String(call.messages.at(-1)?.content);
+      expect(last).toContain("WEEKLY REVIEW");
+      expect(last).toContain("Pense au bilan.");
+    }
+    expect(isReviewDue(db.raw)).toBe(false);
+    const msg = db.raw.prepare("SELECT status FROM inbox_messages WHERE id = 'tg_900'").get() as { status: string };
+    expect(msg.status).toBe("processed");
+    db.close();
+  }, 30_000);
 });

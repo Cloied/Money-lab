@@ -20,7 +20,7 @@ import {
   loadHeartbeatConfig,
   syncHeartbeatToDb,
 } from "./heartbeat/config.js";
-import { consumeNextWakeEvent, insertWakeEvent } from "./state/database.js";
+import { consumeNextWakeEvent, insertWakeEvent, recoverInboxClaims } from "./state/database.js";
 import { runAgentLoop } from "./agent/loop.js";
 import { ModelRegistry } from "./inference/registry.js";
 import { loadSkills } from "./skills/loader.js";
@@ -293,6 +293,9 @@ async function run(): Promise<void> {
   const dbPath = resolvePath(config.dbPath);
   const db = createDatabase(dbPath);
   if (moneyLab) ensureMoneyLabSchema(db.raw);
+  // Messages claimed by a turn that a restart or crash interrupted.
+  const recovered = recoverInboxClaims(db.raw);
+  if (recovered > 0) logger.info(`[INBOX] ${recovered} message(s) interrompu(s) remis en attente.`);
   // Self-hosted Money Lab: the bot's shell runs as the same user as this
   // process; unless started through dist/launch.js, it can read the keys.
   if (selfHosted && !environmentProtected()) {

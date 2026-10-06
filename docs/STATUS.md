@@ -13,7 +13,7 @@
   status/summary, no-progress sleep, integration note, Conway checklist (features verified in docs/FEATURES.md).
 - Checks run (command, result, date):
   - likma project feature verify (types/money-lab/build): pass, 2026-10-03
-  - pnpm exec vitest run --exclude src/__tests__/context-hardening.test.ts: 1719/1719 pass (sealed secrets), 2026-10-06
+  - pnpm exec vitest run --exclude src/__tests__/context-hardening.test.ts: 1722/1722 pass (fourth audit), 2026-10-06
   - node money-lab/e2e/harness.mjs (real process, strict fake Anthropic/Telegram/Stripe): PASS, 2026-10-05
     (upstream d8f8168 baseline: 1614/1614)
 - First supervised run (owner-approved, 2026-10-04, OVH VPS, $15 funding): Telegram works; the agent
@@ -59,6 +59,9 @@
   limit is the backstop.
 - Sealed secrets 2026-10-06: keys leave process.env at startup, so no child process (which, git, curl)
   inherits them; 1719/1719 tests, E2E PASS.
+- Fourth audit 2026-10-06: owner messages lost when a wake was budget-blocked (stuck in_progress), lost
+  input and silently skipped weekly review after an API error, unbounded WORKLOG.md in every prompt,
+  unbounded command timeouts. New chaos run (money-lab/e2e/chaos.mjs): PASS.
 - Blockers and known regressions:
   - Upstream context-hardening.test.ts hangs on unmodified upstream; upstream CI masks it as a warning.
   - In-process limits are bypassable through exec; supervised run only.

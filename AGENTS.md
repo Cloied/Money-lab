@@ -38,6 +38,7 @@ Checks (configured in likma.project.json, run through the Likma checkout):
   - money-lab: pnpm exec vitest run src/__tests__/money-lab
   - build: pnpm run build
 End-to-end (real process, fake APIs, ~3 min): pnpm run build && node money-lab/e2e/harness.mjs
+Chaos run (real process, failing fake APIs, ~4 min): pnpm run build && node money-lab/e2e/chaos.mjs
 Upstream suite: pnpm exec vitest run --exclude src/__tests__/context-hardening.test.ts
 (context-hardening.test.ts hangs on unmodified upstream; plain `pnpm test` never finishes.)
 No start command is configured on purpose: starting runs the agent.
