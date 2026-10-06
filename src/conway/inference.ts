@@ -654,7 +654,14 @@ function transformMessagesForAnthropic(
 
 const MAX_IMAGES_PER_REQUEST = 2;
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
-const IMAGE_MARKER = /\[\[image:([^\]\s]+\.png)\]\]/g;
+const IMAGE_MARKER = /\[\[image:([^\]\s]+\.(?:png|jpe?g))\]\]/g;
+
+/** Media type from the file's first bytes; null when it is not a PNG or JPEG. */
+function imageMediaType(data: Buffer): string | null {
+  if (data.length > 8 && data.readUInt32BE(0) === 0x89504e47) return "image/png";
+  if (data.length > 3 && data[0] === 0xff && data[1] === 0xd8 && data[2] === 0xff) return "image/jpeg";
+  return null;
+}
 
 function recentImagePaths(messages: ChatMessage[], limit: number): Set<string> {
   const paths: string[] = [];
@@ -673,7 +680,10 @@ function toolResultContent(text: string, budget: { remaining: Set<string> }): un
     try {
       const data = fs.readFileSync(file);
       if (data.length > MAX_IMAGE_BYTES) return "(screenshot too large to show)";
-      images.push({ type: "image", source: { type: "base64", media_type: "image/png", data: data.toString("base64") } });
+      // A file that is not really an image would make every request fail.
+      const mediaType = imageMediaType(data);
+      if (!mediaType) return "(not a PNG or JPEG image)";
+      images.push({ type: "image", source: { type: "base64", media_type: mediaType, data: data.toString("base64") } });
       return "";
     } catch {
       return "(screenshot file missing)";

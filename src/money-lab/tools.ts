@@ -38,7 +38,7 @@ import { IMAGE_PRESETS, playwrightRender, renderImage } from "./image.js";
 import { blueskyCredentials, describePosts, draftPost } from "./social.js";
 
 /** Marker the Anthropic client turns into an image block (recent results only). */
-export const SCREENSHOT_MARKER = /\[\[image:([^\]\s]+\.png)\]\]/g;
+export const SCREENSHOT_MARKER = /\[\[image:([^\]\s]+\.(?:png|jpe?g))\]\]/g;
 const VIEWPORTS: Record<string, [number, number]> = { desktop: [1280, 1600], mobile: [390, 844] };
 const KEEP_SCREENSHOTS = 20;
 
@@ -57,6 +57,12 @@ function stringList(value: unknown): string[] | undefined {
   if (value === undefined) return undefined;
   if (!Array.isArray(value)) throw new Error("Expected an array of strings");
   return value.map((v) => String(v));
+}
+
+/** A list the model may send as an array or as one comma- or newline-separated string. */
+function looseList(value: unknown): string[] | undefined {
+  if (typeof value === "string") return value.split(/[,\n]+/).map((v) => v.trim()).filter(Boolean);
+  return stringList(value);
 }
 
 export function createMoneyLabTools(): AutomatonTool[] {
@@ -93,6 +99,12 @@ export function createMoneyLabTools(): AutomatonTool[] {
         const existing = typeof args.id === "string" ? getExperiment(ctx.db.raw, args.id) : undefined;
         const blocker = experimentLaunchBlocker(ctx.db.raw, { status: String(args.status), ideaId }, existing);
         if (blocker) return blocker;
+        // Only an approved idea links to an experiment; idea_id cannot be set through metrics.
+        const metrics = args.metrics && typeof args.metrics === "object" && !Array.isArray(args.metrics)
+          ? { ...(args.metrics as Record<string, unknown>) }
+          : undefined;
+        if (metrics) delete metrics.idea_id;
+        const linkedIdea = ideaId && getIdea(ctx.db.raw, ideaId)?.status === "approved" ? ideaId : undefined;
         const exp = upsertExperiment(ctx.db.raw, {
           id: optionalString(args.id) ?? undefined,
           status: String(args.status) as ExperimentStatus,
@@ -104,13 +116,12 @@ export function createMoneyLabTools(): AutomatonTool[] {
           spendAllowanceCents: optionalCents(args.spend_allowance_cents),
           consumedCostCents: optionalCents(args.consumed_cost_cents),
           reviewDate: optionalString(args.review_date),
-          metrics: ideaId
-            ? { ...((args.metrics as Record<string, unknown> | undefined) ?? {}), idea_id: ideaId }
-            : (args.metrics as Record<string, unknown> | undefined) ?? undefined,
+          metrics: linkedIdea ? { ...(metrics ?? {}), idea_id: linkedIdea } : metrics,
           result: optionalString(args.result),
         });
-        if (ideaId && getIdea(ctx.db.raw, ideaId)?.status === "approved") markIdeaLaunched(ctx.db.raw, ideaId, exp.id);
-        return `Experiment ${exp.id} recorded with status ${exp.status}.`;
+        if (linkedIdea) markIdeaLaunched(ctx.db.raw, linkedIdea, exp.id);
+        return `Experiment ${exp.id} recorded with status ${exp.status}.` +
+          (ideaId && !linkedIdea ? ` idea_id "${ideaId}" ignored: only an approved idea can be linked.` : "");
       },
     },
     {
@@ -305,7 +316,7 @@ export function createMoneyLabTools(): AutomatonTool[] {
         } else {
           // Exact viewport (Chrome's own --screenshot leaves a blank band at the bottom).
           try {
-            await playwrightRender(browser)(url.toString(), file, width, height);
+            await playwrightRender(browser)(url.toString(), file, width, height, "png");
           } catch (err: any) {
             result = { exitCode: 1, stdout: "", stderr: String(err?.message ?? err).split("\n")[0] };
           }
@@ -449,13 +460,14 @@ export function createMoneyLabTools(): AutomatonTool[] {
         },
         required: ["domains"],
       },
-      execute: async (args) => checkDomains(stringList(args.domains) ?? []),
+      execute: async (args) => checkDomains(looseList(args.domains) ?? []),
     },
     {
       name: "render_image",
       description:
         "Create an image for social networks or your sites: design it in HTML/CSS (text, colours, layout, inline " +
-        "SVG, your screenshots) and the server's Chrome renders it to ~/images/<name>.png at the right size. " +
+        "SVG, pictures you copied into ~/images and reference as /name.png) and the server's Chrome renders it to " +
+        "~/images/<name>.png (or .jpg) at the right size. " +
         "Presets: " + Object.entries(IMAGE_PRESETS).map(([k, [w, h]]) => `${k} ${w}x${h}`).join(", ") +
         " (og = link preview). You see the result to check it.",
       category: "vm",
@@ -467,6 +479,7 @@ export function createMoneyLabTools(): AutomatonTool[] {
           html: { type: "string", description: "The design (a full page or a body fragment sized to the image)" },
           file: { type: "string", description: "Or an HTML file in your home directory" },
           preset: { type: "string", enum: Object.keys(IMAGE_PRESETS) },
+          format: { type: "string", enum: ["png", "jpeg"], description: "Default png; jpeg for photos or heavy images (Bluesky max 950 KB)" },
           width: { type: "integer" },
           height: { type: "integer" },
         },
@@ -482,6 +495,7 @@ export function createMoneyLabTools(): AutomatonTool[] {
             html: typeof args.html === "string" ? args.html : undefined,
             file: typeof args.file === "string" ? args.file : undefined,
             preset: typeof args.preset === "string" ? args.preset : undefined,
+            format: typeof args.format === "string" ? args.format : undefined,
             width: args.width as number | undefined,
             height: args.height as number | undefined,
           },
@@ -573,8 +587,8 @@ export function createMoneyLabTools(): AutomatonTool[] {
             {
               task: String(args.task ?? ""),
               text: typeof args.text === "string" ? args.text : undefined,
-              files: stringList(args.files),
-              urls: stringList(args.urls),
+              files: looseList(args.files),
+              urls: looseList(args.urls),
               maxTokens: Number.isInteger(args.max_tokens) ? (args.max_tokens as number) : undefined,
             },
             {
@@ -596,7 +610,8 @@ export function createMoneyLabTools(): AutomatonTool[] {
       description:
         "Schedule a shell command the runtime runs on its own, for free (no inference): check that a site " +
         "answers, collect stats, watch a ranking or a competitor page. You are woken only when it matters: " +
-        "wake on_failure (default: when the command starts failing), on_change (when its output changes) or " +
+        "wake on_failure (default: when the command starts failing), on_change (when its output changes: print only " +
+        "stable values, no timestamps) or " +
         "never (read the log yourself). Output is logged in ~/.money-lab/jobs/<name>.log. Wakes are limited to " +
         `one per hour. Actions: add (replaces a job with the same name), remove, list, run (once now, to test). ` +
         `Commands run ${JOB_TIMEOUT_MS / 1000}s at most, without secrets in their environment.`,

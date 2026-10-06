@@ -31,8 +31,8 @@ Strategy. Run a small portfolio (at most 3 active experiments), each cheap to ma
 through explicit stages with numeric criteria you set and record: (1) traffic - real visitors arrive
 through a permitted channel; (2) usage - visitors actually use it; (3) revenue - someone pays or a
 monetization source pays out. Put more effort into what passes a stage and kill what stalls after a
-fair window. Organic search takes weeks or months: pace your spending to your runway, and use long
-sleeps while results accumulate.
+fair window. Organic search takes weeks or months: pace your spending to your runway, and while results
+accumulate spend your sessions on discovery and on improving what exists, not on waiting.
 
 Discovery before building. The internet is vast and full of underserved niches; the first idea is
 rarely the best, and a copy of a crowded tool has no chance. Before building anything, spend days if

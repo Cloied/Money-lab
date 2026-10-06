@@ -10,7 +10,7 @@
 import fs from "fs";
 import path from "path";
 import { chromium, type BrowserContext, type Page } from "playwright-core";
-import { findBrowser } from "./selfhosted.js";
+import { findBrowser, scrubbedEnv } from "./selfhosted.js";
 
 const IDLE_CLOSE_MS = 10 * 60_000;
 const ACTION_TIMEOUT_MS = 15_000;
@@ -39,6 +39,8 @@ async function getPage(): Promise<Page> {
       headless: true,
       args: ["--no-sandbox", "--disable-gpu"],
       viewport: { width: 1280, height: 900 },
+      // The browser never needs the runtime's keys.
+      env: scrubbedEnv() as Record<string, string>,
     });
     context.on("close", () => {
       context = null;

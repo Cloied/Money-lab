@@ -47,6 +47,22 @@ export function htmlToText(html: string): string {
     .trim();
 }
 
+/** Reads at most `limit` bytes of a response body, then stops the download. */
+async function readCapped(resp: Response, limit: number): Promise<string> {
+  if (!resp.body) return (await resp.text()).slice(0, limit);
+  const reader = resp.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  while (size < limit) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    size += value.length;
+  }
+  await reader.cancel().catch(() => undefined);
+  return new TextDecoder().decode(Buffer.concat(chunks).subarray(0, limit));
+}
+
 async function fetchPage(url: string, fetchFn: typeof fetch): Promise<string> {
   const parsed = new URL(url);
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") throw new Error("only http(s) URLs");
@@ -55,8 +71,13 @@ async function fetchPage(url: string, fetchFn: typeof fetch): Promise<string> {
     headers: { "user-agent": "Mozilla/5.0 (compatible; MoneyLabBot/1.0)" },
   });
   if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-  const body = (await resp.text()).slice(0, MAX_PAGE_BYTES);
-  return /html/i.test(resp.headers.get("content-type") ?? "") || /<html|<body/i.test(body) ? htmlToText(body) : body;
+  const type = resp.headers.get("content-type") ?? "";
+  if (type && !/text|html|json|xml|csv|markdown|javascript/i.test(type)) {
+    await resp.body?.cancel().catch(() => undefined);
+    throw new Error(`not a text page (${type.split(";")[0]})`);
+  }
+  const body = await readCapped(resp, MAX_PAGE_BYTES);
+  return /html/i.test(type) || /<html|<body/i.test(body) ? htmlToText(body) : body;
 }
 
 export interface DelegateArgs {
@@ -76,13 +97,23 @@ export async function gatherDocuments(
   const notes: string[] = [];
   if (args.text) docs.push({ source: "text", content: args.text });
   for (const file of (args.files ?? []).slice(0, MAX_FILES)) {
-    const resolved = path.resolve(options.home, file.replace(/^~(?=$|\/)/, options.home));
-    if (!resolved.startsWith(options.home + path.sep) || isRuntimePath(resolved)) {
+    let resolved: string;
+    try {
+      // Resolve symbolic links: the real file must be in the home directory too.
+      resolved = fs.realpathSync(path.resolve(options.home, file.replace(/^~(?=$|\/)/, options.home)));
+    } catch (err: any) {
+      notes.push(`${file}: ${err?.code ?? "unreadable"}`);
+      continue;
+    }
+    const home = fs.realpathSync(options.home);
+    if (!resolved.startsWith(home + path.sep) || isRuntimePath(resolved)) {
       notes.push(`${file}: refused (only your own files in your home directory)`);
       continue;
     }
     try {
-      docs.push({ source: file, content: fs.readFileSync(resolved, "utf-8") });
+      const stat = fs.statSync(resolved);
+      if (!stat.isFile()) throw Object.assign(new Error("not a file"), { code: "not a file" });
+      docs.push({ source: file, content: fs.readFileSync(resolved, "utf-8").slice(0, MAX_INPUT_CHARS) });
     } catch (err: any) {
       notes.push(`${file}: ${err?.code ?? "unreadable"}`);
     }
@@ -143,8 +174,9 @@ export async function delegate(
     `[delegate: ${result.model}, ${result.inputTokens} in / ${result.outputTokens} out tokens, ${result.costCents}c]`,
     ...notes.map((n) => `[document ${n}]`),
   ].join("\n");
-  if (result.finishReason === "budget_exceeded" || result.finishReason === "error") {
-    return { text: `Delegation not run: ${result.content || result.finishReason}\n${trailer}`, costCents: result.costCents };
+  if (!["stop", "length"].includes(result.finishReason)) {
+    // Budget block, timeout, refusal or error: no answer to pass on.
+    return { text: `Delegation not completed (${result.finishReason}): ${result.content.slice(0, 200)}\n${trailer}`, costCents: result.costCents };
   }
   return { text: `${result.content.trim() || "(empty answer)"}\n${trailer}`, costCents: result.costCents };
 }

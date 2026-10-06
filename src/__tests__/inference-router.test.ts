@@ -361,6 +361,24 @@ describe("InferenceRouter", () => {
       expect((await capped.route({ ...request("short"), model: "unknown-model" }, chat)).model).toBe("gpt-5.2");
     });
 
+    it("falls back from a requested model that would break the hourly budget instead of blocking the call", async () => {
+      registry.upsert({ ...registry.get("gpt-5.2")!, modelId: "big-model", costPer1kInput: 2000, costPer1kOutput: 2000 });
+      const tracker = new InferenceBudgetTracker(db, { ...DEFAULT_MODEL_STRATEGY_CONFIG, hourlyBudgetCents: 50 });
+      tracker.recordCost({
+        sessionId: "s", turnId: null, model: "gpt-5.2", provider: "openai", inputTokens: 0, outputTokens: 0,
+        costCents: 40, latencyMs: 1, tier: "normal", taskType: "agent_turn", cacheHit: false,
+      });
+      const hourly = new InferenceRouter(db, registry, tracker);
+      const chat = async (_m: unknown, opts: { model: string }) =>
+        ({ message: { content: opts.model }, usage: { promptTokens: 10, completionTokens: 10 }, finishReason: "stop" });
+      const result = await hourly.route({
+        messages: [{ role: "user", content: "x".repeat(4000) }], taskType: "agent_turn", tier: "normal",
+        sessionId: "s", maxTokens: 500, model: "big-model",
+      }, chat);
+      expect(result.finishReason).toBe("stop");
+      expect(result.model).toBe("gpt-5.2");
+    });
+
     it("enforces session budget when configured", async () => {
       const sessionBudget = new InferenceBudgetTracker(db, {
         ...DEFAULT_MODEL_STRATEGY_CONFIG,

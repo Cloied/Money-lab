@@ -78,8 +78,18 @@ export function listIdeas(db: Database.Database): Idea[] {
   }
 }
 
+const MAX_OPEN_IDEAS = 40;
+const MAX_STORED_IDEAS = 120;
+
 function save(db: Database.Database, ideas: Idea[]): void {
-  setKV(db, IDEAS_KEY, JSON.stringify(ideas));
+  // Keep every open or launched idea; drop the oldest rejected ones beyond the cap.
+  let kept = ideas;
+  while (kept.length > MAX_STORED_IDEAS) {
+    const oldestRejected = kept.findIndex((i) => i.status === "rejected");
+    if (oldestRejected < 0) break;
+    kept = kept.filter((_, index) => index !== oldestRejected);
+  }
+  setKV(db, IDEAS_KEY, JSON.stringify(kept));
 }
 
 export function getIdea(db: Database.Database, id: string): Idea | undefined {
@@ -98,6 +108,7 @@ function text(value: unknown): string | undefined {
 }
 
 function list(value: unknown): string[] | undefined {
+  if (typeof value === "string") return value.trim() ? [value.trim()] : undefined;
   return Array.isArray(value) ? value.map((v) => String(v).trim()).filter(Boolean) : undefined;
 }
 
@@ -110,7 +121,8 @@ export function upsertIdea(db: Database.Database, input: Record<string, unknown>
   if (idea && idea.status !== "candidate") return `Idea "${id}" is ${idea.status}; it can no longer be edited.`;
   if (!idea) {
     if (!text(input.title) || !text(input.problem)) return "A new idea needs at least a title and the problem it solves.";
-    if (ideas.length >= 60) return "The pipeline holds 60 ideas; reject the weakest first.";
+    const open = ideas.filter((i) => i.status === "candidate" || i.status === "approved").length;
+    if (open >= MAX_OPEN_IDEAS) return `The pipeline holds ${MAX_OPEN_IDEAS} open ideas; reject the weakest first.`;
     idea = {
       id, title: "", problem: "", audience: "", solution: "", revenueModel: "", channels: "", serverEdge: "",
       evidence: [], competitors: [], risks: [], killCriteria: "", scores: {}, total: null, status: "candidate",
@@ -194,7 +206,8 @@ export function decideIdea(
   const ideas = listIdeas(db);
   const idea = ideas.find((i) => i.id === id);
   if (!idea) return `No idea "${id}".`;
-  if (idea.status !== "candidate") return `Idea "${id}" is already ${idea.status}.`;
+  const changeOfMind = decision === "reject" && idea.status === "approved";
+  if (idea.status !== "candidate" && !changeOfMind) return `Idea "${id}" is already ${idea.status}.`;
   if (!note.trim()) return "Give the reason for your decision in note.";
   if (decision === "approve") {
     const blockers = approvalBlockers(db, idea, now);
@@ -229,15 +242,19 @@ export const IDEA_GATE_SINCE = "2026-10-06T00:00:00.000Z";
 export function experimentLaunchBlocker(
   db: Database.Database,
   input: { status: string; ideaId?: string },
-  existing: { status: string; createdAt: string; metrics: Record<string, unknown> } | undefined,
+  existing: { id: string; status: string; createdAt: string; metrics: Record<string, unknown> } | undefined,
 ): string | null {
   if (!ACTIVE_STATUSES.has(input.status)) return null;
   if (existing && ACTIVE_STATUSES.has(existing.status)) return null;
   if (activeExperimentCount(db) >= IDEA_GATES.maxActiveExperiments) {
     return `At most ${IDEA_GATES.maxActiveExperiments} active experiments: finish or pause one first.`;
   }
-  const grandfathered = existing && (existing.metrics.idea_id || Date.parse(existing.createdAt) < Date.parse(IDEA_GATE_SINCE));
-  if (grandfathered) return null;
+  if (existing) {
+    // Launched through an approved idea (the idea records this experiment),
+    // or created before the pipeline existed.
+    const linked = typeof existing.metrics.idea_id === "string" && getIdea(db, existing.metrics.idea_id)?.experimentId === existing.id;
+    if (linked || Date.parse(existing.createdAt) < Date.parse(IDEA_GATE_SINCE)) return null;
+  }
   if (!input.ideaId) {
     return "An experiment becomes active only through an approved idea: research, score and challenge it with the " +
       "idea tool, approve it, then pass idea_id. Keep status exploring meanwhile.";

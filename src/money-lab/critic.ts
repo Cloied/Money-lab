@@ -63,10 +63,18 @@ export async function challengeIdea(
     },
     options.chat,
   );
-  if (result.finishReason === "budget_exceeded" || result.finishReason === "error" || !result.content.trim()) {
-    return { text: `Critique not run: ${result.content || result.finishReason}`, costCents: result.costCents };
+  if (!["stop", "length", "end_turn"].includes(result.finishReason) || !result.content.trim()) {
+    // A timeout, a refusal or a budget block is not a critique.
+    return { text: `Critique not run (${result.finishReason}): ${result.content.slice(0, 200)}`, costCents: result.costCents };
   }
   const verdict = parseVerdict(result.content);
+  if (!verdict) {
+    return {
+      text: `${result.content.trim()}\n[critic: ${result.model}, ${result.costCents}c] The verdict line is missing, so this ` +
+        "critique is not counted: challenge again.",
+      costCents: result.costCents,
+    };
+  }
   recordCritique(db, id, {
     at: (options.now ?? new Date()).toISOString(),
     model: result.model,

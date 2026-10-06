@@ -22,7 +22,16 @@ export async function backupStateDaily(
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   const file = path.join(dir, `${PREFIX}${now.toISOString().slice(0, 10)}`);
   if (fs.existsSync(file)) return null;
-  await db.backup(file);
+  // Written under a temporary name: an interrupted backup (full disk) never
+  // passes for the day's copy.
+  const partial = `${file}.partial`;
+  fs.rmSync(partial, { force: true });
+  try {
+    await db.backup(partial);
+    fs.renameSync(partial, file);
+  } finally {
+    fs.rmSync(partial, { force: true });
+  }
   const old = fs.readdirSync(dir).filter((f) => f.startsWith(PREFIX)).sort().slice(0, -KEEP);
   for (const f of old) fs.rmSync(path.join(dir, f), { force: true });
   return file;
