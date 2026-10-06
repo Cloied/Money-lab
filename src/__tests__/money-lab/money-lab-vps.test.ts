@@ -70,12 +70,12 @@ import { gatherDocuments, htmlToText } from "../../money-lab/delegate.js";
 import { isOperatorWake } from "../../money-lab/cycle.js";
 import { auditPage, summarizeLighthouse } from "../../money-lab/audit.js";
 import { abVerdict } from "../../money-lab/abtest.js";
-import { CRITERIA, getIdea, listIdeas } from "../../money-lab/ideas.js";
+import { CRITERIA, getIdea, listIdeas, upsertIdea } from "../../money-lab/ideas.js";
 import { parseVerdict } from "../../money-lab/critic.js";
 import { checkDomains } from "../../money-lab/domain.js";
 import { renderImage } from "../../money-lab/image.js";
 import { draftPost, linkFacets, listPosts, publishApproved } from "../../money-lab/social.js";
-import { pause as pauseMoneyLab, upsertExperiment } from "../../money-lab/journal.js";
+import { journalFingerprint, pause as pauseMoneyLab, upsertExperiment } from "../../money-lab/journal.js";
 
 function vpsProfile(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
@@ -803,6 +803,13 @@ describe("Autonomy capabilities", () => {
       const db = openDb();
       const tools = createBuiltinTools("");
       const engine = new PolicyEngine(db.raw, createDefaultRules());
+      // Too few ideas to choose from: no long sleep, discovery first.
+      const fingerprint = journalFingerprint(db.raw);
+      const early = await executeTool("sleep", { duration_seconds: 604800, reason: "attente indexation" }, tools, toolCtx(db), engine, turnCtx(db));
+      expect(early.result).toMatch(/Entering sleep mode for 10800s \(capped at 3 h: your idea pipeline has 0 of 5 scored ideas/);
+      const scores = Object.fromEntries(CRITERIA.map((c) => [c, { score: 5, why: "fait vérifié et sourcé" }]));
+      for (const id of ["a", "b", "c", "d", "e"]) upsertIdea(db.raw, { id, title: id, problem: "p", scores });
+      expect(journalFingerprint(db.raw)).not.toBe(fingerprint);
       const s = await executeTool("sleep", { duration_seconds: 604800, reason: "attente" }, tools, toolCtx(db), engine, turnCtx(db));
       expect(s.result).toMatch(/capped at 24 h/);
       expect(new Date(db.getKV("sleep_until")!).getTime() - Date.now()).toBeLessThanOrEqual(24 * 3600 * 1000);
@@ -818,6 +825,7 @@ describe("Autonomy capabilities", () => {
       const sent = inference.calls[0].messages;
       expect(String(sent.at(-1)?.content)).toContain("WEEKLY REVIEW");
       expect(String(sent[0].content)).toContain("Reddit filtre les comptes neufs.");
+      expect(allPrompt(sent)).toMatch(new RegExp(`Now: ${new Date().toISOString().slice(0, 10)} \\d\\d:\\d\\d UTC, [A-Z][a-z]+day\\.`));
       expect(String(sent[0].content)).toContain("web_search");
       expect(inference.calls[0].options?.model).toBe("claude-opus-5-5");
       expect(isReviewDue(db.raw)).toBe(false);
@@ -927,6 +935,10 @@ describe("Search Console access", () => {
     }
   });
 });
+
+function allPrompt(messages: Array<{ content?: unknown }>): string {
+  return messages.map((m) => String(m.content ?? "")).join("\n");
+}
 
 // ─── Step 1: delegate, scheduled jobs, recall (2026-10-06) ─────
 

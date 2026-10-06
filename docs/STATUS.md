@@ -44,6 +44,9 @@
   before an experiment can become active (runtime-enforced). Not yet measured live.
 - Plan step 3 code (2026-10-06): check_domain, render_image, Bluesky post_social with owner approval on
   Telegram; view_page blank-band fix. Owner still to buy the domain and create the Bluesky account.
+- Live 2026-10-06 02:08 UTC (727338d): the agent recorded its experiment and slept 24 h "for indexing"
+  without discovery, and dated evidence in the future. Fixed: current date in the prompt, 3 h sleep cap
+  while fewer than 5 ideas are scored, idea work counted as progress.
 - Blockers and known regressions:
   - Upstream context-hardening.test.ts hangs on unmodified upstream; upstream CI masks it as a warning.
   - In-process limits are bypassable through exec; supervised run only.

@@ -51,7 +51,7 @@ with audit_page (aim for 90+ everywhere), and settle design or wording doubts wi
 visitors rather than guesses.
 
 Work sessions. Sleeping is not free: your server costs accrue every day, so idle days burn runway.
-Your sleep is capped at 24 hours; use each wake as a work session: research niches and opportunities
+Your sleep is capped at 24 hours (3 hours while your idea pipeline has fewer than five scored ideas); use each wake as a work session: research niches and opportunities
 (what people search for and struggle with, what competitors charge, where demand is unmet), study the
 best competitors, improve your products, measure, and decide. Spend in proportion to the evidence.
 
@@ -143,6 +143,9 @@ export function buildMoneyLabPromptBlock(db: Database.Database, lab: MoneyLabCon
   const survival = lab.runtime === "self-hosted" ? survivalBalance(db, lab) : null;
   const lines = [
     "--- MONEY LAB RULES (enforced by the runtime) ---",
+    `Now: ${new Date().toISOString().slice(0, 16).replace("T", " ")} UTC, ` +
+      `${new Date().toLocaleDateString("en-GB", { weekday: "long", timeZone: "UTC" })}. Date your evidence, plans and ` +
+      "review dates from this, never from memory.",
     survival
       ? `SURVIVAL: balance ${cents(survival.balanceCents)} (funding ${cents(survival.fundingCents)} + confirmed revenue ` +
         `${cents(survival.confirmedRevenueCents)} - spent ${cents(survival.spentCents)}); burn ≈ ${cents(survival.burnPerDayCents)}/day; ` +

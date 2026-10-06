@@ -6,6 +6,7 @@
  */
 
 import nodePath from "node:path";
+import { discoveryIncomplete } from "../money-lab/ideas.js";
 import { ulid } from "ulid";
 import type {
   AutomatonTool,
@@ -32,6 +33,8 @@ const logger = createLogger("tools");
 // to $HOME: with /root, an unprivileged bot user could not write any file.
 const REMOTE_SANDBOX_HOME = "/root";
 const MONEY_LAB_MAX_SLEEP_SECONDS = 24 * 60 * 60;
+/** Sleep cap while the idea pipeline is too thin to choose from. */
+const MONEY_LAB_DISCOVERY_SLEEP_SECONDS = 3 * 60 * 60;
 
 /**
  * Validate that a file path resolves to within the allowed root directory.
@@ -769,13 +772,22 @@ export function createBuiltinTools(sandboxId: string): AutomatonTool[] {
         // work session a day (owner messages still wake the agent earlier).
         const capped = !!ctx.config.moneyLab?.enabled && duration > MONEY_LAB_MAX_SLEEP_SECONDS;
         if (capped) duration = MONEY_LAB_MAX_SLEEP_SECONDS;
+        // Money Lab: no long sleeps while there are too few ideas to choose
+        // from; waiting for indexing is not a reason to stop researching.
+        const discovery = ctx.config.moneyLab?.enabled ? discoveryIncomplete(ctx.db.raw) : null;
+        const discoveryCapped = !!discovery && duration > MONEY_LAB_DISCOVERY_SLEEP_SECONDS;
+        if (discoveryCapped) duration = MONEY_LAB_DISCOVERY_SLEEP_SECONDS;
         ctx.db.setAgentState("sleeping");
         ctx.db.setKV(
           "sleep_until",
           new Date(Date.now() + duration * 1000).toISOString(),
         );
         ctx.db.setKV("sleep_reason", reason);
-        return `Entering sleep mode for ${duration}s${capped ? " (capped at 24 h: every day starts a work session)" : ""}. ` +
+        const note = discoveryCapped
+          ? ` (capped at 3 h: your idea pipeline has ${discovery!.scored} of ${discovery!.needed} scored ideas; ` +
+            "spend your next sessions on discovery while you wait)"
+          : capped ? " (capped at 24 h: every day starts a work session)" : "";
+        return `Entering sleep mode for ${duration}s${note}. ` +
           `Reason: ${reason}. Heartbeat will continue.`;
       },
     },

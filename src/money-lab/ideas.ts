@@ -279,6 +279,12 @@ export function ideaDossier(idea: Idea): string {
   ].filter(Boolean).join("\n");
 }
 
+/** True while fewer ideas are fully scored than an approval requires. */
+export function discoveryIncomplete(db: Database.Database): { scored: number; needed: number } | null {
+  const scored = listIdeas(db).filter((i) => i.total !== null).length;
+  return scored < IDEA_GATES.minScoredIdeas ? { scored, needed: IDEA_GATES.minScoredIdeas } : null;
+}
+
 /** Pipeline summary for the prompt. */
 export function describePipeline(db: Database.Database): string {
   const ideas = listIdeas(db);
