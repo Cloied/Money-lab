@@ -37,7 +37,8 @@ async function getPage(): Promise<Page> {
     context = await chromium.launchPersistentContext(profile, {
       executablePath,
       headless: true,
-      args: ["--no-sandbox", "--disable-gpu"],
+      // The profile persists: keep its cache from filling the disk.
+      args: ["--no-sandbox", "--disable-gpu", "--disk-cache-size=52428800"],
       viewport: { width: 1280, height: 900 },
       // The browser never needs the runtime's keys.
       env: scrubbedEnv() as Record<string, string>,

@@ -13,7 +13,7 @@
   status/summary, no-progress sleep, integration note, Conway checklist (features verified in docs/FEATURES.md).
 - Checks run (command, result, date):
   - likma project feature verify (types/money-lab/build): pass, 2026-10-03
-  - pnpm exec vitest run --exclude src/__tests__/context-hardening.test.ts: 1710/1710 pass (bug audit), 2026-10-06
+  - pnpm exec vitest run --exclude src/__tests__/context-hardening.test.ts: 1718/1718 pass (deep audit), 2026-10-06
   - node money-lab/e2e/harness.mjs (real process, strict fake Anthropic/Telegram/Stripe): PASS, 2026-10-05
     (upstream d8f8168 baseline: 1614/1614)
 - First supervised run (owner-approved, 2026-10-04, OVH VPS, $15 funding): Telegram works; the agent
@@ -51,6 +51,12 @@
   local-file leak path in render_image, forged idea_id, uncounted failed critiques, unbounded page
   downloads, Bluesky login retries every minute, budget-blocked review model, fake image markers
   breaking every request, partial backups. See INTEGRATION.md "Bug audit".
+- Deep audit 2026-10-06: read_file leaked every key through /proc/self/environ (fixed); the bot's shell
+  could read the runtime's environment (fixed by the root-start launcher, owner must install the new
+  unit once); install_mcp_server could brick inference; switch_model/update_genesis_prompt could freeze
+  budgets; Telegram replies could be lost (double /fonds); Stripe disputes ignored. Remaining by design:
+  the bot owns its config and state files, so shell tricks can still alter limits; the Anthropic spending
+  limit is the backstop.
 - Blockers and known regressions:
   - Upstream context-hardening.test.ts hangs on unmodified upstream; upstream CI masks it as a warning.
   - In-process limits are bypassable through exec; supervised run only.

@@ -38,12 +38,13 @@ import { randomUUID } from "crypto";
 import { keccak256, toHex } from "viem";
 import { applyMoneyLabProfile, automaticTopupsAllowed, MoneyLabConfigError } from "./money-lab/profile.js";
 import { installMoneyLabPaymentGuard } from "./money-lab/guard.js";
-import { ensureMoneyLabSchema, getPauseState, journalFingerprint } from "./money-lab/journal.js";
-import { afterWakeCycle, isOperatorWake } from "./money-lab/cycle.js";
+import { ensureMoneyLabSchema, getKV, getPauseState, journalFingerprint, queueOwnerNotification, setKV } from "./money-lab/journal.js";
+import { afterWakeCycle, inferenceCallCount, isOperatorWake } from "./money-lab/cycle.js";
 import { MONEY_LAB_WAKE_REASON_KEY } from "./money-lab/journal.js";
 import { isReviewDue } from "./money-lab/review.js";
 import {
   createSelfHostedClient,
+  environmentProtected,
   markRunStarted,
   scrubbedEnv,
   seedAnthropicModels,
@@ -282,6 +283,18 @@ async function run(): Promise<void> {
   const dbPath = resolvePath(config.dbPath);
   const db = createDatabase(dbPath);
   if (moneyLab) ensureMoneyLabSchema(db.raw);
+  // Self-hosted Money Lab: the bot's shell runs as the same user as this
+  // process; unless started through dist/launch.js, it can read the keys.
+  if (selfHosted && !environmentProtected()) {
+    logger.warn("[MONEY LAB] Les clés du programme sont lisibles par le shell du bot : installe le nouveau fichier de service (guide, « Mettre à jour le bot »).");
+    const today = new Date().toISOString().slice(0, 10);
+    if (getKV(db.raw, "money_lab.unprotected_notice") !== today) {
+      setKV(db.raw, "money_lab.unprotected_notice", today);
+      queueOwnerNotification(db.raw,
+        "🔐 Protection des clés inactive : le bot pourrait lire la clé Anthropic avec son shell. " +
+        "Installe le nouveau fichier de service (guide, section « Mettre à jour le bot »).");
+    }
+  }
 
   // Persist createdAt: only set if not already stored (never overwrite)
   const existingCreatedAt = db.getIdentity("createdAt");
@@ -584,6 +597,7 @@ async function run(): Promise<void> {
         continue;
       }
       const fingerprintBefore = moneyLab ? journalFingerprint(db.raw) : "";
+      const inferenceCallsBefore = moneyLab ? inferenceCallCount(db.raw) : 0;
 
       // Run the agent loop
       await runAgentLoop({
@@ -608,7 +622,7 @@ async function run(): Promise<void> {
       });
 
       if (moneyLab) {
-        const cycle = afterWakeCycle(db.raw, moneyLab, fingerprintBefore);
+        const cycle = afterWakeCycle(db.raw, moneyLab, fingerprintBefore, Date.now(), inferenceCallsBefore);
         if (cycle.longSleepUntil) {
           logger.info(
             `[MONEY LAB] ${cycle.noProgressCycles} cycles sans progrès du journal : sommeil jusqu'à ${cycle.longSleepUntil}.`,

@@ -18,6 +18,7 @@
  * sandbox boundary.
  */
 
+import fs from "fs";
 import os from "os";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -81,6 +82,35 @@ export function isRuntimePath(filePath: string): boolean {
   if (!resolved.startsWith(dir + path.sep)) return false;
   const first = resolved.slice(dir.length + 1).split(path.sep)[0];
   return PROTECTED_RUNTIME_ENTRIES.some((entry) => first === entry || first.startsWith(`${entry}-`));
+}
+
+/** Harmless system files under /proc the agent may read (load, memory, CPU). */
+const READABLE_PROC_FILES = new Set(["/proc/meminfo", "/proc/cpuinfo", "/proc/loadavg", "/proc/uptime", "/proc/version"]);
+/** Runtime entries the agent may read; the others hold keys, the wallet or the accounting. */
+const READABLE_RUNTIME_ENTRIES = new Set(["constitution.md"]);
+
+/**
+ * Why read_file must not read a path, or null. read_file runs inside the
+ * runtime process, so /proc/self/environ would return every API key the
+ * runtime holds. Symbolic links are resolved first.
+ */
+export function readBlockReason(filePath: string): string | null {
+  let resolved = expand(filePath);
+  try {
+    resolved = fs.realpathSync(resolved);
+  } catch {
+    // missing file: check the path as given
+  }
+  if ((resolved === "/proc" || resolved.startsWith("/proc/")) && !READABLE_PROC_FILES.has(resolved)) {
+    return "process information under /proc is not readable (it holds the runtime's keys)";
+  }
+  if (resolved.startsWith("/etc/money-lab")) return "the service environment file holds the owner's keys";
+  const dir = runtimeDir();
+  if (resolved.startsWith(dir + path.sep) && isRuntimePath(resolved)) {
+    const first = resolved.slice(dir.length + 1).split(path.sep)[0];
+    if (!READABLE_RUNTIME_ENTRIES.has(first)) return "runtime keys, wallet, configuration and state are not readable";
+  }
+  return null;
 }
 
 /**
@@ -159,6 +189,11 @@ export function createMoneyLabRules(): PolicyRule[] {
               );
             }
           }
+        }
+
+        if (name === "read_file") {
+          const reason = readBlockReason(String(request.args.path ?? ""));
+          if (reason) return deny("MONEY_LAB_PROTECTED_READ", `Reading this file is disabled: ${reason}`);
         }
 
         if (name === "write_file" && isRuntimePath(String(request.args.path ?? ""))) {

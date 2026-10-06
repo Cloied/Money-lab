@@ -261,12 +261,15 @@ describe("Money Lab tool policy", () => {
     // Capabilities that used to be restricted are now free (policy-wise).
     const denied = moneyLabDeniedTools(ctx.config.moneyLab!);
     for (const name of [
-      "create_sandbox", "register_domain", "send_message", "git_push", "install_mcp_server",
+      "create_sandbox", "register_domain", "send_message", "git_push",
       "modify_heartbeat", "install_skill", "create_skill", "git_clone", "install_npm_package",
-      "search_domains", "update_soul", "reflect_on_soul", "view_soul_history", "switch_model",
+      "search_domains", "update_soul", "reflect_on_soul", "view_soul_history", "update_genesis_prompt",
     ]) {
       expect(denied.has(name), name).toBe(false);
     }
+    // MCP servers are stubs that can break every request; switch_model is a
+    // no-op under the owner's pinned model that persisted derived budgets.
+    for (const name of ["install_mcp_server", "switch_model"]) expect(denied.has(name), name).toBe(true);
     // The owner can still deny extra tools.
     ctx.config = labConfig({ deniedTools: ["register_domain"] });
     const owner = await executeTool("register_domain", { domain: "x.com" }, tools, ctx, engine, turn());

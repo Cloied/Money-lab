@@ -55,6 +55,10 @@ const dir = path.join(process.env.HOME || os.homedir(), ".automaton");
 fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
 const file = path.join(dir, "automaton.json");
 const existing = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf-8")) : {};
+// The runtime derives model routing and budgets from moneyLab at every start;
+// copies saved by older versions would cap a budget the owner raises here.
+delete existing.modelStrategy;
+delete existing.treasuryPolicy;
 
 const config = {
   name,

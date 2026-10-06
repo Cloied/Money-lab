@@ -16,6 +16,7 @@ import { formatStatus } from "./status.js";
 import {
   getKV,
   markOwnerNotificationSent,
+  queueOwnerNotification,
   pendingOwnerNotifications,
   setKV,
   OWNER_TELEGRAM_SENDER,
@@ -82,11 +83,15 @@ export class TelegramChannel {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
+      // A stalled connection must not freeze the owner's channel (/pause).
+      signal: AbortSignal.timeout(30_000),
     });
     const data = (await resp.json().catch(() => ({}))) as any;
     if (!resp.ok || data.ok === false) {
       // Never include the URL (it contains the token) in the error.
-      throw new Error(`Telegram ${method} failed: ${resp.status} ${data.description ?? ""}`.trim());
+      throw Object.assign(new Error(`Telegram ${method} failed: ${resp.status} ${data.description ?? ""}`.trim()), {
+        status: resp.status,
+      });
     }
     return data.result;
   }
@@ -196,7 +201,13 @@ export class TelegramChannel {
       const msg = update.message;
       if (!msg || msg.chat.id !== this.ownerChatId || typeof msg.text !== "string") continue;
       const reply = this.handleOwnerText(msg.text, update.update_id);
-      await this.send(reply ?? "Message transmis au bot.");
+      try {
+        await this.send(reply ?? "Message transmis au bot.");
+      } catch {
+        // The command already ran: deliver its reply later rather than lose
+        // it (an owner who sees no answer to /fonds would send it again).
+        queueOwnerNotification(this.raw, reply ?? "Message transmis au bot.");
+      }
     }
 
     // Daily summary once per UTC day, after 07:00 UTC.
@@ -209,7 +220,13 @@ export class TelegramChannel {
     }
 
     for (const item of pendingOwnerNotifications(this.raw)) {
-      await this.send(item.text);
+      try {
+        await this.send(item.text);
+      } catch (err: any) {
+        // Telegram rejects this message for good (400): drop it instead of
+        // blocking every later notification; otherwise retry next tick.
+        if (err?.status !== 400) throw err;
+      }
       markOwnerNotificationSent(this.raw, item.id);
     }
   }

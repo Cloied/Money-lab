@@ -8,6 +8,9 @@
  *
  *   charge / payment            -> confirmed_revenue (gross) + fee
  *   refund / payment_refund     -> refund
+ *   adjustment (dispute, chargeback): negative -> refund, positive -> confirmed_revenue, + fee
+ *   refund_failure              -> confirmed_revenue (the money came back)
+ *   stripe_fee, tax_fee...      -> fee
  *   payout                      -> cash_received (money sent to the bank)
  *
  * Amounts are converted to USD cents with the owner's configured rate;
@@ -61,6 +64,24 @@ export function ledgerEntriesFor(
     case "refund":
     case "payment_refund":
       return [{ kind: "refund", amountCents: toUsdCents(txn.amount, cfg), reference: `stripe:${txn.id}`, note }];
+    case "adjustment": {
+      // Disputes and chargebacks take money back (and cost a fee); a won
+      // dispute returns it. Ignoring them overstated confirmed revenue.
+      const entries: { kind: LedgerKind; amountCents: number; reference: string; note: string }[] = txn.amount === 0 ? [] : [
+        { kind: txn.amount < 0 ? "refund" : "confirmed_revenue", amountCents: toUsdCents(txn.amount, cfg), reference: `stripe:${txn.id}`, note },
+      ];
+      if (txn.fee > 0) {
+        entries.push({ kind: "fee", amountCents: toUsdCents(txn.fee, cfg), reference: `stripe-fee:${txn.id}`, note: `${note} — frais` });
+      }
+      return entries;
+    }
+    case "refund_failure":
+      return [{ kind: "confirmed_revenue", amountCents: toUsdCents(txn.amount, cfg), reference: `stripe:${txn.id}`, note }];
+    case "stripe_fee":
+    case "tax_fee":
+    case "network_cost":
+    case "stripe_fx_fee":
+      return txn.amount === 0 ? [] : [{ kind: "fee", amountCents: toUsdCents(txn.amount, cfg), reference: `stripe:${txn.id}`, note }];
     case "payout":
       return [{ kind: "cash_received", amountCents: toUsdCents(txn.amount, cfg), reference: `stripe:${txn.id}`, note }];
     default:
@@ -82,6 +103,7 @@ export async function syncStripe(
     if (startingAfter) params.set("starting_after", startingAfter);
     const resp = await fetchFn(`https://api.stripe.com/v1/balance_transactions?${params}`, {
       headers: { Authorization: `Bearer ${apiKey}` },
+      signal: AbortSignal.timeout(30_000),
     });
     const data = (await resp.json().catch(() => ({}))) as any;
     if (!resp.ok) {

@@ -140,6 +140,19 @@ systemctl restart money-lab
 ```
 La pause (`/pause`) est conservée après le redémarrage : relance avec `/reprendre` quand tu es prêt.
 
+**Une seule fois** (mise à jour d'octobre 2026, protection des clés) : installe le nouveau fichier de
+service, qui démarre le programme puis le fait passer aussitôt sous l'utilisateur `moneylab`. Ainsi
+les commandes du bot ne peuvent plus lire la clé Anthropic ni le jeton Telegram dans la mémoire du
+programme :
+```sh
+cp /opt/money-lab/money-lab/vps/money-lab.service /etc/systemd/system/money-lab.service
+systemctl daemon-reload
+systemctl restart money-lab
+ps -o user= -p $(systemctl show -p MainPID --value money-lab)
+```
+La dernière commande doit afficher `moneylab`. Tant que ce n'est pas fait, le bot t'envoie chaque
+jour « 🔐 Protection des clés inactive » sur Telegram.
+
 ## Lui écrire
 
 Tout message Telegram qui n'est pas une commande lui est transmis comme venant de toi et le réveille
@@ -229,7 +242,9 @@ juridique (CGU, fiscalité). Il ne peut pas se répliquer, modifier son propre c
 
 ## Limites à connaître
 
-- Les plafonds sont appliqués dans le programme ; une commande shell détournée pourrait les contourner.
-  Ta vraie protection : la limite de dépense chez Anthropic et ce que tu mets sur le compte.
+- Les plafonds sont appliqués dans le programme ; une commande shell détournée pourrait les contourner
+  (le bot possède ses propres fichiers de configuration et de comptabilité). Les clés, elles, sont
+  hors de portée de ses commandes avec le fichier de service actuel. Ta vraie protection reste la
+  limite de dépense chez Anthropic et ce que tu mets sur le compte.
 - Le bot meurt quand son solde passe sous zéro ; il revit si tu ajoutes des fonds ou si un revenu
   confirmé arrive.
