@@ -42,6 +42,7 @@ import { ensureMoneyLabSchema, getKV, getPauseState, journalFingerprint, queueOw
 import { afterWakeCycle, inferenceCallCount, isOperatorWake } from "./money-lab/cycle.js";
 import { MONEY_LAB_WAKE_REASON_KEY } from "./money-lab/journal.js";
 import { isReviewDue } from "./money-lab/review.js";
+import { recordHealthEvent } from "./money-lab/health.js";
 import {
   createSelfHostedClient,
   environmentProtected,
@@ -521,6 +522,7 @@ async function run(): Promise<void> {
         await fn();
       } catch (err: any) {
         logger.warn(`[MONEY LAB] ${label} : ${err?.message ?? err}`);
+        recordHealthEvent(db.raw, label, String(err?.message ?? err));
       } finally {
         busy = false;
       }

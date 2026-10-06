@@ -425,12 +425,13 @@ describe("Telegram owner channel", () => {
     db.close();
   });
 
-  it("sends one daily summary and never leaks the token in errors", async () => {
+  it("sends one daily health report and never leaks the token in errors", async () => {
     const db = openDb();
-    const { channel, sent } = telegram(db, []);
+    const { channel, sent } = telegram(db, [msg(20, 42, "/sante")]);
     await channel.tick(new Date("2026-10-04T08:00:00Z"));
     await channel.tick(new Date("2026-10-04T09:00:00Z"));
-    expect(sent.filter((t) => t.includes("RÉSUMÉ QUOTIDIEN"))).toHaveLength(1);
+    expect(sent.filter((t) => t.includes("Rapport de santé"))).toHaveLength(2); // /sante + the daily report
+    expect(sent.filter((t) => t.includes("RÉSUMÉ QUOTIDIEN"))).toHaveLength(0);
 
     const failing = new TelegramChannel("SECRET_TOKEN", 42, db, vpsConfig(), (async () =>
       new Response(JSON.stringify({ ok: false, description: "Unauthorized" }), { status: 401 })) as any);
@@ -1938,4 +1939,77 @@ describe("A failed turn is retried with its input", () => {
     expect(msg.status).toBe("processed");
     db.close();
   }, 30_000);
+});
+
+// ─── Daily health report ────────────────────────────────────────
+import { buildHealthReport, listHealthEvents, recordHealthEvent } from "../../money-lab/health.js";
+
+describe("Money Lab health report", () => {
+  const now = new Date("2026-10-06T07:30:00Z");
+  const lab = () => vpsConfig().moneyLab!;
+  const turn = (db: AutomatonDatabase, at: Date, thinking = "Je compare cinq niches.") =>
+    db.insertTurn({ id: `t${at.getTime()}`, timestamp: at.toISOString(), state: "running", thinking, toolCalls: [],
+      tokenUsage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 }, costCents: 1 } as any);
+
+  it("says all is well for a healthy bot and shows its activity", () => {
+    const db = openDb();
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "money-lab-health-"));
+    tmpDirs.push(home);
+    fs.mkdirSync(path.join(home, ".automaton", "backups"), { recursive: true });
+    fs.writeFileSync(path.join(home, ".automaton", "backups", "state.db.backup-2026-10-06"), "");
+    setJournalKV(db.raw, "money_lab.telegram_summary_day", "x");
+    turn(db, new Date(now.getTime() - 2 * 3_600_000));
+    addLedgerEntry(db.raw, { kind: "owner_funding", amountCents: 2000, source: "operator", reference: "f1" });
+    const statfs = () => ({ bavail: 50_000_000, bsize: 1024, blocks: 80_000_000 });
+    const report = buildHealthReport(db.raw, lab(), { home, now, statfs });
+    expect(buildHealthReport(db.raw, lab(), { home, now, statfs: () => ({ bavail: 100, bsize: 1024, blocks: 80_000_000 }) }).text)
+      .toMatch(/🚨 Problème : le disque est presque plein/);
+    expect(report.text.split("\n")[1]).toBe("✅ Tout va bien.");
+    expect(report.level).toBe("ok");
+    expect(report.text).toMatch(/✅ Tout va bien/);
+    expect(report.text).toMatch(/1 tours de réflexion/);
+    expect(report.text).toMatch(/Je compare cinq niches/);
+    expect(report.text).toMatch(/Dernière sauvegarde : 2026-10-06/);
+    db.close();
+  });
+
+  it("flags failed turns, a silent bot, unread owner messages, and masks keys", () => {
+    const db = openDb();
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "money-lab-health-"));
+    tmpDirs.push(home);
+    for (let i = 0; i < 5; i++) {
+      recordHealthEvent(db.raw, "turn", "400 invalid_request_error key sk-ant-api03-ABCDEFGHIJKLMNOP", new Date(now.getTime() - 3_600_000));
+    }
+    recordHealthEvent(db.raw, "Telegram", "fetch failed", new Date(now.getTime() - 3_600_000));
+    recordHealthEvent(db.raw, "turn", "old", new Date(now.getTime() - 3 * 86_400_000)); // too old: not counted
+    turn(db, new Date(now.getTime() - 30 * 3_600_000));
+    db.raw.prepare("INSERT INTO inbox_messages (id, from_address, content, received_at) VALUES ('tg_1', ?, 'Réveille-toi', ?)")
+      .run(OWNER_TELEGRAM_SENDER, "2026-10-06 05:00:00");
+    const report = buildHealthReport(db.raw, lab(), { home, now });
+    expect(report.level).toBe("problem");
+    expect(report.text).toMatch(/5 tours ont échoué/);
+    expect(report.text).toMatch(/aucun tour depuis plus de 26 h/);
+    expect(report.text).toMatch(/1 de tes messages attendent/);
+    expect(report.text).toMatch(/Telegram ×1/);
+    expect(report.text).toMatch(/pas de sauvegarde récente/);
+    expect(report.text).not.toContain("sk-ant-api03");
+    expect(listHealthEvents(db.raw).every((e) => !e.message.includes("ABCDEFGH"))).toBe(true);
+    db.close();
+  });
+
+  it("records failed agent turns from the loop", async () => {
+    const db = openDb();
+    const config = vpsConfig();
+    const inference = {
+      chat: vi.fn(async () => { throw new Error("Inference error (anthropic): 500 overloaded"); }),
+      setLowComputeMode: vi.fn(), getDefaultModel: () => "claude-sonnet-5-5",
+    } as any;
+    db.raw.prepare("INSERT INTO inbox_messages (id, from_address, content) VALUES ('tg_9', ?, 'Salut')").run(OWNER_TELEGRAM_SENDER);
+    await runAgentLoop({
+      identity: { name: "t", address: "0x0", account: {} as any, creatorAddress: "0x0", sandboxId: "", apiKey: "", createdAt: "" } as any,
+      config, db, conway: {} as any, inference,
+    } as any).catch(() => undefined);
+    expect(listHealthEvents(db.raw).some((e) => e.source === "turn" && /500 overloaded/.test(e.message))).toBe(true);
+    db.close();
+  });
 });

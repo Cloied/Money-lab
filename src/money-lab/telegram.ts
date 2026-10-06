@@ -13,6 +13,7 @@ import type Database from "better-sqlite3";
 import type { AutomatonConfig, AutomatonDatabase } from "../types.js";
 import { runMoneyLabCommand } from "./cli.js";
 import { formatStatus } from "./status.js";
+import { buildHealthReport } from "./health.js";
 import {
   getKV,
   markOwnerNotificationSent,
@@ -31,7 +32,8 @@ const MAX_MESSAGE = 3900;
 
 export const TELEGRAM_HELP = `Commandes Money Lab :
 /statut — état complet (budget, expériences, demandes, finances)
-/resume — résumé du jour
+/sante — rapport de santé (envoyé aussi chaque matin)
+/resume — résumé détaillé
 /pause [raison] — mettre le bot en pause
 /reprendre — relancer le bot
 /aides — demandes d'aide ouvertes
@@ -138,6 +140,10 @@ export class TelegramChannel {
       case "/statut":
       case "/status":
         return formatStatus(this.raw, this.config);
+      case "/sante":
+      case "/santé":
+      case "/health":
+        return this.config.moneyLab ? buildHealthReport(this.raw, this.config.moneyLab).text : "Profil Money Lab absent.";
       case "/resume":
         return run(["summary"]);
       case "/pause":
@@ -211,13 +217,13 @@ export class TelegramChannel {
       }
     }
 
-    // Daily summary once per UTC day, after 07:00 UTC.
+    // Daily health report once per UTC day, after 07:00 UTC (09:00 in Paris
+    // in summer). Queued in the outbox: a Telegram outage delays it, never
+    // loses it. The full summary stays available with /resume.
     const day = now.toISOString().slice(0, 10);
-    if (now.getUTCHours() >= 7 && getKV(this.raw, KV_SUMMARY_DAY) !== day) {
+    if (now.getUTCHours() >= 7 && getKV(this.raw, KV_SUMMARY_DAY) !== day && this.config.moneyLab) {
       setKV(this.raw, KV_SUMMARY_DAY, day);
-      const out: string[] = [];
-      runMoneyLabCommand(["summary"], this.raw, this.config, (t) => out.push(t));
-      await this.send(out.join("\n"));
+      queueOwnerNotification(this.raw, buildHealthReport(this.raw, this.config.moneyLab, { now }).text);
     }
 
     for (const item of pendingOwnerNotifications(this.raw)) {
