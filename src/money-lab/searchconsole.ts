@@ -41,6 +41,7 @@ async function accessToken(keyFile: string, fetchFn: FetchFn, now = Date.now()):
   const signature = base64url(crypto.createSign("RSA-SHA256").update(unsigned).sign(key.private_key));
   const resp = await fetchFn(aud, {
     method: "POST",
+    signal: AbortSignal.timeout(30_000),
     headers: { "content-type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion: `${unsigned}.${signature}` }).toString(),
   });
@@ -77,6 +78,7 @@ export async function searchAnalytics(
     `https://www.googleapis.com/webmasters/v3/sites/${encodeURIComponent(q.site)}/searchAnalytics/query`,
     {
       method: "POST",
+      signal: AbortSignal.timeout(30_000),
       headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
       body: JSON.stringify({ startDate: day(start), endDate: day(end), dimensions: [q.dimension], rowLimit: 25 }),
     },

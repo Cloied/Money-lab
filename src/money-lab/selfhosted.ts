@@ -194,6 +194,19 @@ export const SECRET_ENV_VARS = [
   "BLUESKY_APP_PASSWORD",
 ] as const;
 
+/**
+ * True when other processes of the same user cannot read this process's
+ * environment: the kernel makes /proc/<pid> root-owned for a process that is
+ * not dumpable (one that switched users, see src/launch.ts).
+ */
+export function environmentProtected(): boolean {
+  try {
+    return fs.statSync("/proc/self/environ").uid !== process.getuid?.();
+  } catch {
+    return true;
+  }
+}
+
 /** Copy of the environment without secrets, for the agent's shell. */
 export function scrubbedEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
   const copy: NodeJS.ProcessEnv = { ...env };

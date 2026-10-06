@@ -576,7 +576,7 @@ export function createMoneyLabTools(): AutomatonTool[] {
           text: { type: "string", description: "Material to work on" },
           files: { type: "array", items: { type: "string" }, description: "Your files, e.g. ~/research/niches.md" },
           urls: { type: "array", items: { type: "string" }, description: "Up to 5 http(s) pages to download and read" },
-          max_tokens: { type: "integer", description: "Answer length cap, default 4000 (max 8000)" },
+          max_tokens: { type: "integer", description: "Answer length cap, default 2000 (max 2400: you read at most 10,000 characters)" },
         },
         required: ["task"],
       },

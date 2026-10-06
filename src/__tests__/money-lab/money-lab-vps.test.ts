@@ -34,6 +34,7 @@ import {
   getHelpRequest,
   getKV,
   pendingOwnerNotifications,
+  queueOwnerNotification,
 } from "../../money-lab/journal.js";
 import {
   accruedHostingCents,
@@ -75,6 +76,9 @@ import { parseVerdict } from "../../money-lab/critic.js";
 import { checkDomains } from "../../money-lab/domain.js";
 import { challengeIdea } from "../../money-lab/critic.js";
 import { recall as recallSearch } from "../../money-lab/recall.js";
+import { afterWakeCycle, inferenceCallCount } from "../../money-lab/cycle.js";
+import { environmentProtected } from "../../money-lab/selfhosted.js";
+import { execFileSync } from "child_process";
 import { playwrightRender, renderImage } from "../../money-lab/image.js";
 import { decidePost, draftPost, linkFacets, listPosts, publishApproved } from "../../money-lab/social.js";
 import { journalFingerprint, pause as pauseMoneyLab, setKV as setJournalKV, upsertExperiment } from "../../money-lab/journal.js";
@@ -450,7 +454,14 @@ describe("Stripe revenue sync", () => {
       .toMatchObject({ kind: "refund", amountCents: 550 });
     expect(ledgerEntriesFor({ id: "p", type: "payout", amount: -900, fee: 0, currency: "eur", created: 1 }, cfg)[0])
       .toMatchObject({ kind: "cash_received", amountCents: 990 });
-    expect(ledgerEntriesFor({ id: "a", type: "adjustment", amount: 5, fee: 0, currency: "eur", created: 1 }, cfg)).toEqual([]);
+    // Disputes and chargebacks take money back (with a fee); a won dispute returns it.
+    expect(ledgerEntriesFor({ id: "d", type: "adjustment", amount: -2000, fee: 1500, currency: "eur", created: 1 }, cfg))
+      .toMatchObject([{ kind: "refund", amountCents: 2200 }, { kind: "fee", amountCents: 1650 }]);
+    expect(ledgerEntriesFor({ id: "w", type: "adjustment", amount: 2000, fee: 0, currency: "eur", created: 1 }, cfg))
+      .toMatchObject([{ kind: "confirmed_revenue", amountCents: 2200 }]);
+    expect(ledgerEntriesFor({ id: "s", type: "stripe_fee", amount: -100, fee: 0, currency: "eur", created: 1 }, cfg))
+      .toMatchObject([{ kind: "fee", amountCents: 110 }]);
+    expect(ledgerEntriesFor({ id: "t", type: "topup", amount: 5, fee: 0, currency: "eur", created: 1 }, cfg)).toEqual([]);
   });
 
   it("imports once, skips other currencies, extends survival and notifies the owner", async () => {
@@ -1644,3 +1655,168 @@ describe("Residual bug fixes", () => {
 function setKVForTest(db: any, ideas: unknown): void {
   setJournalKV(db, "money_lab.ideas", JSON.stringify(ideas));
 }
+
+// ─── Deep bug audit (2026-10-06) ───────────────────────────────
+
+describe("Deep audit fixes", () => {
+  const turnFor = (db: AutomatonDatabase) => ({ inputSource: "agent" as const, turnToolCallCount: 0, sessionSpend: new SpendTracker(db.raw) });
+  const ctxFor = (db: AutomatonDatabase): ToolContext => ({
+    identity: { ...createTestIdentity(), sandboxId: "" }, config: vpsConfig(), db, conway: new MockConwayClient(), inference: new MockInferenceClient(),
+  });
+
+  it("read_file cannot read the runtime's environment, keys or state, even through a symbolic link", async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "money-lab-read-"));
+    tmpDirs.push(home);
+    fs.mkdirSync(path.join(home, ".automaton"));
+    fs.writeFileSync(path.join(home, ".automaton", "gsc-key.json"), "{\"private_key\":\"SECRET\"}");
+    fs.writeFileSync(path.join(home, ".automaton", "constitution.md"), "Constitution");
+    fs.writeFileSync(path.join(home, "notes.md"), "mes notes");
+    fs.symlinkSync("/proc/self/environ", path.join(home, "env.txt"));
+    fs.symlinkSync(path.join(home, ".automaton", "gsc-key.json"), path.join(home, "cle.txt"));
+    const previous = process.env.HOME;
+    process.env.HOME = home;
+    try {
+      const db = openDb();
+      const ctx = { ...ctxFor(db), conway: createSelfHostedClient(new MockConwayClient(), () => 1000, { exec: async () => ({ stdout: "", stderr: "", exitCode: 1 }) }) } as ToolContext;
+      const tools = createBuiltinTools("");
+      const engine = new PolicyEngine(db.raw, createDefaultRules());
+      const read = (p: string) => executeTool("read_file", { path: p }, tools, ctx, engine, turnFor(db));
+      for (const p of ["/proc/self/environ", `/proc/${process.pid}/environ`, "~/env.txt", "~/.automaton/gsc-key.json", "~/cle.txt", "~/.automaton/state.db", "/etc/money-lab.env"]) {
+        const r = await read(p);
+        expect(r.error, p).toMatch(/MONEY_LAB_PROTECTED_READ/);
+      }
+      for (const p of ["~/notes.md", "~/.automaton/constitution.md", "/proc/loadavg"]) {
+        expect((await read(p)).error, p).toBeUndefined();
+      }
+      db.close();
+    } finally {
+      process.env.HOME = previous;
+    }
+  });
+
+  it("drops installed tools whose names would make every request fail", async () => {
+    const db = openDb();
+    addLedgerEntry(db.raw, { kind: "owner_funding", amountCents: 1000, source: "operator", reference: "f" });
+    for (const name of ["Brave Search", "exec", "weather_tool"]) {
+      db.installTool({ id: name, name, type: "mcp", config: {}, installedAt: new Date().toISOString(), enabled: true });
+    }
+    const inference = new MockInferenceClient([noToolResponse("ok")]);
+    await runAgentLoop({
+      identity: { ...createTestIdentity(), sandboxId: "" }, config: vpsConfig(), db, conway: new MockConwayClient(), inference,
+      policyEngine: new PolicyEngine(db.raw, createDefaultRules()), spendTracker: new SpendTracker(db.raw),
+    });
+    const names = (inference.calls[0].options?.tools ?? []).map((t: any) => t.function.name);
+    expect(names).not.toContain("Brave Search");
+    expect(names.filter((n: string) => n === "exec")).toHaveLength(1);
+    expect(names).toContain("weather_tool");
+    expect(new Set(names).size).toBe(names.length);
+    expect(names).not.toContain("install_mcp_server");
+    expect(names).not.toContain("switch_model");
+    db.close();
+  });
+
+  it("update_genesis_prompt saves only the prompt, never the budgets the runtime derived", async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "money-lab-genesis-"));
+    tmpDirs.push(home);
+    fs.mkdirSync(path.join(home, ".automaton"));
+    const file = path.join(home, ".automaton", "automaton.json");
+    fs.writeFileSync(file, JSON.stringify({ name: "money-lab", genesisPrompt: "old", moneyLab: { enabled: true } }));
+    const previous = process.env.HOME;
+    process.env.HOME = home;
+    try {
+      const db = openDb();
+      const ctx = ctxFor(db);
+      expect(ctx.config.modelStrategy).toBeDefined();
+      const r = await executeTool("update_genesis_prompt", { new_prompt: "Créer des outils utiles.", reason: "test" },
+        createBuiltinTools(""), ctx, new PolicyEngine(db.raw, createDefaultRules()), turnFor(db));
+      expect(r.error).toBeUndefined();
+      const saved = JSON.parse(fs.readFileSync(file, "utf-8"));
+      expect(saved.genesisPrompt).toBe("Créer des outils utiles.");
+      expect(saved.modelStrategy).toBeUndefined();
+      expect(saved.moneyLab).toEqual({ enabled: true });
+      db.close();
+    } finally {
+      process.env.HOME = previous;
+    }
+  });
+
+  it("configure.mjs never carries saved budgets over a new setting", () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "money-lab-configure-"));
+    tmpDirs.push(home);
+    fs.mkdirSync(path.join(home, ".automaton"));
+    const file = path.join(home, ".automaton", "automaton.json");
+    fs.writeFileSync(file, JSON.stringify({ walletAddress: "0xabc", modelStrategy: { dailyBudgetCents: 300 }, treasuryPolicy: { x: 1 } }));
+    execFileSync(process.execPath, [path.join(process.cwd(), "money-lab", "vps", "configure.mjs"), "--chat-id", "42", "--daily-budget", "6", "--no-stripe"],
+      { env: { ...process.env, HOME: home }, stdio: "pipe" });
+    const saved = JSON.parse(fs.readFileSync(file, "utf-8"));
+    expect(saved.modelStrategy).toBeUndefined();
+    expect(saved.treasuryPolicy).toBeUndefined();
+    expect(saved.walletAddress).toBe("0xabc");
+    expect(saved.moneyLab.inference.dailyCents).toBe(600);
+  });
+
+  it("knows whether the runtime's keys are hidden from the bot's shell", () => {
+    // Tests run as a normal process (not through dist/launch.js): not protected.
+    expect(environmentProtected()).toBe(false);
+  });
+
+  it("keeps the reply to an owner command when Telegram fails, and drops a message Telegram rejects", async () => {
+    const db = openDb();
+    let failSend = true;
+    const sent: string[] = [];
+    const fetchFn = vi.fn(async (url: string, init: RequestInit) => {
+      expect(init.signal).toBeInstanceOf(AbortSignal);
+      const body = JSON.parse(String(init.body));
+      if (url.endsWith("/getUpdates")) {
+        return new Response(JSON.stringify({ ok: true, result: body.offset > 7 ? [] : [{ update_id: 7, message: { message_id: 1, chat: { id: 42 }, text: "/fonds 10" } }] }));
+      }
+      if (body.text === "BAD") return new Response(JSON.stringify({ ok: false, description: "Bad Request: message is too long" }), { status: 400 });
+      if (failSend) return new Response(JSON.stringify({ ok: false }), { status: 502 });
+      sent.push(body.text);
+      return new Response(JSON.stringify({ ok: true, result: {} }));
+    });
+    const channel = new TelegramChannel("TOKEN", 42, db, vpsConfig(), fetchFn as any);
+    await channel.tick(new Date("2026-10-07T05:00:00Z")).catch(() => undefined);
+    expect(pendingOwnerNotifications(db.raw).map((n) => n.text).join("\n")).toMatch(/owner_funding|Écriture|10/);
+    queueOwnerNotification(db.raw, "BAD");
+    queueOwnerNotification(db.raw, "Après le message refusé");
+    failSend = false;
+    await channel.tick(new Date("2026-10-07T05:01:00Z"));
+    expect(sent.some((t) => /owner_funding|Écriture|10/.test(t))).toBe(true);
+    expect(sent).toContain("Après le message refusé");
+    expect(pendingOwnerNotifications(db.raw)).toHaveLength(0);
+    const funding = db.raw.prepare("SELECT COUNT(*) AS n FROM money_lab_ledger WHERE kind = 'owner_funding'").get() as { n: number };
+    expect(funding.n).toBe(1);
+    db.close();
+  });
+
+  it("does not count a budget-blocked wake cycle as one without progress", () => {
+    const db = openDb();
+    const lab = vpsConfig().moneyLab!;
+    const before = journalFingerprint(db.raw);
+    const calls = inferenceCallCount(db.raw);
+    for (let i = 0; i < 6; i++) expect(afterWakeCycle(db.raw, lab, before, Date.now(), calls).longSleepUntil).toBeNull();
+    recordInference(db, 1);
+    expect(afterWakeCycle(db.raw, lab, before, Date.now(), calls).noProgressCycles).toBe(1);
+    db.close();
+  });
+
+  it("keeps at most 20k characters of a tool result", async () => {
+    const db = openDb();
+    addLedgerEntry(db.raw, { kind: "owner_funding", amountCents: 1000, source: "operator", reference: "f" });
+    const conway = new MockConwayClient();
+    (conway as any).exec = async () => ({ stdout: "x".repeat(500_000), stderr: "", exitCode: 0 });
+    const inference = new MockInferenceClient([
+      toolCallResponse([{ name: "exec", arguments: { command: "cat big.log" } }]),
+      noToolResponse("fini"),
+    ]);
+    await runAgentLoop({
+      identity: { ...createTestIdentity(), sandboxId: "" }, config: vpsConfig(), db, conway, inference,
+      policyEngine: new PolicyEngine(db.raw, createDefaultRules()), spendTracker: new SpendTracker(db.raw),
+    });
+    const stored = db.raw.prepare("SELECT result FROM tool_calls WHERE name = 'exec'").get() as { result: string };
+    expect(stored.result.length).toBeLessThan(20_100);
+    expect(stored.result).toMatch(/more characters not kept\]$/);
+    db.close();
+  });
+});

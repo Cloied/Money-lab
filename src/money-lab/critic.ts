@@ -21,7 +21,7 @@ competitors already own the search results? Is the angle really different? Can i
 users without spam or paid ads? Is the revenue path realistic at this scale? Are the self-assessed
 scores inflated?
 
-Answer in this exact structure:
+Answer in under 450 words, in this exact structure:
 Verdict: GO | NO-GO | NEEDS MORE EVIDENCE
 Weakest points: (3-5 bullets)
 Evidence missing: (bullets: what to check and how)
@@ -58,7 +58,8 @@ export async function challengeIdea(
       taskType: "planning",
       tier: "normal",
       sessionId: options.sessionId,
-      maxTokens: 3000,
+      // The agent reads at most 10,000 characters of a tool result.
+      maxTokens: 2000,
       model: REVIEW_MODEL,
     },
     options.chat,

@@ -23,15 +23,26 @@ export interface CycleOutcome {
   longSleepUntil: string | null;
 }
 
+/** Number of recorded inference calls; a cycle that adds none had no paid turn. */
+export function inferenceCallCount(db: Database.Database): number {
+  return (db.prepare("SELECT COUNT(*) AS n FROM inference_costs").get() as { n: number }).n;
+}
+
 export function afterWakeCycle(
   db: Database.Database,
   lab: MoneyLabConfig,
   fingerprintBefore: string,
   nowMs: number = Date.now(),
+  inferenceCallsBefore?: number,
 ): CycleOutcome {
   if (journalFingerprint(db) !== fingerprintBefore) {
     setNoProgressCycles(db, 0);
     return { progressed: true, noProgressCycles: 0, longSleepUntil: null };
+  }
+  // A cycle blocked before any paid turn (budget cap, pause, death) gave the
+  // agent no chance to work: it does not count as a cycle without progress.
+  if (inferenceCallsBefore !== undefined && inferenceCallCount(db) === inferenceCallsBefore) {
+    return { progressed: false, noProgressCycles: getNoProgressCycles(db), longSleepUntil: null };
   }
 
   const cycles = getNoProgressCycles(db) + 1;

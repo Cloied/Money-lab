@@ -946,9 +946,19 @@ Model: ${ctx.inference.getDefaultModel()}
 
         ctx.config.genesisPrompt = sanitized.content;
 
-        // Save config
-        const { saveConfig } = await import("../config.js");
-        saveConfig(ctx.config);
+        // Save config. Money Lab: write only the genesis prompt; saving the
+        // whole in-memory config would persist the budgets the profile derived
+        // at startup, and a later budget increase by the owner would be capped.
+        const { saveConfig, getConfigPath } = await import("../config.js");
+        if (ctx.config.moneyLab?.enabled) {
+          const fs = await import("fs");
+          const file = getConfigPath();
+          const saved = JSON.parse(fs.readFileSync(file, "utf-8"));
+          saved.genesisPrompt = sanitized.content;
+          fs.writeFileSync(file, JSON.stringify(saved, null, 2), { mode: 0o600 });
+        } else {
+          saveConfig(ctx.config);
+        }
 
         ctx.db.insertModification({
           id: ulid(),

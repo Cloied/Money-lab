@@ -80,6 +80,26 @@ const MAX_REPETITIVE_TURNS = 3;
 const MONEY_LAB_IDLE_SLEEP_MS = 15 * 60_000;
 const MONEY_LAB_WINDOW = 20;
 const MONEY_LAB_WINDOW_STEP = 10;
+const MONEY_LAB_STORED_RESULT_CHARS = 20_000;
+/** Tool names the Anthropic API accepts. */
+const VALID_TOOL_NAME = /^[a-zA-Z0-9_-]{1,64}$/;
+
+/**
+ * Money Lab: drop installed tools whose name the API would reject (invalid
+ * or already taken): one bad entry in the database would otherwise fail
+ * every request until someone cleans it up.
+ */
+function usableToolList(tools: AutomatonTool[]): AutomatonTool[] {
+  const seen = new Set<string>();
+  return tools.filter((t) => {
+    if (!VALID_TOOL_NAME.test(t.name) || seen.has(t.name)) {
+      logger.warn(`[MONEY LAB] Tool "${t.name}" ignored: invalid or duplicate name.`);
+      return false;
+    }
+    seen.add(t.name);
+    return true;
+  });
+}
 
 export interface AgentLoopOptions {
   identity: AutomatonIdentity;
@@ -114,7 +134,7 @@ export async function runAgentLoop(
   // tools) except replication and owner-denied tools.
   const deniedTools = moneyLab ? moneyLabDeniedTools(moneyLab) : undefined;
   const tools = moneyLab
-    ? [...builtinTools, ...createMoneyLabTools(), ...loadInstalledTools(db)].filter((t) => !deniedTools!.has(t.name))
+    ? usableToolList([...builtinTools, ...createMoneyLabTools(), ...loadInstalledTools(db)].filter((t) => !deniedTools!.has(t.name)))
     : [...builtinTools, ...loadInstalledTools(db)];
   const toolContext: ToolContext = {
     identity,
@@ -821,6 +841,13 @@ export async function runAgentLoop(
 
           // Override the ID to match the inference call's ID
           result.id = tc.id;
+          // Money Lab: the context shows at most 10k characters of a result;
+          // storing megabytes of command output (twice) only grows the
+          // database and its daily backups.
+          if (moneyLab && result.result.length > MONEY_LAB_STORED_RESULT_CHARS) {
+            const dropped = result.result.length - MONEY_LAB_STORED_RESULT_CHARS;
+            result.result = `${result.result.slice(0, MONEY_LAB_STORED_RESULT_CHARS)}\n[... ${dropped} more characters not kept]`;
+          }
           turn.toolCalls.push(result);
 
           log(

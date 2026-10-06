@@ -107,6 +107,13 @@ export const MONEY_LAB_ALWAYS_DENIED_TOOLS: ReadonlySet<string> = new Set([
   "revert_last_edit",
   "pull_upstream",
   "reset_to_upstream",
+  // MCP servers are stubs upstream: an installed one adds a tool that does
+  // nothing, and a name the API rejects (spaces, a duplicate) would fail
+  // every later request.
+  "install_mcp_server",
+  // The owner pins the model: switch_model reported a switch that never
+  // happened and saved the budgets the runtime had derived into the config.
+  "switch_model",
 ]);
 
 /** Denied only when the owner sets `payments: "disabled"`. */
