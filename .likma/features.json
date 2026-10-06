@@ -155,6 +155,33 @@
         "report": ".likma/checks/a77e1b5c085647aca4cc25f51a0a0c22.json",
         "contract": "fb586cc5fab0eda7952dd8f8f92d718c03088207f4e7d1812a5c454e7d960f55"
       }
+    },
+    {
+      "id": "free-harvest-opus-decisions",
+      "title": "Free models collect, Opus decides",
+      "criteria": [
+        "Extraction runs on configured free services (Groq, Gemini, OpenRouter free models, local Ollama) with keys the agent cannot read, secrets masked before sending, failing providers rested, and a budgeted Haiku fallback",
+        "Approving an idea and stopping an active experiment apply a binding Claude Opus decision; the agent cannot do either alone",
+        "Market signals, datasets and site monitoring work without accounts or inference; an outage alerts the owner once and wakes the agent",
+        "The project typechecks and builds"
+      ],
+      "status": "verified",
+      "implementation": {
+        "at": "2026-10-06T23:38:22.443445+00:00",
+        "note": "src/money-lab/freeai.ts, decisions.ts, signals.ts, datasets.ts, monitor.ts; tests in src/__tests__/money-lab/money-lab-harvest.test.ts"
+      },
+      "verification": {
+        "at": "2026-10-06T23:48:00.624979+00:00",
+        "fingerprint": "cfd204517affb2675a123a4aa8063f7aee0ac5f8d0260a8257623677c719ba6d",
+        "criterion_checks": {
+          "1": "money-lab",
+          "2": "money-lab",
+          "3": "money-lab",
+          "4": "build"
+        },
+        "report": ".likma/checks/282d6a949f0f430e8b63269ae16625e6.json",
+        "contract": "2990e8c50e5212f755a43da23877d82eb0478fd54e39b0f5d4b25fa204e2714a"
+      }
     }
   ]
 }

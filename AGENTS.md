@@ -26,6 +26,10 @@ identity, scope and constraints are defined here and in the Money Lab specificat
   with narrowly scoped credentials it can read (GH_TOKEN, GOATCOUNTER_TOKEN), split its budget by purpose,
   sleep at most 6 h, and must hold a weekly review that maintains ~/LESSONS.md. It also drives a headless
   browser (browse) with its own profile; it must never use the owner's accounts or create accounts.
+- Owner decision (2026-10-06): free models collect, the best model decides. harvest sends extraction work
+  to free services (Groq, Gemini, OpenRouter ":free" models, local Ollama) with keys the agent cannot read,
+  falling back to Haiku; approving an idea and stopping an active experiment are binding Claude Opus
+  decisions applied by the runtime. The owner creates the free service accounts; the bot never does.
 - In-process limits are not tamper-proof (exec can bypass them). Never describe them as secure isolation.
 - Unknown cost is never free. Funding is not revenue; estimated income is not cash.
 - Tests must not make network or payment calls (src/__tests__/money-lab replaces fetch with a failing spy).

@@ -1229,12 +1229,17 @@ describe("Idea pipeline", () => {
     const db = openDb();
     const routed: any[] = [];
     let verdict = "GO";
+    let decision = "APPROVE";
     const ctx: ToolContext = {
       identity: { ...createTestIdentity(), sandboxId: "" }, config: vpsConfig(), db, conway: new MockConwayClient(), inference: new MockInferenceClient(),
       inferenceRouter: {
         route: async (request: any) => {
           routed.push(request);
-          return { content: `Verdict: ${verdict}\nWeakest points: demande non prouvée.`, model: request.model, provider: "anthropic",
+          // The binding decision (Opus, investment committee) or the critique.
+          const content = /investment committee/.test(request.messages[0].content)
+            ? `Decision: ${decision}\nReasons:\n- dossier solide`
+            : `Verdict: ${verdict}\nWeakest points: demande non prouvée.`;
+          return { content, model: request.model, provider: "anthropic",
             inputTokens: 900, outputTokens: 400, costCents: 4, latencyMs: 1, finishReason: "stop" } as any;
         },
       },
@@ -1250,7 +1255,7 @@ describe("Idea pipeline", () => {
       evidence: ["forum A 2026-10", "recherche B", "fil C"], competitors: ["X (gratuit, daté)", "Y (29 €/mois)"],
       kill_criteria: "moins de 50 visites/semaine après 4 semaines", scores: scores(n),
     });
-    return { db, call, full, routed, setVerdict: (v: string) => { verdict = v; } };
+    return { db, call, full, routed, setVerdict: (v: string) => { verdict = v; }, setDecision: (d: string) => { decision = d; } };
   }
 
   afterEach(() => vi.useRealTimers());

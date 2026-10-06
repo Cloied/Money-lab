@@ -20,5 +20,11 @@
 | Stripe revenue | src/money-lab/stripe.ts | Read-only Stripe balance-transaction sync into the ledger | Revenue mapping, currency handling or the Stripe API usage change |
 | Anthropic backend | src/conway/inference.ts | Claude calls via the official SDK (effort, refusal fallback, no thinking replay) | Model parameters or Anthropic API usage change |
 | VPS deployment | money-lab/vps/configure.mjs | Writes the self-hosted Money Lab configuration; with the systemd unit and env template | Deployment layout or configuration keys change |
+| Free models (harvest) | src/money-lab/freeai.ts | Extraction on free services (Groq, Gemini, OpenRouter :free, local Ollama) with sealed keys, redaction, rests, cache and Haiku fallback | A free provider, its limits or the fallback rule changes |
+| Opus decisions | src/money-lab/decisions.ts | Binding Opus verdicts for idea approval and for stopping an active experiment | Which decisions Opus makes, their dossier or their limits change |
+| Market signals | src/money-lab/signals.ts | Free demand evidence from Hacker News, Reddit, Google suggestions, Wikipedia, GitHub and Stack Exchange | A public data source or its output changes |
+| Datasets | src/money-lab/datasets.ts | The agent's collected data in ~/datasets/*.jsonl | Dataset storage, limits or search change |
+| Site monitoring | src/money-lab/monitor.ts | 30-minute uptime checks of the agent's sites with owner alerts and wakes | Monitoring rules, alerts or wake limits change |
+| Health report | src/money-lab/health.ts | Daily Telegram health report (/sante) from local state | What the owner sees each morning changes |
 
 Keep entries short and tied to actual paths. Agents must confirm ownership before editing.

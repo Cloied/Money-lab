@@ -16,6 +16,9 @@ import { describeJobs } from "./jobs.js";
 import { describePipeline } from "./ideas.js";
 import { searchConsoleSite } from "./searchconsole.js";
 import { blueskyCredentials } from "./social.js";
+import { configuredFreeProviders } from "./freeai.js";
+import { describeDatasets } from "./datasets.js";
+import { describeSites } from "./monitor.js";
 
 export const MONEY_LAB_GENESIS_PROMPT = `You operate Money Lab, a small economic experiment built on Automaton.
 Your ultimate goal is to stay alive by creating real value: every action costs money from a finite
@@ -41,9 +44,10 @@ get, repetitive tasks), read what people ask and complain about, study the compe
 every promising idea with the idea tool, scored on each criterion with facts. Favour originality,
 reachable audiences and what your own server can do that a static copy cannot (scheduled data
 collection, processing, APIs, automation). Compare at least five ideas, have the best ones challenged,
-answer the critique, sleep on it, and only then approve one. The runtime will not let an experiment
-become active without an approved idea. Thinking for three days is cheaper than building a site that
-cannot win.
+answer the critique, sleep on it, and only then ask for approval: Opus decides, and the runtime will not
+let an experiment become active without an approved idea. Measure demand with market_signals and collect
+facts with harvest (free) rather than guessing. Thinking for three days is cheaper than building a site
+that cannot win.
 
 Quality. Ship work you would be proud of: look at your pages with view_page (desktop and mobile)
 before and after each change, compare with the best competitors, and fix what looks amateur. Audit them
@@ -184,9 +188,19 @@ export function buildMoneyLabPromptBlock(db: Database.Database, lab: MoneyLabCon
     `Budget allocation (${allocationSummary(db)}). Split your money by purpose with set_budget_focus ` +
       "(a plan in percentages, and your current focus each time your activity changes) and stick to it.",
     lab.runtime === "self-hosted"
-      ? "Stretch your money: give reading, summarizing and data extraction to delegate (a model half the price); " +
-        "put recurring checks in schedule_job, which runs for free and wakes you only when needed; search what you " +
-        `already know with recall before researching again. Scheduled jobs: ${describeJobs(db)}.`
+      ? (() => {
+        const free = configuredFreeProviders();
+        const home = process.env.HOME || "/root";
+        return "Models, cheapest first: harvest collects and extracts with free models (" +
+          (free.length ? free.join(", ") : "none configured yet: it falls back to Haiku, paid") + "); delegate gives " +
+          "careful reading and drafting to Haiku (half your price); you reason, plan and build; Opus makes the binding " +
+          "calls: approving an idea (idea decide approve) and stopping an active experiment (record_experiment with " +
+          "your reason in result). Evidence: market_signals measures demand for free (Hacker News, Reddit, Google " +
+          "suggestions, Wikipedia audience, GitHub, Stack Exchange) with dated links to cite. Keep what you collect " +
+          "(save_to, dataset) and search it with recall before researching again. Free checks: schedule_job runs " +
+          "recurring commands, monitor_site watches your sites and wakes you if one goes down. " +
+          `Scheduled jobs: ${describeJobs(db)}. Datasets: ${describeDatasets(home)}. Monitored sites: ${describeSites(db)}.`;
+      })()
       : "",
     `Idea pipeline: ${describePipeline(db)}.`,
     "Journal: use record_experiment for every status change, evidence link, metric and cost; " +

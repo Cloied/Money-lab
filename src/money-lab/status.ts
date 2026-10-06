@@ -19,6 +19,8 @@ import {
   summarizeFinances,
 } from "./journal.js";
 import { getBudgetPlan, getFocus, weeklySpend } from "./allocation.js";
+import { configuredFreeProviders } from "./freeai.js";
+import { describeSites } from "./monitor.js";
 
 const CATEGORY_FR: Record<string, string> = {
   research: "recherche", build: "construction", marketing: "marketing", learning: "apprentissage",
@@ -67,6 +69,11 @@ export function formatStatus(
   out.push(`  Aujourd'hui : ${usd(inferenceGetDailyCost(db))} / ${limit(lab.inference.dailyCents)}`);
   out.push(`  Heure en cours : ${usd(inferenceGetHourlyCost(db))} / ${limit(lab.inference.hourlyCents)}`);
   out.push(`  Plafond par appel : ${limit(lab.inference.perCallCents)} — modèle ${lab.inference.model ?? "choisi par le runtime"}`);
+  if (lab.runtime === "self-hosted") {
+    const free = configuredFreeProviders();
+    out.push(`  IA gratuites (récolte) : ${free.length ? free.join(", ") : "aucune configurée (repli sur Haiku, payant)"} — décisions importantes : Opus`);
+    out.push(`  Sites surveillés : ${describeSites(db)}`);
+  }
   {
     const plan = getBudgetPlan(db);
     const spend = weeklySpend(db);

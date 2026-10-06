@@ -26,7 +26,8 @@ export const REVIEW_INSTRUCTIONS = `WEEKLY REVIEW (required in this wake cycle, 
 2. For each experiment, state the stage it reached (traffic, usage, revenue) against its criteria.
 3. Score each active experiment with the idea criteria as if it were a new idea (idea tool, update): is it
    original, reachable, and still worth your money against the best ideas in your pipeline? Decide for each
-   one: continue, improve, pivot or kill. Record the decision with record_experiment.
+   one: continue, improve, pivot or kill. Record the decision with record_experiment (to stop one, put your
+   reason in result: Opus confirms or overrules).
    Spend part of the week on discovery: add and score new ideas, so the pipeline always holds better options.
 4. Rewrite ~/LESSONS.md (under 60 lines): what worked, what failed and why, what to try next. Keep only
    lessons that change future decisions.

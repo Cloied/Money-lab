@@ -10,13 +10,17 @@ import fs from "fs";
 import path from "path";
 import type Database from "better-sqlite3";
 import { listExperiments } from "./journal.js";
+import { MAX_DATASET_BYTES } from "./datasets.js";
+import { ideaDossier, listIdeas } from "./ideas.js";
 
-const ROOTS = ["research", "library", "skills", "notes", path.join(".automaton", "skills")];
+const ROOTS = ["research", "library", "skills", "notes", "datasets", path.join(".automaton", "skills")];
 const ROOT_FILES = ["LESSONS.md", "WORKLOG.md", "SOUL.md"];
-const TEXT_EXT = /\.(md|txt|json|csv|html?|css|js|mjs|ts|py|sh|ya?ml|xml|svg)$/i;
+const TEXT_EXT = /\.(md|txt|json|jsonl|csv|html?|css|js|mjs|ts|py|sh|ya?ml|xml|svg)$/i;
 const SKIP_DIRS = new Set(["node_modules", ".git", "dist", "build", ".cache"]);
 const MAX_FILES = 2000;
 const MAX_FILE_BYTES = 300_000;
+/** Datasets (~/datasets/*.jsonl) are searched up to their own size cap. */
+const MAX_DATASET_FILE_BYTES = MAX_DATASET_BYTES;
 /** Total read per search, so a huge library cannot stall the runtime. */
 const MAX_TOTAL_BYTES = 20_000_000;
 const CHUNK_LINES = 12;
@@ -55,7 +59,7 @@ function walk(dir: string, out: string[]): void {
   }
 }
 
-/** Files searched: ~/research, ~/library, ~/skills, ~/notes, installed skills and the root notes. */
+/** Files searched: ~/research, ~/library, ~/skills, ~/notes, ~/datasets, installed skills and the root notes. */
 export function recallFiles(home: string): string[] {
   const files: string[] = [];
   for (const name of ROOT_FILES) {
@@ -101,7 +105,8 @@ export function recall(query: string, options: { home: string; db?: Database.Dat
   for (const file of recallFiles(options.home)) {
     try {
       const size = fs.statSync(file).size;
-      if (size > MAX_FILE_BYTES || total + size > MAX_TOTAL_BYTES) continue;
+      const cap = file.endsWith(".jsonl") ? MAX_DATASET_FILE_BYTES : MAX_FILE_BYTES;
+      if (size > cap || total + size > MAX_TOTAL_BYTES) continue;
       total += size;
       consider(`~/${path.relative(options.home, file)}`, fs.readFileSync(file, "utf-8").split("\n"));
     } catch {
@@ -111,6 +116,9 @@ export function recall(query: string, options: { home: string; db?: Database.Dat
   if (options.db) {
     for (const exp of listExperiments(options.db)) {
       consider(`experiment ${exp.id}`, JSON.stringify(exp, null, 1).split("\n"));
+    }
+    for (const idea of listIdeas(options.db)) {
+      consider(`idea ${idea.id} [${idea.status}]`, ideaDossier(idea).split("\n"));
     }
   }
   hits.sort((a, b) => b.score - a.score);
@@ -126,7 +134,7 @@ export function recall(query: string, options: { home: string; db?: Database.Dat
 
 export function formatRecall(query: string, hits: RecallHit[]): string {
   if (hits.length === 0) {
-    return `Nothing found for "${query}" in ~/research, ~/library, ~/notes, your skills, LESSONS.md or the experiment journal.`;
+    return `Nothing found for "${query}" in ~/research, ~/library, ~/notes, ~/datasets, your skills, LESSONS.md, ideas or the experiment journal.`;
   }
   return [
     `Best matches for "${query}":`,

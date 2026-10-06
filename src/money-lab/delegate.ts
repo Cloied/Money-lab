@@ -91,7 +91,7 @@ export interface DelegateArgs {
 /** Collects the documents; returns them or an error message. */
 export async function gatherDocuments(
   args: DelegateArgs,
-  options: { home: string; fetchFn?: typeof fetch },
+  options: { home: string; fetchFn?: typeof fetch; maxUrls?: number },
 ): Promise<{ docs: Array<{ source: string; content: string }>; notes: string[] }> {
   const docs: Array<{ source: string; content: string }> = [];
   const notes: string[] = [];
@@ -118,7 +118,7 @@ export async function gatherDocuments(
       notes.push(`${file}: ${err?.code ?? "unreadable"}`);
     }
   }
-  for (const url of (args.urls ?? []).slice(0, MAX_URLS)) {
+  for (const url of (args.urls ?? []).slice(0, options.maxUrls ?? MAX_URLS)) {
     try {
       docs.push({ source: url, content: await fetchPage(url, options.fetchFn ?? fetch) });
     } catch (err: any) {
@@ -147,6 +147,43 @@ export function delegateMessages(task: string, docs: Array<{ source: string; con
   ];
 }
 
+/** Asks Haiku through the router (budgets apply); `ok` is false when no answer came back. */
+export async function runDelegate(
+  task: string,
+  docs: Array<{ source: string; content: string }>,
+  notes: string[],
+  maxTokens: number | undefined,
+  options: { router: DelegateRouter; chat: (messages: any[], options: any) => Promise<any>; sessionId: string },
+): Promise<{ ok: boolean; text: string; answer: string; costCents: number }> {
+  const result = await options.router.route(
+    {
+      messages: delegateMessages(task, docs),
+      taskType: "summarization",
+      tier: "normal",
+      sessionId: options.sessionId,
+      // The agent reads at most 10,000 characters of a tool result: about 2,400 tokens.
+      maxTokens: Math.min(2400, Math.max(256, maxTokens ?? 2000)),
+      model: DELEGATE_MODEL,
+    },
+    options.chat,
+  );
+  const trailer = [
+    `[delegate: ${result.model}, ${result.inputTokens} in / ${result.outputTokens} out tokens, ${result.costCents}c]`,
+    ...notes.map((n) => `[document ${n}]`),
+  ].join("\n");
+  if (!["stop", "length"].includes(result.finishReason)) {
+    // Budget block, timeout, refusal or error: no answer to pass on.
+    return {
+      ok: false,
+      text: `Delegation not completed (${result.finishReason}): ${result.content.slice(0, 200)}\n${trailer}`,
+      answer: "",
+      costCents: result.costCents,
+    };
+  }
+  const answer = result.content.trim() || "(empty answer)";
+  return { ok: true, text: `${answer}\n${trailer}`, answer, costCents: result.costCents };
+}
+
 export async function delegate(
   args: DelegateArgs,
   options: {
@@ -159,25 +196,6 @@ export async function delegate(
 ): Promise<{ text: string; costCents: number }> {
   if (!args.task?.trim()) return { text: "task is required.", costCents: 0 };
   const { docs, notes } = await gatherDocuments(args, options);
-  const result = await options.router.route(
-    {
-      messages: delegateMessages(args.task, docs),
-      taskType: "summarization",
-      tier: "normal",
-      sessionId: options.sessionId,
-      // The agent reads at most 10,000 characters of a tool result: about 2,400 tokens.
-      maxTokens: Math.min(2400, Math.max(256, args.maxTokens ?? 2000)),
-      model: DELEGATE_MODEL,
-    },
-    options.chat,
-  );
-  const trailer = [
-    `[delegate: ${result.model}, ${result.inputTokens} in / ${result.outputTokens} out tokens, ${result.costCents}c]`,
-    ...notes.map((n) => `[document ${n}]`),
-  ].join("\n");
-  if (!["stop", "length"].includes(result.finishReason)) {
-    // Budget block, timeout, refusal or error: no answer to pass on.
-    return { text: `Delegation not completed (${result.finishReason}): ${result.content.slice(0, 200)}\n${trailer}`, costCents: result.costCents };
-  }
-  return { text: `${result.content.trim() || "(empty answer)"}\n${trailer}`, costCents: result.costCents };
+  const result = await runDelegate(args.task, docs, notes, args.maxTokens, options);
+  return { text: result.text, costCents: result.costCents };
 }

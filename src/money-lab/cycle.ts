@@ -12,9 +12,9 @@ import type Database from "better-sqlite3";
 import type { MoneyLabConfig } from "./profile.js";
 import { getKV, getNoProgressCycles, journalFingerprint, setKV, setNoProgressCycles } from "./journal.js";
 
-/** During a Money Lab sleep only operator actions (resume, help resolution) and scheduled-job alerts wake the agent. */
+/** During a Money Lab sleep only operator actions (resume, help resolution), scheduled-job alerts and site outages wake the agent. */
 export function isOperatorWake(event: { source: string }): boolean {
-  return event.source === "money_lab_operator" || event.source === "money_lab_job";
+  return event.source === "money_lab_operator" || event.source === "money_lab_job" || event.source === "money_lab_monitor";
 }
 
 export interface CycleOutcome {

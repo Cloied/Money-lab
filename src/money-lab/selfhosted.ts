@@ -195,6 +195,10 @@ export const SECRET_ENV_VARS = [
   "TELEGRAM_BOT_TOKEN",
   "STRIPE_API_KEY",
   "BLUESKY_APP_PASSWORD",
+  // Free model services (harvest): the runtime calls them, the agent never sees the keys.
+  "GROQ_API_KEY",
+  "GEMINI_API_KEY",
+  "OPENROUTER_API_KEY",
 ] as const;
 
 /**
@@ -238,6 +242,38 @@ export function sealSecrets(env: NodeJS.ProcessEnv = process.env): void {
 /** The environment with the sealed secrets, for the runtime's own reads. */
 export function withSecrets(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
   return { ...Object.fromEntries(sealed), ...env };
+}
+
+/** Common credential formats, masked before text leaves the runtime (free AI services, reports). */
+const CREDENTIAL_PATTERNS: RegExp[] = [
+  /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g,
+  /\bsk-[A-Za-z0-9_-]{16,}/g, // Anthropic, OpenAI, OpenRouter
+  /\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})/g,
+  /\bgsk_[A-Za-z0-9]{20,}/g, // Groq
+  /\bAIza[0-9A-Za-z_-]{30,}/g, // Google
+  /\b(?:sk|rk|pk)_(?:live|test)_[A-Za-z0-9]{10,}/g, // Stripe
+  /\bxox[abprs]-[A-Za-z0-9-]{10,}/g, // Slack
+  /\bAKIA[0-9A-Z]{16}\b/g, // AWS
+  /\b\d{6,12}:[A-Za-z0-9_-]{30,}\b/g, // Telegram bot tokens
+  /(\bBearer|\bBasic|token=|key=)\s*[A-Za-z0-9._~+/=-]{16,}/gi, // also api_key=, access_token=
+];
+
+/**
+ * Masks the values of every secret and bot credential, then anything that
+ * looks like a key. Used before text is sent to a free AI service or shown
+ * in a report.
+ */
+export function redactSecrets(text: string, env: NodeJS.ProcessEnv = withSecrets()): string {
+  let out = text;
+  for (const name of [...secretNames, ...BOT_CREDENTIAL_VARS]) {
+    const value = env[name];
+    if (value && value.length >= 8) out = out.split(value).join("[clé masquée]");
+  }
+  for (const pattern of CREDENTIAL_PATTERNS) {
+    out = out.replace(pattern, (match, prefix) =>
+      typeof prefix === "string" && /^(Bearer|Basic|token=|key=)$/i.test(prefix) ? `${prefix} [masqué]` : "[clé masquée]");
+  }
+  return out;
 }
 
 /** Copy of the environment without secrets, for the agent's shell. */
