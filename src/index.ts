@@ -45,6 +45,9 @@ import { isReviewDue } from "./money-lab/review.js";
 import {
   createSelfHostedClient,
   environmentProtected,
+  registerSecretEnvNames,
+  sealSecrets,
+  withSecrets,
   markRunStarted,
   scrubbedEnv,
   seedAnthropicModels,
@@ -273,6 +276,13 @@ async function run(): Promise<void> {
   if (selfHosted && !anthropicApiKey) {
     logger.error("Mode self-hosted : clé Anthropic manquante (ANTHROPIC_API_KEY ou anthropicApiKey).");
     process.exit(1);
+  }
+  // Self-hosted Money Lab: keys leave process.env before any child process
+  // starts, so none inherits them (skill checks run `which`, upstream checks
+  // run git...); the runtime reads them through withSecrets().
+  if (selfHosted) {
+    registerSecretEnvNames([moneyLab?.telegram?.botTokenEnv, moneyLab?.stripe?.apiKeyEnv]);
+    sealSecrets();
   }
   if (!selfHosted && !apiKey) {
     logger.error("No API key found. Run: automaton --provision");
@@ -554,7 +564,7 @@ async function run(): Promise<void> {
   }
   if (moneyLab?.stripe) {
     const stripeCfg = moneyLab.stripe;
-    const stripeKey = process.env[stripeCfg.apiKeyEnv];
+    const stripeKey = withSecrets()[stripeCfg.apiKeyEnv];
     if (stripeKey) {
       const { syncStripe } = await import("./money-lab/stripe.js");
       every(stripeCfg.syncMinutes * 60_000, "Stripe", () => syncStripe(db.raw, stripeCfg, stripeKey));

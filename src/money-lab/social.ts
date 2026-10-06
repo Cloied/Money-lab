@@ -15,6 +15,7 @@ import type Database from "better-sqlite3";
 import { ulid } from "ulid";
 import { getKV, queueOwnerNotification, setKV } from "./journal.js";
 import { imagesDir } from "./image.js";
+import { withSecrets } from "./selfhosted.js";
 
 type FetchFn = typeof fetch;
 
@@ -42,7 +43,7 @@ const MAX_IMAGE_BYTES = 950_000;
 const BLUESKY = "https://bsky.social/xrpc";
 const RETRY_AFTER_KEY = "money_lab.bluesky_retry_after";
 
-export function blueskyCredentials(env: NodeJS.ProcessEnv = process.env): { handle: string; password: string } | null {
+export function blueskyCredentials(env: NodeJS.ProcessEnv = withSecrets()): { handle: string; password: string } | null {
   const handle = env.BLUESKY_HANDLE?.trim().replace(/^@/, "");
   const password = env.BLUESKY_APP_PASSWORD?.trim();
   return handle && password ? { handle, password } : null;

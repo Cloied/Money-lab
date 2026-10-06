@@ -77,7 +77,9 @@ import { checkDomains } from "../../money-lab/domain.js";
 import { challengeIdea } from "../../money-lab/critic.js";
 import { recall as recallSearch } from "../../money-lab/recall.js";
 import { afterWakeCycle, inferenceCallCount } from "../../money-lab/cycle.js";
-import { environmentProtected } from "../../money-lab/selfhosted.js";
+import { environmentProtected, registerSecretEnvNames, sealSecrets, withSecrets } from "../../money-lab/selfhosted.js";
+import { blueskyCredentials } from "../../money-lab/social.js";
+import { createTelegramChannel } from "../../money-lab/telegram.js";
 import { execFileSync } from "child_process";
 import { playwrightRender, renderImage } from "../../money-lab/image.js";
 import { decidePost, draftPost, linkFacets, listPosts, publishApproved } from "../../money-lab/social.js";
@@ -1818,5 +1820,35 @@ describe("Deep audit fixes", () => {
     expect(stored.result.length).toBeLessThan(20_100);
     expect(stored.result).toMatch(/more characters not kept\]$/);
     db.close();
+  });
+});
+
+describe("Sealed secrets", () => {
+  it("removes the keys from the environment children inherit, while the runtime still reads them", () => {
+    const names = ["ANTHROPIC_API_KEY", "TELEGRAM_BOT_TOKEN", "BLUESKY_APP_PASSWORD", "MY_STRIPE_KEY"];
+    const previous = Object.fromEntries(names.map((n) => [n, process.env[n]]));
+    Object.assign(process.env, {
+      ANTHROPIC_API_KEY: "sk-ant-SEALED", TELEGRAM_BOT_TOKEN: "tg-SEALED", BLUESKY_APP_PASSWORD: "bsky-SEALED", MY_STRIPE_KEY: "rk-SEALED",
+      BLUESKY_HANDLE: "bot.bsky.social",
+    });
+    try {
+      registerSecretEnvNames(["MY_STRIPE_KEY"]);
+      sealSecrets();
+      for (const n of names) expect(process.env[n], n).toBeUndefined();
+      const childEnv = execFileSync(process.execPath, ["-e", "process.stdout.write(JSON.stringify(process.env))"], { encoding: "utf-8" });
+      expect(childEnv).not.toMatch(/SEALED/);
+      expect(withSecrets()).toMatchObject({ ANTHROPIC_API_KEY: "sk-ant-SEALED", MY_STRIPE_KEY: "rk-SEALED" });
+      expect(blueskyCredentials()).toEqual({ handle: "bot.bsky.social", password: "bsky-SEALED" });
+      const db = openDb();
+      expect(createTelegramChannel(db, vpsConfig())).not.toBeNull();
+      db.close();
+      expect(scrubbedEnv(withSecrets())).not.toHaveProperty("MY_STRIPE_KEY");
+    } finally {
+      for (const n of names) {
+        if (previous[n] === undefined) delete process.env[n];
+        else process.env[n] = previous[n];
+      }
+      delete process.env.BLUESKY_HANDLE;
+    }
   });
 });
