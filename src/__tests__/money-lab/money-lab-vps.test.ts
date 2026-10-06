@@ -1997,6 +1997,28 @@ describe("Money Lab health report", () => {
     db.close();
   });
 
+  it("compares each UTC day with the daily cap, not a rolling 24 h window", () => {
+    const db = openDb();
+    const capped = vpsConfig({ inference: { model: "claude-sonnet-5-5", effort: "medium", perCallCents: null, hourlyCents: null, dailyCents: 300, maxOutputTokens: 16000 } }).moneyLab!;
+    const cost = (at: string, cents: number) => db.raw.prepare(
+      "INSERT INTO inference_costs (id, session_id, model, provider, cost_cents, tier, task_type, created_at) VALUES (?, 's', 'm', 'anthropic', ?, 'normal', 'agent_turn', ?)",
+    ).run(`c${at}`, cents, at);
+    cost("2026-10-05 20:00:00", 290); // yesterday, within the cap
+    cost("2026-10-06 03:00:00", 286); // today, within the cap: 5.76 $ over 24 h is normal
+    turn(db, new Date(now.getTime() - 3_600_000), "");
+    turn(db, new Date(now.getTime() - 2 * 3_600_000), "Je note l'idée devis.");
+    const report = buildHealthReport(db.raw, capped, { now, statfs: () => ({ bavail: 50_000_000, bsize: 1024, blocks: 80_000_000 }) });
+    expect(report.text).not.toMatch(/dépasse/);
+    expect(report.text).toMatch(/IA aujourd'hui \(depuis minuit UTC\) : 2.86 \$ \/ 3.00 \$/);
+    expect(report.text).toMatch(/IA hier : 2.90 \$/);
+    expect(report.text).toMatch(/Je note l'idée devis/); // last turn without text: previous note shown
+    cost("2026-10-06 04:00:00", 200);
+    expect(buildHealthReport(db.raw, capped, { now }).text).toMatch(/🚨 Problème : la dépense IA d'aujourd'hui dépasse/);
+    // Spending from before the cap does not drive the burn rate.
+    expect(survivalBalance(db.raw, capped, now).burnPerDayCents).toBeLessThanOrEqual(300 + 50);
+    db.close();
+  });
+
   it("records failed agent turns from the loop", async () => {
     const db = openDb();
     const config = vpsConfig();

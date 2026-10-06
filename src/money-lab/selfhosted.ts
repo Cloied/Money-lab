@@ -79,7 +79,10 @@ export function survivalBalance(db: Database.Database, lab: MoneyLabConfig, now:
   const started = getKV(db, KV_STARTED);
   const window = started ? Math.min(7, Math.max(1 / 24, (now.getTime() - Date.parse(started)) / 86_400_000)) : 7;
   const hostingPerDay = lab.resources.reduce((sum, r) => sum + (r.expectedDailyCostCents ?? 0), 0);
-  const burn = Math.ceil((recentInference + recentPayments) / window + hostingPerDay);
+  // The first days may predate the daily cap; spending above it cannot
+  // happen again, so it does not count toward the future burn rate.
+  const inferencePerDay = Math.min(recentInference / window, lab.inference.dailyCents ?? Infinity);
+  const burn = Math.ceil(inferencePerDay + recentPayments / window + hostingPerDay);
 
   return {
     balanceCents: balance,
