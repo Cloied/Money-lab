@@ -12,6 +12,7 @@
 import fs from "fs";
 import path from "path";
 import type Database from "better-sqlite3";
+import { ulid } from "ulid";
 import { getKV, queueOwnerNotification, setKV } from "./journal.js";
 import { imagesDir } from "./image.js";
 
@@ -39,6 +40,7 @@ const MAX_PENDING = 5;
 const MAX_GRAPHEMES = 300;
 const MAX_IMAGE_BYTES = 950_000;
 const BLUESKY = "https://bsky.social/xrpc";
+const RETRY_AFTER_KEY = "money_lab.bluesky_retry_after";
 
 export function blueskyCredentials(env: NodeJS.ProcessEnv = process.env): { handle: string; password: string } | null {
   const handle = env.BLUESKY_HANDLE?.trim().replace(/^@/, "");
@@ -83,8 +85,11 @@ export function draftPost(
   let image: string | undefined;
   let alt: string | undefined;
   if (input.image) {
-    image = path.resolve(options.home, String(input.image).replace(/^~(?=$|\/)/, options.home));
-    if (!image.startsWith(imagesDir(options.home) + path.sep) || !/\.(png|jpe?g)$/i.test(image) || !fs.existsSync(image)) {
+    const requested = path.resolve(options.home, String(input.image).replace(/^~(?=$|\/)/, options.home));
+    // The real file (symbolic links resolved) must be an image in ~/images.
+    image = fs.existsSync(requested) ? fs.realpathSync(requested) : requested;
+    const dir = fs.existsSync(imagesDir(options.home)) ? fs.realpathSync(imagesDir(options.home)) : imagesDir(options.home);
+    if (!image.startsWith(dir + path.sep) || !/\.(png|jpe?g)$/i.test(image) || !fs.existsSync(image) || !fs.statSync(image).isFile()) {
       return "image must be a PNG or JPEG you rendered in ~/images (render_image).";
     }
     if (fs.statSync(image).size > MAX_IMAGE_BYTES) return "image is larger than 950 KB: render it smaller or simpler.";
@@ -98,7 +103,7 @@ export function draftPost(
   if (posts.filter((p) => p.status === "pending").length >= MAX_PENDING) return "Too many drafts wait for the owner: wait for decisions first.";
   if (posts.some((p) => p.text === text && p.status !== "rejected" && p.status !== "failed")) return "This exact text was already drafted or posted.";
   const post: SocialPost = {
-    id: `p-${now.getTime().toString(36).slice(-6)}`,
+    id: `p-${ulid().slice(-6).toLowerCase()}`,
     network: "bluesky",
     text,
     ...(image ? { image, alt } : {}),
@@ -117,7 +122,7 @@ export function draftPost(
 
 export function decidePost(db: Database.Database, id: string, approve: boolean, note: string, now = new Date()): string {
   const posts = listPosts(db);
-  const post = posts.find((p) => p.id === id);
+  const post = posts.find((p) => p.id === id.trim().toLowerCase());
   if (!post) return `Publication ${id} introuvable.`;
   if (post.status !== "pending") return `Publication ${id} déjà traitée (${post.status}).`;
   post.status = approve ? "approved" : "rejected";
@@ -142,9 +147,14 @@ export function linkFacets(text: string): Array<Record<string, unknown>> {
 }
 
 async function xrpc(fetchFn: FetchFn, method: string, init: RequestInit): Promise<any> {
-  const resp = await fetchFn(`${BLUESKY}/${method}`, { ...init, signal: AbortSignal.timeout(30_000) });
+  const headers = { "user-agent": "MoneyLabBot/1.0", ...(init.headers as Record<string, string>) };
+  const resp = await fetchFn(`${BLUESKY}/${method}`, { ...init, headers, signal: AbortSignal.timeout(30_000) });
   const data = await resp.json().catch(() => ({}));
-  if (!resp.ok) throw new Error(`${method}: HTTP ${resp.status} ${(data as any).message ?? (data as any).error ?? ""}`.trim());
+  if (!resp.ok) {
+    throw Object.assign(new Error(`${method}: HTTP ${resp.status} ${(data as any).message ?? (data as any).error ?? ""}`.trim()), {
+      status: resp.status,
+    });
+  }
   return data;
 }
 
@@ -156,11 +166,30 @@ export async function publishApproved(
   const creds = blueskyCredentials(options.env);
   const due = listPosts(db).filter((p) => p.status === "approved");
   if (!creds || due.length === 0) return 0;
+  const nowMs = (options.now?.() ?? new Date()).getTime();
+  if (nowMs < Number(getKV(db, RETRY_AFTER_KEY) ?? "0")) return 0;
   const fetchFn = options.fetchFn ?? fetch;
   const json = { "content-type": "application/json" };
-  const session = await xrpc(fetchFn, "com.atproto.server.createSession", {
-    method: "POST", headers: json, body: JSON.stringify({ identifier: creds.handle, password: creds.password }),
-  });
+  let session: any;
+  try {
+    session = await xrpc(fetchFn, "com.atproto.server.createSession", {
+      method: "POST", headers: json, body: JSON.stringify({ identifier: creds.handle, password: creds.password }),
+    });
+  } catch (err: any) {
+    if (!(err?.status >= 400 && err?.status < 500) || err?.status === 429) {
+      // Network error, rate limit or Bluesky outage: retry in 15 minutes.
+      setKV(db, RETRY_AFTER_KEY, String(nowMs + 15 * 60_000));
+      return 0;
+    }
+    // A refused login is not retried every minute (Bluesky limits logins
+    // and may lock the account): fail these posts and tell the owner once.
+    const error = `connexion Bluesky refusée : ${String(err?.message ?? err).slice(0, 200)}`;
+    const posts = listPosts(db);
+    for (const p of posts) if (p.status === "approved") Object.assign(p, { status: "failed", error });
+    save(db, posts);
+    queueOwnerNotification(db, `⚠️ ${error}. Vérifie BLUESKY_HANDLE et BLUESKY_APP_PASSWORD dans /etc/money-lab.env, puis redémarre.`);
+    return 0;
+  }
   const auth = { authorization: `Bearer ${session.accessJwt}` };
   let posted = 0;
   for (const post of due) {

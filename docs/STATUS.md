@@ -13,7 +13,7 @@
   status/summary, no-progress sleep, integration note, Conway checklist (features verified in docs/FEATURES.md).
 - Checks run (command, result, date):
   - likma project feature verify (types/money-lab/build): pass, 2026-10-03
-  - pnpm exec vitest run --exclude src/__tests__/context-hardening.test.ts: 1700/1700 pass (plan step 3 code), 2026-10-06
+  - pnpm exec vitest run --exclude src/__tests__/context-hardening.test.ts: 1710/1710 pass (bug audit), 2026-10-06
   - node money-lab/e2e/harness.mjs (real process, strict fake Anthropic/Telegram/Stripe): PASS, 2026-10-05
     (upstream d8f8168 baseline: 1614/1614)
 - First supervised run (owner-approved, 2026-10-04, OVH VPS, $15 funding): Telegram works; the agent
@@ -47,6 +47,10 @@
 - Live 2026-10-06 02:08 UTC (727338d): the agent recorded its experiment and slept 24 h "for indexing"
   without discovery, and dated evidence in the future. Fixed: current date in the prompt, 3 h sleep cap
   while fewer than 5 ideas are scored, idea work counted as progress.
+- Bug audit 2026-10-06 (owner request): fixed false "free" domains and Cloudflare 403 on RDAP, a
+  local-file leak path in render_image, forged idea_id, uncounted failed critiques, unbounded page
+  downloads, Bluesky login retries every minute, budget-blocked review model, fake image markers
+  breaking every request, partial backups. See INTEGRATION.md "Bug audit".
 - Blockers and known regressions:
   - Upstream context-hardening.test.ts hangs on unmodified upstream; upstream CI masks it as a warning.
   - In-process limits are bypassable through exec; supervised run only.

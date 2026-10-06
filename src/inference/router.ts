@@ -46,8 +46,9 @@ export class InferenceRouter {
     const { messages, taskType, tier, sessionId, turnId, tools } = request;
 
     // 1. Select model: a requested model (e.g. a stronger one for a review)
-    // if enabled and within the per-call budget, else the routing matrix.
-    const model = this.preferredModel(request) ?? this.selectModel(tier, taskType);
+    // when it is enabled, else the routing matrix.
+    const normalModel = this.selectModel(tier, taskType);
+    let model = this.preferredModel(request) ?? normalModel;
     if (!model) {
       return {
         content: "",
@@ -68,12 +69,24 @@ export class InferenceRouter {
     const toolChars = strict && tools ? JSON.stringify(tools).length : 0;
     const estimatedTokens =
       messages.reduce((sum, m) => sum + (m.content?.length || 0) / 4, 0) + toolChars / 4;
-    const estimatedCostCents = Math.ceil(
-      (estimatedTokens / 1000) * model.costPer1kInput / 100 +
-      (request.maxTokens || 1000) / 1000 * model.costPer1kOutput / 100,
+    const estimate = (entry: ModelEntry) => Math.ceil(
+      (estimatedTokens / 1000) * entry.costPer1kInput / 100 +
+      (request.maxTokens || 1000) / 1000 * entry.costPer1kOutput / 100,
     );
+    let estimatedCostCents = estimate(model);
 
-    const budgetCheck = this.budget.checkBudget(estimatedCostCents, model.modelId);
+    let budgetCheck = this.budget.checkBudget(estimatedCostCents, model.modelId);
+    // A requested model that does not fit a budget (per call, hour, day)
+    // falls back to the normal model instead of blocking the call.
+    if (!budgetCheck.allowed && normalModel && model.modelId !== normalModel.modelId) {
+      const normalEstimate = estimate(normalModel);
+      const normalCheck = this.budget.checkBudget(normalEstimate, normalModel.modelId);
+      if (normalCheck.allowed) {
+        model = normalModel;
+        estimatedCostCents = normalEstimate;
+        budgetCheck = normalCheck;
+      }
+    }
     if (!budgetCheck.allowed) {
       return {
         content: `Budget exceeded: ${budgetCheck.reason}`,
@@ -217,16 +230,7 @@ export class InferenceRouter {
   private preferredModel(request: InferenceRequest): ModelEntry | null {
     if (!request.model) return null;
     const entry = this.registry.get(request.model);
-    if (!entry || !entry.enabled) return null;
-    const ceiling = this.budget.config.perCallCeilingCents;
-    if (ceiling > 0) {
-      const tokens = request.messages.reduce((sum, m) => sum + (m.content?.length || 0) / 4, 0);
-      const estimate = Math.ceil(
-        (tokens / 1000) * entry.costPer1kInput / 100 + (request.maxTokens || 1000) / 1000 * entry.costPer1kOutput / 100,
-      );
-      if (estimate > ceiling) return null;
-    }
-    return entry;
+    return entry && entry.enabled ? entry : null;
   }
 
   /**

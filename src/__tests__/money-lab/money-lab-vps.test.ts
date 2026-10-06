@@ -70,12 +70,14 @@ import { gatherDocuments, htmlToText } from "../../money-lab/delegate.js";
 import { isOperatorWake } from "../../money-lab/cycle.js";
 import { auditPage, summarizeLighthouse } from "../../money-lab/audit.js";
 import { abVerdict } from "../../money-lab/abtest.js";
-import { CRITERIA, getIdea, listIdeas, upsertIdea } from "../../money-lab/ideas.js";
+import { CRITERIA, decideIdea, getIdea, listIdeas, upsertIdea } from "../../money-lab/ideas.js";
 import { parseVerdict } from "../../money-lab/critic.js";
 import { checkDomains } from "../../money-lab/domain.js";
-import { renderImage } from "../../money-lab/image.js";
-import { draftPost, linkFacets, listPosts, publishApproved } from "../../money-lab/social.js";
-import { journalFingerprint, pause as pauseMoneyLab, upsertExperiment } from "../../money-lab/journal.js";
+import { challengeIdea } from "../../money-lab/critic.js";
+import { recall as recallSearch } from "../../money-lab/recall.js";
+import { playwrightRender, renderImage } from "../../money-lab/image.js";
+import { decidePost, draftPost, linkFacets, listPosts, publishApproved } from "../../money-lab/social.js";
+import { journalFingerprint, pause as pauseMoneyLab, setKV as setJournalKV, upsertExperiment } from "../../money-lab/journal.js";
 
 function vpsProfile(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
@@ -948,13 +950,16 @@ describe("Delegate to a cheaper model", () => {
     tmpDirs.push(home);
     fs.mkdirSync(path.join(home, "research"));
     fs.writeFileSync(path.join(home, "research", "concurrents.md"), "Factur.io : 9 EUR/mois, 5 factures gratuites.");
+    fs.mkdirSync(path.join(home, ".automaton"));
+    fs.writeFileSync(path.join(home, ".automaton", "state.db"), "SQLite");
+    fs.symlinkSync(path.join(home, ".automaton", "state.db"), path.join(home, "research", "copie.md"));
     const previous = process.env.HOME;
     process.env.HOME = home;
     try {
       const db = openDb();
       addLedgerEntry(db.raw, { kind: "owner_funding", amountCents: 1000, source: "operator", reference: "f" });
       const inference = new MockInferenceClient([
-        toolCallResponse([{ name: "delegate", arguments: { task: "Liste les prix", files: ["~/research/concurrents.md", "~/.automaton/state.db"] } }]),
+        toolCallResponse([{ name: "delegate", arguments: { task: "Liste les prix", files: "~/research/concurrents.md, ~/.automaton/state.db, ~/research/copie.md" } }]),
         noToolResponse("Factur.io : 9 EUR/mois."),
         noToolResponse("Noté."),
       ]);
@@ -971,6 +976,8 @@ describe("Delegate to a cheaper model", () => {
       expect(result).toContain("Factur.io : 9 EUR/mois.");
       expect(result).toContain("[delegate: claude-haiku-4-5");
       expect(result).toMatch(/state\.db: refused/);
+      expect(result).toMatch(/copie\.md: refused/);
+      expect(String(call.messages[1].content)).not.toContain("SQLite");
       const models = db.raw.prepare("SELECT model FROM inference_costs").all().map((r: any) => r.model);
       expect(models).toContain("claude-haiku-4-5");
       db.close();
@@ -1315,39 +1322,86 @@ describe("Idea pipeline", () => {
 // ─── Step 3: domain, images, Bluesky (2026-10-06) ──────────────
 
 describe("Domain availability", () => {
-  it("reads registry RDAP answers: 404 free, 200 taken with expiry", async () => {
+  function rdap(body: string, status: number, url: string): Response {
+    const resp = new Response(body, { status });
+    Object.defineProperty(resp, "url", { value: url });
+    return resp;
+  }
+
+  it("trusts a registry's 404, but not rdap.org's own 404 for extensions without RDAP", async () => {
     const fetchFn = vi.fn(async (url: string) => {
-      if (url.endsWith("/devis-artisan.fr")) return new Response("{}", { status: 404 });
-      if (url.endsWith("/google.fr")) {
-        return new Response(JSON.stringify({ events: [{ eventAction: "expiration", eventDate: "2027-12-30T00:00:00Z" }] }), { status: 200 });
+      const name = url.split("/").pop()!;
+      if (name === "devis-artisan.fr") return rdap("", 404, `https://rdap.nic.fr/domain/${name}`);
+      if (name === "google.fr") {
+        return rdap(JSON.stringify({ events: [{ eventAction: "expiration", eventDate: "2027-12-30T00:00:00Z" }] }), 200, `https://rdap.nic.fr/domain/${name}`);
       }
-      return new Response("", { status: 503 });
+      if (name.endsWith(".io") || name.endsWith(".de")) {
+        return rdap('{"errorCode":404,"title":"No RDAP service is available for this resource"}', 404, url);
+      }
+      return rdap("", 503, url);
     });
-    const text = await checkDomains(["Devis-Artisan.fr", "https://google.fr/", "bad name", "slow.com"], fetchFn as any);
-    expect(fetchFn).toHaveBeenCalledWith("https://rdap.org/domain/devis-artisan.fr", expect.anything());
-    expect(text).toContain("FREE devis-artisan.fr: no registration found");
+    const nsLookup = vi.fn(async (name: string) => (name === "google.io" ? ["ns1.google.com", "ns2.google.com"] : []));
+    const text = await checkDomains(
+      ["Devis-Artisan.fr", "https://google.fr/", "google.io", "devis-artisan.de", "bad name", "slow.com"],
+      fetchFn as any, nsLookup,
+    );
+    expect(fetchFn).toHaveBeenCalledWith("https://rdap.org/domain/devis-artisan.fr", expect.objectContaining({
+      headers: expect.objectContaining({ "user-agent": expect.stringContaining("MoneyLabBot") }),
+    }));
+    expect(text).toContain("FREE devis-artisan.fr: the registry has no record of it");
     expect(text).toContain("TAKEN google.fr: registered, expires 2027-12-30");
+    expect(text).toContain("TAKEN google.io: this extension's registry has no RDAP service; registered (it has name servers: ns1.google.com");
+    expect(text).toContain("PROBABLY FREE devis-artisan.de: this extension's registry has no RDAP service; no DNS records");
     expect(text).toContain("INVALID bad name");
-    expect(text).toContain("? slow.com: registry answered HTTP 503");
+    expect(text).toContain("PROBABLY FREE slow.com: registry answered HTTP 503");
+    expect(nsLookup).not.toHaveBeenCalledWith("devis-artisan.fr");
   });
 });
 
+/** Status of a request to a local test server (the global fetch is a failing spy here). */
+function localStatus(url: string): Promise<number> {
+  return new Promise((resolve, reject) => {
+    // Raw path: the test checks that "/../" cannot escape the served directory.
+    const { hostname, port } = new URL(url);
+    const pathname = url.slice(url.indexOf("/", "http://".length));
+    http.get({ hostname, port, path: pathname }, (res) => {
+      res.resume();
+      resolve(res.statusCode ?? 0);
+    }).on("error", reject);
+  });
+}
+
 describe("Image rendering", () => {
-  it("renders an HTML design at a network preset with Chrome and shows it to the agent", async () => {
+  it("renders an HTML design served over local http (never file://) at a network preset", async () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), "money-lab-image-"));
     tmpDirs.push(home);
-    const renders: unknown[][] = [];
-    const render = async (url: string, out: string, width: number, height: number) => {
-      renders.push([url, width, height]);
+    fs.mkdirSync(path.join(home, ".automaton"), { recursive: true });
+    fs.writeFileSync(path.join(home, ".automaton", "gsc-key.json"), "SECRET-KEY");
+    const renders: Array<{ url: string; width: number; height: number; format: string; served: Record<string, number> }> = [];
+    const render = async (url: string, out: string, width: number, height: number, format: "png" | "jpeg") => {
+      const base = new URL(url).origin;
+      const served: Record<string, number> = {};
+      for (const p of ["/src/og-devis.html", "/../.automaton/gsc-key.json", "/leak.json", "/missing.png"]) {
+        served[p] = await localStatus(base + p);
+      }
+      renders.push({ url, width, height, format, served });
       fs.writeFileSync(out, Buffer.alloc(2048));
     };
+    fs.mkdirSync(path.join(home, "images"), { recursive: true });
+    fs.symlinkSync(path.join(home, ".automaton", "gsc-key.json"), path.join(home, "images", "leak.json"));
     const text = await renderImage({ name: "og-devis", html: "<h1>Devis en 2 minutes</h1>", preset: "og" }, { render, home });
-    expect(renders[0]).toEqual([`file://${path.join(home, "images", "src", "og-devis.html")}`, 1200, 630]);
+    expect(renders[0].url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/src\/og-devis\.html$/);
+    expect([renders[0].width, renders[0].height, renders[0].format]).toEqual([1200, 630, "png"]);
+    expect(renders[0].served).toEqual({ "/src/og-devis.html": 200, "/../.automaton/gsc-key.json": 404, "/leak.json": 404, "/missing.png": 404 });
     expect(fs.readFileSync(path.join(home, "images", "src", "og-devis.html"), "utf-8")).toContain("width:1200px;height:630px");
     expect(text).toContain(`[[image:${path.join(home, "images", "og-devis.png")}]]`);
+    const jpeg = await renderImage({ name: "story", html: "x", preset: "story", format: "jpeg" }, { render, home });
+    expect(renders[1].format).toBe("jpeg");
+    expect(jpeg).toContain(`[[image:${path.join(home, "images", "story.jpg")}]]`);
     expect(await renderImage({ name: "Bad Name", html: "x", preset: "og" }, { render, home })).toMatch(/name must/);
     expect(await renderImage({ name: "x", html: "x" }, { render, home })).toMatch(/Choose a preset/);
-    expect(await renderImage({ name: "x", file: "/etc/passwd", preset: "square" }, { render, home })).toMatch(/home directory/);
+    expect(await renderImage({ name: "x", file: "/etc/passwd", preset: "square" }, { render, home })).toMatch(/inside ~\/images/);
+    expect(await renderImage({ name: "x", file: "~/images/leak.json", preset: "square" }, { render, home })).toMatch(/inside ~\/images/);
     const failing = async () => { throw new Error("Browser closed\nstack"); };
     expect(await renderImage({ name: "y", html: "x", preset: "square" }, { render: failing, home })).toBe("Rendering failed: Browser closed");
   });
@@ -1410,3 +1464,183 @@ describe("Bluesky posting", () => {
     db.close();
   });
 });
+
+// ─── Residual bug audit (2026-10-06) ───────────────────────────
+
+describe("Residual bug fixes", () => {
+  const turn = (db: AutomatonDatabase) => ({ inputSource: "agent" as const, turnToolCallCount: 0, sessionSpend: new SpendTracker(db.raw) });
+  const ctxFor = (db: AutomatonDatabase, router?: any): ToolContext => ({
+    identity: { ...createTestIdentity(), sandboxId: "" }, config: vpsConfig(), db, conway: new MockConwayClient(),
+    inference: new MockInferenceClient(), ...(router ? { inferenceRouter: router } : {}),
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it("does not let idea_id be forged to make an experiment active", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-07T08:00:00Z"));
+    const db = openDb();
+    const tools = createMoneyLabTools();
+    const engine = new PolicyEngine(db.raw, createDefaultRules());
+    const call = (name: string, args: Record<string, unknown>) =>
+      executeTool(name, args, tools, ctxFor(db), engine, turn(db)).then((r) => r.result || r.error || "");
+    upsertIdea(db.raw, { id: "candidate-idea", title: "t", problem: "p" });
+    const viaMetrics = await call("record_experiment", { id: "exp_a", status: "exploring", hypothesis: "h", metrics: { idea_id: "candidate-idea" } });
+    expect(viaMetrics).toMatch(/recorded with status exploring/);
+    const viaIdea = await call("record_experiment", { id: "exp_b", status: "exploring", hypothesis: "h", idea_id: "candidate-idea" });
+    expect(viaIdea).toMatch(/idea_id "candidate-idea" ignored/);
+    for (const id of ["exp_a", "exp_b"]) {
+      expect(await call("record_experiment", { id, status: "building" })).toMatch(/only through an approved idea/);
+    }
+    db.raw.prepare("UPDATE money_lab_experiments SET metrics = ? WHERE id = 'exp_a'").run(JSON.stringify({ idea_id: "candidate-idea" }));
+    expect(await call("record_experiment", { id: "exp_a", status: "building" })).toMatch(/only through an approved idea/);
+    db.close();
+  });
+
+  it("lets an approved idea be rejected, keeps rejected ideas from filling the pipeline, accepts a string list", () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-07T08:00:00Z"));
+    const db = openDb();
+    const ideas = db.raw;
+    // 10 rejected ideas and 40 open ones: the rejected ones do not count.
+    for (let n = 0; n < 50; n++) {
+      expect(typeof upsertIdea(ideas, { id: `idee-${n}`, title: "t", problem: "p", evidence: "un seul lien" })).toBe("object");
+      const raw = JSON.parse(getKV(ideas, "money_lab.ideas")!);
+      raw.at(-1).status = n < 10 ? "rejected" : raw.at(-1).status;
+      setKVForTest(ideas, raw);
+    }
+    expect(getIdea(ideas, "idee-44")!.evidence).toEqual(["un seul lien"]);
+    expect(upsertIdea(ideas, { id: "une-de-trop", title: "t", problem: "p" })).toMatch(/holds 40 open ideas/);
+    const raw = JSON.parse(getKV(ideas, "money_lab.ideas")!);
+    raw.find((i: any) => i.id === "idee-20").status = "approved";
+    setKVForTest(ideas, raw);
+    expect(decideIdea(ideas, "idee-20", "reject", "finalement trop concurrentiel")).toMatch(/rejected/);
+    expect(typeof upsertIdea(ideas, { id: "une-de-trop", title: "t", problem: "p" })).toBe("object");
+    db.close();
+  });
+
+  it("counts only real critiques: a timeout or a missing verdict is not one", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-07T08:00:00Z"));
+    const db = openDb();
+    upsertIdea(db.raw, { id: "idee", title: "t", problem: "p" });
+    const answer = (content: string, finishReason: string) => ({
+      router: { route: async () => ({ content, model: "claude-opus-5-5", provider: "anthropic", inputTokens: 1, outputTokens: 1, costCents: 3, latencyMs: 1, finishReason }) } as any,
+      chat: async () => ({}), sessionId: "s",
+    });
+    expect((await challengeIdea(db.raw, "idee", answer("Inference timeout after 120000ms", "timeout"))).text).toMatch(/Critique not run \(timeout\)/);
+    expect((await challengeIdea(db.raw, "idee", answer("Bonne idée.", "stop"))).text).toMatch(/not counted/);
+    expect(getIdea(db.raw, "idee")!.critiques).toHaveLength(0);
+    expect((await challengeIdea(db.raw, "idee", answer("Verdict: GO", "stop"))).text).toContain("Verdict: GO");
+    expect(getIdea(db.raw, "idee")!.critiques).toHaveLength(1);
+    db.close();
+  });
+
+  it("stops page downloads at the cap and refuses binary files", async () => {
+    let pulled = 0;
+    const big = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pulled++;
+        controller.enqueue(new TextEncoder().encode("a".repeat(1_000_000)));
+      },
+    });
+    const fetchFn = vi.fn(async (url: string) => url.endsWith(".pdf")
+      ? new Response("%PDF-1.7", { status: 200, headers: { "content-type": "application/pdf" } })
+      : new Response(big, { status: 200, headers: { "content-type": "text/plain" } }));
+    const { docs, notes } = await gatherDocuments({ task: "t", urls: ["https://x.test/huge.txt", "https://x.test/doc.pdf"] }, { home: os.tmpdir(), fetchFn: fetchFn as any });
+    expect(pulled).toBeLessThan(6);
+    expect(docs[0].content.length).toBeLessThanOrEqual(400_000);
+    expect(notes.join(" ")).toMatch(/doc\.pdf: not a text page \(application\/pdf\)/);
+  });
+
+  it("does not hammer Bluesky after a refused login, and retries later after an outage", async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "money-lab-social2-"));
+    tmpDirs.push(home);
+    const db = openDb();
+    const now = new Date("2026-10-07T10:00:00Z");
+    const post = draftPost(db.raw, { text: "Un outil utile" }, { home, now }) as any;
+    expect(post.id).toMatch(/^p-[0-9a-z]{6}$/);
+    expect(decidePost(db.raw, post.id.toUpperCase(), true, "")).toMatch(/validée/);
+    const env = { BLUESKY_HANDLE: "bot.bsky.social", BLUESKY_APP_PASSWORD: "x" };
+    let status = 503;
+    const fetchFn = vi.fn(async () => new Response(JSON.stringify({ error: "x" }), { status }));
+    let t = now.getTime();
+    const opts = { env, fetchFn: fetchFn as any, now: () => new Date(t) };
+    expect(await publishApproved(db.raw, opts)).toBe(0);
+    expect(listPosts(db.raw)[0].status).toBe("approved");
+    t += 5 * 60_000;
+    await publishApproved(db.raw, opts);
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+    t += 15 * 60_000;
+    status = 401;
+    await publishApproved(db.raw, opts);
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+    expect(listPosts(db.raw)[0]).toMatchObject({ status: "failed" });
+    expect(pendingOwnerNotifications(db.raw).at(-1)!.text).toMatch(/connexion Bluesky refusée.*BLUESKY_APP_PASSWORD/s);
+    t += 60 * 60_000;
+    await publishApproved(db.raw, opts);
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+    db.close();
+  });
+
+  it("only sends real PNG or JPEG files to the model as images", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "money-lab-marker-"));
+    tmpDirs.push(dir);
+    fs.writeFileSync(path.join(dir, "fake.png"), "not an image");
+    fs.writeFileSync(path.join(dir, "photo.jpg"), Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 0x10]));
+    fetchSpy.mockResolvedValueOnce(new Response(JSON.stringify({
+      id: "m", type: "message", role: "assistant", model: "claude-sonnet-5-5",
+      content: [{ type: "text", text: "ok" }], stop_reason: "end_turn", usage: { input_tokens: 10, output_tokens: 1 },
+    }), { status: 200, headers: { "content-type": "application/json" } }));
+    const client = createInferenceClient({
+      apiUrl: "https://api.conway.tech", apiKey: "", defaultModel: "claude-sonnet-5-5", maxTokens: 1000,
+      anthropicApiKey: "sk-ant-test", getModelProvider: (m) => (m.startsWith("claude") ? "anthropic" : undefined),
+    });
+    await client.chat([
+      { role: "user", content: "Regarde." },
+      { role: "assistant", content: "", tool_calls: [{ id: "t1", type: "function", function: { name: "exec", arguments: "{}" } }] },
+      { role: "tool", tool_call_id: "t1", content: `[[image:${path.join(dir, "fake.png")}]] [[image:${path.join(dir, "photo.jpg")}]]` },
+    ] as any);
+    const body = JSON.parse(String((fetchSpy.mock.calls[0] as [string, RequestInit])[1].body));
+    const result = JSON.stringify(body.messages);
+    expect(result).toContain("not a PNG or JPEG image");
+    expect(result).toContain('"media_type":"image/jpeg"');
+    expect(result).not.toContain('"media_type":"image/png"');
+  });
+
+  it("never keeps a half-written backup as the day's copy", async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "money-lab-backup2-"));
+    tmpDirs.push(home);
+    const failing = { backup: async (file: string) => { fs.writeFileSync(file, "partial"); throw new Error("ENOSPC"); } } as any;
+    await expect(backupStateDaily(failing, home, new Date("2026-10-07T03:00:00Z"))).rejects.toThrow("ENOSPC");
+    expect(fs.readdirSync(path.join(home, ".automaton", "backups"))).toEqual([]);
+  });
+
+  it("recall searches installed skills and ignores symbolic links", () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "money-lab-recall2-"));
+    tmpDirs.push(home);
+    fs.mkdirSync(path.join(home, ".automaton", "skills", "seo"), { recursive: true });
+    fs.writeFileSync(path.join(home, ".automaton", "skills", "seo", "SKILL.md"), "Procédure sitemap Search Console");
+    fs.writeFileSync(path.join(home, ".automaton", "gsc-key.json"), "sitemap secret");
+    fs.symlinkSync(path.join(home, ".automaton", "gsc-key.json"), path.join(home, "LESSONS.md"));
+    const hits = recallSearch("sitemap", { home });
+    expect(hits.map((h) => h.source)).toEqual(["~/.automaton/skills/seo/SKILL.md"]);
+  });
+
+  const PW_CHROME = "/opt/pw-browsers/chromium-1194/chrome-linux/chrome";
+  const chrome = findBrowser({ PATH: process.env.PATH, MONEY_LAB_BROWSER: PW_CHROME });
+  it.skipIf(!chrome)("renders real PNG and JPEG images at the exact size, without local files", async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "money-lab-render-"));
+    tmpDirs.push(home);
+    const render = playwrightRender(chrome!);
+    const html = '<div style="width:1080px;height:1080px;background:#0f766e"></div><iframe src="file:///etc/hostname"></iframe>';
+    expect(await renderImage({ name: "carre", html, preset: "square" }, { render, home })).toContain("1080x1080");
+    const png = fs.readFileSync(path.join(home, "images", "carre.png"));
+    expect([png.readUInt32BE(16), png.readUInt32BE(20)]).toEqual([1080, 1080]);
+    expect(await renderImage({ name: "story", html, preset: "story", format: "jpeg" }, { render, home })).toContain("story.jpg");
+    expect(fs.readFileSync(path.join(home, "images", "story.jpg")).subarray(0, 3)).toEqual(Buffer.from([0xff, 0xd8, 0xff]));
+  }, 60_000);
+});
+
+function setKVForTest(db: any, ideas: unknown): void {
+  setJournalKV(db, "money_lab.ideas", JSON.stringify(ideas));
+}
