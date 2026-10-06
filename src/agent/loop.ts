@@ -41,6 +41,7 @@ import {
   claimInboxMessages,
   markInboxProcessed,
   markInboxFailed,
+  releaseInboxClaims,
   resetInboxToReceived,
   consumeNextWakeEvent,
 } from "../state/database.js";
@@ -460,15 +461,23 @@ export async function runAgentLoop(
     source: "wakeup",
   };
 
+  // Money Lab: input and inbox claims of a turn that failed, retried as is
+  // on the next attempt (otherwise the wake-up prompt, its review
+  // instructions and the owner's message were lost after one API error).
+  let carriedClaims: InboxMessageRow[] = [];
+
   while (running) {
     // Declared outside try so the catch block can access for retry/failure handling
-    let claimedMessages: InboxMessageRow[] = [];
+    let claimedMessages: InboxMessageRow[] = carriedClaims;
+    carriedClaims = [];
+    let attemptInput: typeof pendingInput;
 
     try {
       // Check if we should be sleeping
       const sleepUntil = db.getKV("sleep_until");
       if (sleepUntil && new Date(sleepUntil) > new Date()) {
         log(config, `[SLEEP] Sleeping until ${sleepUntil}`);
+        releaseInboxClaims(db.raw, claimedMessages.map((m) => m.id));
         // IMPORTANT: mark agent as sleeping so the outer runtime pauses instead of immediately re-running.
         db.setAgentState("sleeping");
         onStateChange?.("sleeping");
@@ -483,9 +492,10 @@ export async function runAgentLoop(
       // one turn never reads them.
       const wakeTurn = !!moneyLab && pendingInput?.source === "wakeup";
       if (!pendingInput || wakeTurn) {
-        claimedMessages = claimInboxMessages(db.raw, 10);
-        if (claimedMessages.length > 0) {
-          const formatted = claimedMessages
+        const fresh = claimInboxMessages(db.raw, 10);
+        claimedMessages = [...claimedMessages, ...fresh];
+        if (fresh.length > 0) {
+          const formatted = fresh
             .map((m) => {
               // Money Lab: the owner's own messages (Telegram accepts only the
               // owner's chat) are instructions, not untrusted social input.
@@ -682,6 +692,7 @@ export async function runAgentLoop(
 
       // Capture input before clearing
       const currentInput = pendingInput;
+      attemptInput = currentInput;
 
       // Clear pending input after use
       pendingInput = undefined;
@@ -702,6 +713,7 @@ export async function runAgentLoop(
                   "Il reviendra à la vie si des fonds (/fonds) ou un revenu confirmé arrivent.",
               );
             }
+            releaseInboxClaims(db.raw, claimedMessages.map((m) => m.id));
             db.setAgentState("dead");
             onStateChange?.("dead");
             running = false;
@@ -712,6 +724,7 @@ export async function runAgentLoop(
         const blocked = paidCallBlockReason(db.raw);
         if (blocked) {
           log(config, `[MONEY LAB] Inference blocked (${blocked}). Sleeping.`);
+          releaseInboxClaims(db.raw, claimedMessages.map((m) => m.id));
           db.setAgentState("sleeping");
           onStateChange?.("sleeping");
           running = false;
@@ -747,6 +760,8 @@ export async function runAgentLoop(
           log(config, "[MONEY LAB] Inference cost unknown; paused pending operator reconciliation.");
         }
         if (routerResult.finishReason === "budget_exceeded") {
+          // The messages this turn claimed were never read: keep them for the next wake.
+          releaseInboxClaims(db.raw, claimedMessages.map((m) => m.id));
           // No paid turn to discuss the budget. Hourly/daily limits reset by
           // themselves; a per-call or session rejection would repeat forever,
           // so it pauses for the operator instead.
@@ -1077,12 +1092,26 @@ export async function runAgentLoop(
       consecutiveErrors++;
       log(config, `[ERROR] Turn failed: ${err.message}`);
 
+      // Money Lab: retry the same input with its messages still claimed.
+      if (moneyLab && attemptInput && consecutiveErrors < MAX_CONSECUTIVE_ERRORS) {
+        pendingInput = attemptInput;
+        carriedClaims = claimedMessages;
+        claimedMessages = [];
+      }
+
       // Handle inbox message state on turn failure:
       // Messages that have retries remaining go back to 'received';
       // messages that have exhausted retries move to 'failed'.
       if (claimedMessages.length > 0) {
-        const exhausted = claimedMessages.filter((m) => m.retryCount >= m.maxRetries);
-        const retryable = claimedMessages.filter((m) => m.retryCount < m.maxRetries);
+        // Money Lab: the owner's messages are never dropped because the API
+        // failed a few times (an outage of minutes used up their retries).
+        const ownerIds = moneyLab
+          ? claimedMessages.filter((m) => m.fromAddress === OWNER_TELEGRAM_SENDER && m.id.startsWith("tg_")).map((m) => m.id)
+          : [];
+        releaseInboxClaims(db.raw, ownerIds);
+        const others = claimedMessages.filter((m) => !ownerIds.includes(m.id));
+        const exhausted = others.filter((m) => m.retryCount >= m.maxRetries);
+        const retryable = others.filter((m) => m.retryCount < m.maxRetries);
 
         if (exhausted.length > 0) {
           markInboxFailed(db.raw, exhausted.map((m) => m.id));
@@ -1122,6 +1151,9 @@ export async function runAgentLoop(
       }
     }
   }
+
+  // Claims carried by a failed attempt that was never retried.
+  releaseInboxClaims(db.raw, carriedClaims.map((m) => m.id));
 
   log(config, `[LOOP END] Agent loop finished. State: ${db.getAgentState()}`);
 }

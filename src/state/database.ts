@@ -1447,6 +1447,29 @@ export function markInboxFailed(db: DatabaseType, ids: string[]): void {
   ).run(...ids);
 }
 
+/**
+ * Give claimed messages back without counting an attempt: the turn that
+ * claimed them never ran (budget cap, pause, death).
+ */
+export function releaseInboxClaims(db: DatabaseType, ids: string[]): void {
+  if (ids.length === 0) return;
+  const placeholders = ids.map(() => '?').join(',');
+  db.prepare(
+    `UPDATE inbox_messages SET status = 'received', retry_count = MAX(retry_count - 1, 0)
+     WHERE status = 'in_progress' AND id IN (${placeholders})`,
+  ).run(...ids);
+}
+
+/**
+ * At startup no turn is running: messages still claimed were interrupted by
+ * a restart or a crash and would otherwise never be read.
+ */
+export function recoverInboxClaims(db: DatabaseType): number {
+  return db.prepare(
+    "UPDATE inbox_messages SET status = 'received', retry_count = MAX(retry_count - 1, 0) WHERE status = 'in_progress'",
+  ).run().changes;
+}
+
 export function resetInboxToReceived(db: DatabaseType, ids: string[]): void {
   if (ids.length === 0) return;
   const placeholders = ids.map(() => '?').join(',');
