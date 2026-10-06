@@ -36,6 +36,11 @@ import { challengeIdea } from "./critic.js";
 import { checkDomains } from "./domain.js";
 import { IMAGE_PRESETS, playwrightRender, renderImage } from "./image.js";
 import { blueskyCredentials, describePosts, draftPost } from "./social.js";
+import { harvest } from "./freeai.js";
+import { SIGNAL_SOURCES, type SignalSource, marketSignals } from "./signals.js";
+import { deleteDataset, formatRecords, listDatasets, readDataset, saveRecord, searchDatasets } from "./datasets.js";
+import { decideIdeaWithOpus, decideStopWithOpus, isStop, stopDecisionBlocker } from "./decisions.js";
+import { addSite, checkSites, describeSites, removeSite } from "./monitor.js";
 
 /** Marker the Anthropic client turns into an image block (recent results only). */
 export const SCREENSHOT_MARKER = /\[\[image:([^\]\s]+\.(?:png|jpe?g))\]\]/g;
@@ -74,7 +79,9 @@ export function createMoneyLabTools(): AutomatonTool[] {
       description:
         "Create or update a Money Lab experiment record. Omit id to create. Evidence is appended (links with dates), " +
         "metrics are merged. Amounts are integer USD cents; use null when unknown. An experiment becomes active " +
-        "(building, observing, waiting_for_owner) only with the idea_id of an idea approved through the idea tool.",
+        "(building, observing, waiting_for_owner) only with the idea_id of an idea approved through the idea tool. " +
+        "Stopping an active one (paused, finished or exploring) is decided by Opus from its dossier: give your reason " +
+        "in result; the runtime applies Opus's STOP or CONTINUE.",
       category: "memory",
       riskLevel: "safe",
       parameters: {
@@ -101,6 +108,41 @@ export function createMoneyLabTools(): AutomatonTool[] {
         const existing = typeof args.id === "string" ? getExperiment(ctx.db.raw, args.id) : undefined;
         const blocker = experimentLaunchBlocker(ctx.db.raw, { status: String(args.status), ideaId }, existing);
         if (blocker) return blocker;
+        // Owner decision (2026-10-06): stopping an active experiment is decided by Opus.
+        let decisionText = "";
+        let status = String(args.status) as ExperimentStatus;
+        if (existing && isStop(existing, status)) {
+          const reason = String(args.result ?? "").trim();
+          if (!reason) {
+            return "Stopping an active experiment is decided by Opus: give your reason in result (numbers, dates, what you " +
+              "tried), then call again.";
+          }
+          const held = stopDecisionBlocker(ctx.db.raw, existing.id);
+          if (held) return held;
+          if (!ctx.inferenceRouter) return "Stopping an active experiment needs an Opus decision, which is not available in this runtime.";
+          let decision: { verdict: "STOP" | "CONTINUE" | null; text: string; costCents: number };
+          try {
+            decision = await decideStopWithOpus(ctx.db.raw, existing, { status, reason }, {
+              router: ctx.inferenceRouter,
+              chat: (msgs, opts) => ctx.inference.chat(msgs, opts),
+              sessionId: ctx.db.getKV("session_id") || "default",
+              lab: ctx.config.moneyLab,
+            });
+          } catch (err: any) {
+            decision = { verdict: null, text: `Decision failed: ${String(err?.message ?? err).slice(0, 300)}.`, costCents: 0 };
+          }
+          recordFocusSpend(ctx.db.raw, decision.costCents);
+          decisionText = `${decision.text}\n`;
+          if (decision.verdict !== "STOP") {
+            // Continue (or no decision): keep it active, save the other fields.
+            status = existing.status;
+            args = { ...args, result: undefined };
+            if (decision.verdict === "CONTINUE") {
+              const next = /Next\**\s*:\s*([^\n]+)/i.exec(decision.text)?.[1]?.trim() ?? "see the decision";
+              args.evidence = [...(stringList(args.evidence) ?? []), `Opus CONTINUE ${new Date().toISOString().slice(0, 10)}: ${next.slice(0, 200)}`];
+            }
+          }
+        }
         // Only an approved idea links to an experiment; idea_id cannot be set through metrics.
         const metrics = args.metrics && typeof args.metrics === "object" && !Array.isArray(args.metrics)
           ? { ...(args.metrics as Record<string, unknown>) }
@@ -109,7 +151,7 @@ export function createMoneyLabTools(): AutomatonTool[] {
         const linkedIdea = ideaId && getIdea(ctx.db.raw, ideaId)?.status === "approved" ? ideaId : undefined;
         const exp = upsertExperiment(ctx.db.raw, {
           id: optionalString(args.id) ?? undefined,
-          status: String(args.status) as ExperimentStatus,
+          status,
           hypothesis: optionalString(args.hypothesis) ?? undefined,
           evidence: stringList(args.evidence),
           artifactRef: optionalString(args.artifact_ref),
@@ -122,7 +164,8 @@ export function createMoneyLabTools(): AutomatonTool[] {
           result: optionalString(args.result),
         });
         if (linkedIdea) markIdeaLaunched(ctx.db.raw, linkedIdea, exp.id);
-        return `Experiment ${exp.id} recorded with status ${exp.status}.` +
+        return `${decisionText}Experiment ${exp.id} recorded with status ${exp.status}.` +
+          (decisionText && existing && exp.status === existing.status ? " Status unchanged: Opus did not decide to stop it; other fields saved." : "") +
           (ideaId && !linkedIdea ? ` idea_id "${ideaId}" ignored: only an approved idea can be linked.` : "");
       },
     },
@@ -133,7 +176,8 @@ export function createMoneyLabTools(): AutomatonTool[] {
         "0-10 score per criterion, each with the facts behind it: " +
         CRITERIA.map((c) => `${c} (${IDEA_CRITERIA[c].help})`).join("; ") + ". " +
         "Actions: update (create or edit; lists are appended), list (ranked), show, challenge (a stronger model " +
-        "critiques the dossier like a sceptical investor, a few cents), decide (approve or reject, with a note). " +
+        "critiques the dossier like a sceptical investor, a few cents), decide (reject, or approve: once every gate " +
+        "passes, Opus reviews the dossier and your note and its APPROVE, REJECT or NOT YET is applied, a few cents). " +
         `Approval requires: every criterion scored, ${IDEA_GATES.minEvidence}+ evidence sources, ` +
         `${IDEA_GATES.minCompetitors}+ competitors studied, ${IDEA_GATES.minScoredIdeas}+ scored ideas compared, a top-` +
         `${IDEA_GATES.topRank} rank, a total of ${IDEA_GATES.minTotal}+, a critique that is not NO-GO and your answer to it, ` +
@@ -162,7 +206,7 @@ export function createMoneyLabTools(): AutomatonTool[] {
           },
           response_to_critic: { type: "string", description: "Your answer to the latest critique" },
           decision: { type: "string", enum: ["approve", "reject"], description: "For decide" },
-          note: { type: "string", description: "For decide: the reason" },
+          note: { type: "string", description: "For decide: your reason (reject) or your case for approval, which Opus reads" },
         },
         required: ["action"],
       },
@@ -174,7 +218,7 @@ export function createMoneyLabTools(): AutomatonTool[] {
             if (typeof idea === "string") return idea;
             const blockers = approvalBlockers(ctx.db.raw, idea);
             return `Idea "${idea.id}" saved (total ${idea.total ?? "incomplete"}/100). ` +
-              (blockers.length ? `Before approval: ${blockers.join("; ")}.` : "It can be approved.");
+              (blockers.length ? `Before approval: ${blockers.join("; ")}.` : "Ready for the decision: decide approve (Opus decides).");
           }
           case "show": {
             const idea = getIdea(ctx.db.raw, id);
@@ -197,9 +241,24 @@ export function createMoneyLabTools(): AutomatonTool[] {
               return `Critique failed: ${String(err?.message ?? err).slice(0, 300)}`;
             }
           }
-          case "decide":
+          case "decide": {
             if (args.decision !== "approve" && args.decision !== "reject") return "decision must be approve or reject.";
-            return decideIdea(ctx.db.raw, id, args.decision, String(args.note ?? ""));
+            if (args.decision === "reject") return decideIdea(ctx.db.raw, id, "reject", String(args.note ?? ""));
+            // Owner decision (2026-10-06): Opus decides approvals; the runtime applies its verdict.
+            if (!ctx.inferenceRouter) return "Approval needs an Opus decision, which is not available in this runtime.";
+            try {
+              const result = await decideIdeaWithOpus(ctx.db.raw, id, String(args.note ?? ""), {
+                router: ctx.inferenceRouter,
+                chat: (msgs, opts) => ctx.inference.chat(msgs, opts),
+                sessionId: ctx.db.getKV("session_id") || "default",
+                lab: ctx.config.moneyLab,
+              });
+              recordFocusSpend(ctx.db.raw, result.costCents);
+              return result.text;
+            } catch (err: any) {
+              return `Decision failed: ${String(err?.message ?? err).slice(0, 300)}`;
+            }
+          }
           default: {
             const ideas = rankedIdeas(ctx.db.raw);
             if (ideas.length === 0) return "No ideas yet. Research several niches, then record each idea with update.";
@@ -608,6 +667,193 @@ export function createMoneyLabTools(): AutomatonTool[] {
       },
     },
     {
+      name: "harvest",
+      description:
+        "Collect information for free: free AI models (online free tiers or a local model, as the owner configured; " +
+        "see your rules) read up to 8 web pages, your files or text and extract what you ask: prices, competitors, " +
+        "features, complaints, lists. Long material is split and summarised part by part. Falls back to Haiku " +
+        "(paid) when no free model answers, unless free_only. Results are cached 3 days (fresh: true to redo) and " +
+        "can be appended to a dataset (save_to). Free services may keep what they read: send only public " +
+        "material, never secrets or personal data. Free models are weaker: verify key facts, and use delegate or " +
+        "your own judgment for anything subtle.",
+      category: "survival",
+      riskLevel: "safe",
+      parameters: {
+        type: "object",
+        properties: {
+          task: { type: "string", description: "Exactly what to extract, e.g. \"Table: tool, price, free plan limits, main complaint\"" },
+          urls: { type: "array", items: { type: "string" }, description: "Up to 8 http(s) pages" },
+          files: { type: "array", items: { type: "string" }, description: "Your files, e.g. ~/research/raw.html" },
+          text: { type: "string", description: "Material to work on" },
+          save_to: { type: "string", description: "Dataset name to append the result to, e.g. competitors-quotes" },
+          free_only: { type: "boolean", description: "Never fall back to the paid model" },
+          fresh: { type: "boolean", description: "Ignore the 3-day cache" },
+        },
+        required: ["task"],
+      },
+      execute: async (args, ctx) => {
+        try {
+          const result = await harvest(
+            {
+              task: String(args.task ?? ""),
+              text: typeof args.text === "string" ? args.text : undefined,
+              files: looseList(args.files),
+              urls: looseList(args.urls),
+              saveTo: typeof args.save_to === "string" && args.save_to ? args.save_to : undefined,
+              freeOnly: args.free_only === true,
+              fresh: args.fresh === true,
+            },
+            {
+              db: ctx.db.raw,
+              home: process.env.HOME || "/root",
+              router: ctx.inferenceRouter,
+              chat: (msgs, opts) => ctx.inference.chat(msgs, opts),
+              sessionId: ctx.db.getKV("session_id") || "default",
+            },
+          );
+          recordFocusSpend(ctx.db.raw, result.costCents);
+          return result.text;
+        } catch (err: any) {
+          return `Harvest failed: ${String(err?.message ?? err).slice(0, 300)}`;
+        }
+      },
+    },
+    {
+      name: "market_signals",
+      description:
+        "Measure demand for free, with dated numbers you can cite as evidence: Hacker News stories (total and last " +
+        "12 months), Reddit posts of the last year, Google search suggestions (what people actually type), " +
+        "Wikipedia audience and trend, GitHub open-source alternatives, Stack Exchange questions. No account, no " +
+        "cost; cached a day. Use the words your audience would type, in their language. Default sources: " +
+        "hackernews, reddit, google_suggest, wikipedia.",
+      category: "survival",
+      riskLevel: "safe",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "e.g. \"devis plombier\" or \"invoice generator\"" },
+          sources: { type: "array", items: { type: "string", enum: [...SIGNAL_SOURCES] } },
+          lang: { type: "string", description: "Two-letter language for Google suggestions and Wikipedia, default fr" },
+          site: { type: "string", description: "Stack Exchange site, default stackoverflow (e.g. superuser, webapps)" },
+          save_to: { type: "string", description: "Dataset name to append the result to" },
+          fresh: { type: "boolean", description: "Ignore the 1-day cache" },
+        },
+        required: ["query"],
+      },
+      execute: async (args) => {
+        const sources = (looseList(args.sources) ?? []).filter((s): s is SignalSource => (SIGNAL_SOURCES as readonly string[]).includes(s));
+        try {
+          return await marketSignals(String(args.query ?? ""), sources, {
+            home: process.env.HOME || "/root",
+            lang: typeof args.lang === "string" ? args.lang.toLowerCase() : undefined,
+            site: typeof args.site === "string" ? args.site.toLowerCase() : undefined,
+            saveTo: typeof args.save_to === "string" && args.save_to ? args.save_to : undefined,
+            fresh: args.fresh === true,
+            githubToken: process.env.GH_TOKEN || undefined,
+          });
+        } catch (err: any) {
+          return `market_signals failed: ${String(err?.message ?? err).slice(0, 300)}`;
+        }
+      },
+    },
+    {
+      name: "dataset",
+      description:
+        "Your research data, kept between sessions so you never pay twice for the same facts: append records " +
+        "(competitor prices, signals, lists) to named datasets in ~/datasets/<name>.jsonl, then read or search " +
+        "them. harvest and market_signals can save directly with save_to; recall also searches datasets. " +
+        "Actions: save, list, read, search, delete.",
+      category: "memory",
+      riskLevel: "safe",
+      parameters: {
+        type: "object",
+        properties: {
+          action: { type: "string", enum: ["save", "list", "read", "search", "delete"] },
+          name: { type: "string", description: "e.g. competitors-quotes" },
+          data: { type: "string", description: "For save: the record, as text or JSON" },
+          ref: { type: "string", description: "For save: source URL or query, with its date if known" },
+          last: { type: "integer", description: "For read: number of latest records, default 20" },
+          contains: { type: "string", description: "For read: keep records containing this text" },
+          query: { type: "string", description: "For search: words that must all appear" },
+        },
+        required: ["action"],
+      },
+      execute: async (args) => {
+        const home = process.env.HOME || "/root";
+        const name = String(args.name ?? "");
+        switch (args.action) {
+          case "save": {
+            // JSON text is stored as JSON, so later reads can filter its fields.
+            let data: unknown = args.data;
+            if (typeof data === "string" && /^\s*[[{]/.test(data)) {
+              try {
+                data = JSON.parse(data);
+              } catch {
+                // plain text
+              }
+            }
+            const error = saveRecord(home, name, { source: "agent", ref: typeof args.ref === "string" ? args.ref : "", data });
+            return error ?? `Saved to dataset ${name}.`;
+          }
+          case "read": {
+            const records = readDataset(home, name, {
+              last: Number.isInteger(args.last) ? (args.last as number) : undefined,
+              contains: typeof args.contains === "string" ? args.contains : undefined,
+            });
+            if (typeof records === "string") return records;
+            return records.length ? formatRecords(records.map((record) => ({ record }))) : "No matching record.";
+          }
+          case "search": {
+            const hits = searchDatasets(home, String(args.query ?? ""));
+            return hits.length ? formatRecords(hits) : `Nothing found for "${String(args.query ?? "")}" in your datasets.`;
+          }
+          case "delete":
+            return deleteDataset(home, name) ? `Deleted dataset ${name}.` : `No dataset "${name}".`;
+          default: {
+            const all = listDatasets(home, { countRecords: true });
+            return all.length
+              ? all.map((d) => `${d.name}: ${d.records} records, ${Math.round(d.bytes / 1000)} KB, updated ${d.updatedAt.slice(0, 16).replace("T", " ")}`).join("\n")
+              : "No datasets yet. Save research results with save_to or action save.";
+          }
+        }
+      },
+    },
+    {
+      name: "monitor_site",
+      description:
+        "Watch your sites for free: the runtime checks every monitored URL every 30 minutes (active experiments' " +
+        "artifact URLs are watched automatically), tells the owner and wakes you if one goes down (two failed " +
+        "checks in a row), and tells you when it is back. Actions: add, remove, list, check (all now).",
+      category: "vm",
+      riskLevel: "safe",
+      parameters: {
+        type: "object",
+        properties: {
+          action: { type: "string", enum: ["add", "remove", "list", "check"] },
+          url: { type: "string", description: "For add and remove: http(s) URL" },
+        },
+        required: ["action"],
+      },
+      execute: async (args, ctx) => {
+        switch (args.action) {
+          case "add": {
+            const added = addSite(ctx.db.raw, String(args.url ?? ""));
+            if (!/^Monitoring/.test(added)) return added;
+            const report = await checkSites(ctx.db.raw);
+            return `${added}\nFirst check:\n${report.join("\n")}`;
+          }
+          case "remove":
+            return removeSite(ctx.db.raw, String(args.url ?? ""));
+          case "check": {
+            const report = await checkSites(ctx.db.raw);
+            return report.length ? report.join("\n") : "No site to check: add one, or set an active experiment's artifact_ref to its URL.";
+          }
+          default:
+            return `Monitored sites: ${describeSites(ctx.db.raw)}.`;
+        }
+      },
+    },
+    {
       name: "schedule_job",
       description:
         "Schedule a shell command the runtime runs on its own, for free (no inference): check that a site " +
@@ -656,8 +902,9 @@ export function createMoneyLabTools(): AutomatonTool[] {
     {
       name: "recall",
       description:
-        "Search your own memory for free: your notes (~/research, ~/notes), library (~/library), skills, " +
-        "LESSONS.md, WORKLOG.md and the experiment journal. Use it before researching something again.",
+        "Search your own memory for free: your notes (~/research, ~/notes), library (~/library), datasets " +
+        "(~/datasets), skills, LESSONS.md, WORKLOG.md, your ideas and the experiment journal. Use it before " +
+        "researching something again.",
       category: "memory",
       riskLevel: "safe",
       parameters: {

@@ -17,8 +17,11 @@ import type { MoneyLabConfig } from "./profile.js";
 import { getKV, getNoProgressCycles, getPauseState, listHelpRequests, OWNER_TELEGRAM_SENDER, setKV } from "./journal.js";
 import { activeExperimentCount, ideaTotal, listIdeas } from "./ideas.js";
 import { listPosts } from "./social.js";
-import { survivalBalance } from "./selfhosted.js";
+import { redactSecrets, survivalBalance } from "./selfhosted.js";
 import { inferenceGetDailyCost } from "../state/database.js";
+import { configuredFreeProviders, freeAiKeyProblems, freeAiUsageToday } from "./freeai.js";
+import { recentDecisions } from "./decisions.js";
+import { siteStates } from "./monitor.js";
 
 const EVENTS_KEY = "money_lab.health_events";
 const MAX_EVENTS = 200;
@@ -33,13 +36,7 @@ export interface HealthEvent {
 
 /** Removes anything that looks like a key before an error is stored or shown. */
 function scrub(text: string): string {
-  return text
-    .replace(/sk-[A-Za-z0-9_-]{8,}/g, "[clé masquée]")
-    .replace(/\b\d{6,}:[A-Za-z0-9_-]{20,}\b/g, "[jeton masqué]")
-    .replace(/(Bearer|token=|key=)\s*[^\s"']+/gi, "$1 [masqué]")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 300);
+  return redactSecrets(text).replace(/\s+/g, " ").trim().slice(0, 300);
 }
 
 export function recordHealthEvent(db: Database.Database, source: string, message: string, now = new Date()): void {
@@ -212,6 +209,12 @@ export function buildHealthReport(
     lines.push(`  Solde : ${usd(s.balanceCents)}${s.daysLeft !== null ? ` — environ ${Math.floor(s.daysLeft)} jours au rythme actuel (${usd(s.burnPerDayCents)}/jour)` : ""}`);
     if (s.daysLeft !== null && s.daysLeft < 3 && s.balanceCents >= 0) watch.push("moins de 3 jours de fonds");
   }
+  const free = freeAiUsageToday(db, now);
+  const freeConfigured = configuredFreeProviders();
+  lines.push(`  IA gratuites aujourd'hui : ${free.calls ? free.text : freeConfigured.length ? "pas encore utilisées" : "aucune configurée"}` +
+    `${free.fallbacks ? ` — ${free.fallbacks} repli(s) payant(s) sur Haiku` : ""}`);
+  const refused = freeAiKeyProblems(db, now);
+  if (refused.length) watch.push(`clé refusée par ${refused.join(", ")} (vérifie /etc/money-lab.env)`);
 
   // ── Work ──
   const ideas = listIdeas(db);
@@ -225,8 +228,27 @@ export function buildHealthReport(
   if (lab.noProgressCycles && noProgress >= Math.max(1, lab.noProgressCycles - 2)) {
     watch.push(`il tourne en rond (${noProgress} cycles sans progrès sur ${lab.noProgressCycles} avant pause)`);
   }
+  const decisions = recentDecisions(db, nowMs - 7 * DAY_MS);
+  if (decisions.length) {
+    const last = decisions.at(-1)!;
+    lines.push(`  Décisions d'Opus (7 jours) : ${decisions.length}, dernière : ${last.verdict} sur ${last.target} (${last.at.slice(0, 10)})`);
+  }
   if (help || pendingPosts) {
     lines.push(`  En attente de toi : ${[help ? `${help} demande(s) d'aide (/aides)` : "", pendingPosts ? `${pendingPosts} publication(s) (/publications)` : ""].filter(Boolean).join(", ")}`);
+  }
+
+  // ── Sites ──
+  const sites = siteStates(db);
+  if (sites.length) {
+    const down = sites.filter((site) => site.status === "down");
+    lines.push("", "Sites :");
+    lines.push(down.length
+      ? `  ${down.length} hors ligne sur ${sites.length} : ${down.map((site) => `${site.url} depuis ${ago(Date.parse(site.since), nowMs).replace("il y a ", "")} (${site.lastResult ?? "?"})`).join(", ")}`
+      : `  ${sites.length} surveillé(s), ${sites.every((site) => site.status === "up") ? "tous en ligne" : "premières vérifications en cours"}`);
+    for (const site of down) {
+      if (nowMs - Date.parse(site.since) > 3_600_000) problems.push(`le site ${site.url} est hors ligne depuis plus d'1 h`);
+      else watch.push(`le site ${site.url} vient de tomber`);
+    }
   }
 
   // ── Server ──

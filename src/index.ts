@@ -558,6 +558,20 @@ async function run(): Promise<void> {
       });
     });
   }
+  if (moneyLab && selfHosted) {
+    const { MONITOR_INTERVAL_MS, checkSites } = await import("./money-lab/monitor.js");
+    every(MONITOR_INTERVAL_MS, "Surveillance des sites", async () => {
+      await checkSites(db.raw, {
+        wake: (reason) => insertWakeEvent(db.raw, "money_lab_monitor", reason),
+        // Same rule as scheduled jobs: no wake while dead or sleeping on a budget cap.
+        canWake: () => db.getAgentState() !== "dead" && !String(db.getKV("sleep_reason") ?? "").startsWith("plafond"),
+      });
+    });
+    const { configuredFreeProviders, probeLocalModel } = await import("./money-lab/freeai.js");
+    await probeLocalModel().catch(() => undefined);
+    const free = configuredFreeProviders();
+    logger.info(`[MONEY LAB] IA gratuites pour la récolte : ${free.length ? free.join(", ") : "aucune (repli sur Haiku, payant)"}.`);
+  }
   if (moneyLab) {
     const { blueskyCredentials, publishApproved } = await import("./money-lab/social.js");
     if (blueskyCredentials()) {

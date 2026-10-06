@@ -1,5 +1,5 @@
 # Working status
-- Updated: 2026-10-05
+- Updated: 2026-10-06
 - Branch / commit: claude/money-lab-first-run-bezu7x on upstream Automaton d8f816881fd24b6f5e3d616e59edec387a447667 (0.2.1)
 - Current goal: self-hosted VPS runtime (Claude Sonnet 5.5, Telegram, Stripe, survival goal); development only, no launch.
 - Accepted decisions:
@@ -13,8 +13,9 @@
   status/summary, no-progress sleep, integration note, Conway checklist (features verified in docs/FEATURES.md).
 - Checks run (command, result, date):
   - likma project feature verify (types/money-lab/build): pass, 2026-10-03
-  - pnpm exec vitest run --exclude src/__tests__/context-hardening.test.ts: 1722/1722 pass (fourth audit), 2026-10-06
-  - node money-lab/e2e/harness.mjs (real process, strict fake Anthropic/Telegram/Stripe): PASS, 2026-10-05
+  - pnpm exec vitest run --exclude src/__tests__/context-hardening.test.ts: 1744/1744 pass (free models, Opus decisions), 2026-10-06
+  - node money-lab/e2e/harness.mjs (real process, strict fake Anthropic/Telegram/Stripe): PASS, 2026-10-06
+  - node money-lab/e2e/chaos.mjs: PASS, 2026-10-06; likma project check (types/money-lab/build): PASS, 2026-10-06
     (upstream d8f8168 baseline: 1614/1614)
 - First supervised run (owner-approved, 2026-10-04, OVH VPS, $15 funding): Telegram works; the agent
   spent about $0.52 in 30 s re-checking a falsely "exposed" port until the hourly cap slept it; the owner
@@ -62,13 +63,22 @@
 - Fourth audit 2026-10-06: owner messages lost when a wake was budget-blocked (stuck in_progress), lost
   input and silently skipped weekly review after an API error, unbounded WORKLOG.md in every prompt,
   unbounded command timeouts. New chaos run (money-lab/e2e/chaos.mjs): PASS.
+- Live 2026-10-06 06:31 UTC: the agent slept 24 h right after scoring its fifth idea; sleep is now capped
+  at 6 h. Daily Telegram health report (/sante): the first live report raised a false spend alarm (a
+  rolling 24 h window spans two capped UTC days); it now compares each UTC day with the cap. The 6.11 $
+  spent on 2026-10-05 matched the cap then in force (6.30 $/day, from the logs).
+- Owner decision 2026-10-06 (free models collect, the best model decides): harvest on free services
+  (Groq, Gemini, OpenRouter free models, local Ollama) with sealed keys and Haiku fallback; binding Opus
+  decisions for idea approval and for stopping an active experiment; market_signals (free public
+  sources); datasets in ~/datasets; site monitoring every 30 min. Owner to create the free API keys.
+  Not yet measured live.
 - Blockers and known regressions:
   - Upstream context-hardening.test.ts hangs on unmodified upstream; upstream CI masks it as a warning.
   - In-process limits are bypassable through exec; supervised run only.
   - GitHub Actions may be disabled on this fork until enabled by the owner.
   - Example caps ($3/day inference, $10/day payments) not checked against real Conway prices.
   - With payments allowed, prompt injection can trigger payments within the caps.
-- Next concrete action: owner updates the VPS (guide, "Mettre à jour le bot"), resumes with /reprendre
-  and checks cache reads and spend per turn in the logs.
+- Next concrete action: owner merges and updates the VPS (guide, "Mettre à jour le bot"), adds one or
+  more free model keys (guide, "IA gratuites pour la récolte"), then reads the next /sante report.
 - Files to read first: AGENTS.md, money-lab/INTEGRATION.md, money-lab/GUIDE-VPS.fr.md, docs/CODEMAP.md.
 Never store secrets or report planned work as complete.

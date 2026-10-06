@@ -205,7 +205,31 @@ puisse faire avec, c'est modifier ses propres dépôts ou lire ses propres stati
    Ajouter*. Mets dans `/etc/money-lab.env` : `BLUESKY_HANDLE=ton-compte.bsky.social` et
    `BLUESKY_APP_PASSWORD=xxxx-xxxx-xxxx-xxxx`, puis redémarre. Le bot ne voit pas ce mot de passe. Chaque
    publication t'arrive sur Telegram : `/publier <id>` ou `/rejeter <id> [raison]`.
-7. **Nom de domaine** (quand le bot le demande) : achète le nom qu'il propose chez OVH (*Noms de domaine →
+7. **IA gratuites pour la récolte** (conseillé, gratuit) : le bot confie la lecture des pages et l'extraction
+   des données (prix, concurrents, avis) à des IA gratuites, et garde Claude pour réfléchir et Opus pour
+   décider. Sans clé, il utilise Claude Haiku (payant). Crée une ou plusieurs clés, avec un compte à toi :
+   - **Google Gemini** (le plus généreux) : https://aistudio.google.com/apikey → *Create API key*. La clé
+     commence par `AIza`. Sur l'offre gratuite, Google peut utiliser ce qui lui est envoyé pour améliorer
+     ses produits : le bot n'y envoie que des pages publiques, et le programme masque toute clé.
+   - **Groq** (très rapide) : https://console.groq.com → *API Keys* → *Create API Key* (commence par `gsk_`).
+   - **OpenRouter** (facultatif) : https://openrouter.ai → *Keys* → *Create Key* (commence par `sk-or-`).
+     Le programme n'utilise que les modèles gratuits (nom finissant par `:free`) : jamais de facturation.
+
+   Ajoute dans `/etc/money-lab.env` les lignes de tes clés, par exemple `GEMINI_API_KEY=AIza…` et
+   `GROQ_API_KEY=gsk_…`, puis `systemctl restart money-lab`. Le journal affiche alors
+   « IA gratuites pour la récolte : groq, gemini ». Le bot ne voit pas ces clés. Si l'une est refusée,
+   tu reçois un message Telegram et le rapport de santé l'indique.
+
+   **IA sur ton serveur (Ollama, facultatif)** : gratuite et illimitée, mais lente sans carte graphique
+   (une à trois minutes par lecture). Vérifie d'abord la mémoire avec `free -h` : il faut au moins 4 Go
+   (colonne *total*) pour un petit modèle, 8 Go pour un modèle moyen. Puis, en root :
+   ```sh
+   curl -fsSL https://ollama.com/install.sh | sh
+   ollama pull qwen2.5:3b        # 4 à 8 Go de mémoire ; qwen2.5:7b avec 8 Go ou plus
+   systemctl restart money-lab
+   ```
+   Ollama n'écoute que sur le serveur lui-même (127.0.0.1). Le bot s'en sert après les IA en ligne.
+8. **Nom de domaine** (quand le bot le demande) : achète le nom qu'il propose chez OVH (*Noms de domaine →
    Commander*), puis dans *Zone DNS* ajoute les enregistrements qu'il t'indique (4 lignes A vers
    185.199.108.153 à 185.199.111.153, et `www` en CNAME vers son organisation GitHub). Réponds `/ok <id>`
    à sa demande : il termine la configuration lui-même.
@@ -220,13 +244,23 @@ personnalisé GitHub Pages), l'inscription à un programme d'affiliation, une r�
 lien de paiement Stripe. Pour que les ventes Stripe soient comptées automatiquement, refais l'étape 3
 puis relance la configuration (étape 7) sans `--no-stripe`.
 
-Outils gratuits ou économiques à sa disposition : `delegate` (confie lectures et résumés à Claude
-Haiku, deux fois moins cher), `schedule_job` (tâches automatiques sans frais, qui ne le réveillent
-qu'en cas de problème ou de changement, au plus une fois par heure), `recall` (recherche dans ses
-notes), `audit_page` (notes Lighthouse de ses pages) et `ab_test` (tests A/B sans cookies).
+Outils gratuits ou économiques à sa disposition :
+- `harvest` : lecture et extraction par les IA gratuites ci-dessus (repli sur Haiku si aucune ne répond) ;
+- `market_signals` : mesure gratuite de la demande (Hacker News, Reddit, suggestions Google, audience
+  Wikipedia, GitHub, Stack Exchange), avec des liens datés qu'il cite comme preuves ;
+- `dataset` : ses données de recherche gardées d'un jour à l'autre (`~/datasets`), pour ne pas payer deux
+  fois la même recherche ;
+- `monitor_site` : surveillance de ses sites toutes les 30 minutes ; si un site tombe, tu reçois
+  « 🔴 Site hors ligne » sur Telegram et le bot est réveillé, puis « 🟢 » quand il revient ;
+- `delegate` (lectures soignées par Claude Haiku), `schedule_job` (tâches automatiques sans frais),
+  `recall` (recherche dans ses notes, ses idées et ses données), `audit_page` (notes Lighthouse) et
+  `ab_test` (tests A/B sans cookies).
 
-Le bilan hebdomadaire utilise Claude Opus 5.5 (plus fort, environ deux fois plus cher) pour ses
-4 premiers tours, puis revient à Sonnet ; il reste soumis aux mêmes plafonds.
+**Les décisions importantes sont prises par Claude Opus 5.5**, et le programme les applique : approuver
+une idée (elle devient une expérience) et arrêter une expérience active. Le bot prépare le dossier,
+Opus tranche (environ 5 centimes par décision, compté dans le budget). Le rapport de santé indique les
+décisions de la semaine. Le bilan hebdomadaire utilise aussi Opus pour ses 4 premiers tours, puis
+revient à Sonnet ; tout reste soumis aux mêmes plafonds.
 
 Le bot travaille seul. Il te sollicite seulement pour : créer des comptes à ton nom (hébergement,
 Stripe, domaine, réseaux publicitaires), payer, confirmer les revenus hors Stripe et tout ce qui est

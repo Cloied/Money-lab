@@ -26,6 +26,7 @@ import type { PolicyRule, PolicyRequest, PolicyRuleResult } from "../types.js";
 import { setX402PaymentGuard } from "../conway/x402.js";
 import { moneyLabDeniedTools, MONEY_LAB_ALWAYS_DENIED_TOOLS, MONEY_LAB_PAYMENT_TOOLS } from "./profile.js";
 import { getPauseState } from "./journal.js";
+import { SECRET_ENV_VARS } from "./selfhosted.js";
 
 export const PAYMENTS_DISABLED_REASON =
   "credit purchases and x402 payments are disabled by the owner (moneyLab.payments = \"disabled\")";
@@ -58,7 +59,7 @@ const PROTECTED_SHELL_PATTERNS: RegExp[] = [
   /\bstate\.db\b/,
   /\bgsc-key\.json\b/,
   /\.automaton\/(config\.json|constitution\.md)/,
-  /\b(CONWAY_API_KEY|ANTHROPIC_API_KEY|OPENAI_API_KEY|TELEGRAM_BOT_TOKEN|STRIPE_API_KEY|BLUESKY_APP_PASSWORD)\b/,
+  new RegExp(`\\b(${SECRET_ENV_VARS.join("|")})\\b`),
   // The parent process environment holds the secrets the shell does not get.
   /\/proc\/[^\s]*\/environ\b/,
 ];

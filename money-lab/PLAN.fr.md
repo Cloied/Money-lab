@@ -10,9 +10,27 @@ CAPTCHA, pas tes comptes personnels, pas de dépassement des plafonds.
 | 1 bis | Réfléchir avant de construire : entonnoir d'idées notées, critique par Opus, 6 h de réflexion, lancement bloqué sans idée validée | Mise à jour | Fait (2026-10-06) |
 | 1 ter | Corrections après observation : date du jour dans ses consignes, sommeil limité à 3 h tant qu'il a moins de 5 idées notées, recherche comptée comme du progrès | Mise à jour | Fait (2026-10-06) |
 | 2 | `audit_page` (Lighthouse), `ab_test` (tests A/B sans cookies) | Mise à jour | Fait (2026-10-06) |
+| 3 bis | IA gratuites pour la récolte (`harvest`), décisions confiées à Opus (approbation des idées, arrêt des expériences), signaux de marché gratuits (`market_signals`), données gardées (`dataset`), surveillance des sites (`monitor_site`), rapport de santé | Créer 1 à 3 clés d'IA gratuites ; Ollama si le serveur a assez de mémoire | Code fait (2026-10-06), clés à créer |
 | 3 | Nom de domaine choisi par le bot (`check_domain`, il te demande l'achat), images pour les réseaux (`render_image`), publication Bluesky validée par toi (`post_social`, `/publier`) | Acheter le domaine, créer le compte Bluesky | Code fait (2026-10-06), comptes à créer |
 | 4 | Adresse e-mail dédiée (après le domaine) | Créer l'adresse | À faire |
 | 5 | Revenus : Stripe, affiliation, publicité | Statut, comptes | Après le reste |
+
+## Étape 3 bis : les IA gratuites récoltent, la meilleure décide
+
+- **Récolte gratuite.** `harvest` lit jusqu'à 8 pages, ses fichiers ou du texte et en extrait ce qu'il
+  demande, avec des IA gratuites : Gemini, Groq, les modèles gratuits d'OpenRouter, ou un modèle installé
+  sur le serveur (Ollama). Les textes longs sont découpés. Si aucune ne répond, repli sur Haiku (payant).
+  Les clés restent dans le programme ; toute clé présente dans les textes est masquée avant l'envoi.
+- **Décisions par Opus.** Approuver une idée et arrêter une expérience active passent obligatoirement par
+  Opus, qui reçoit un dossier complet (notes, critiques, preuves, autres idées, argent restant). Sa
+  décision est appliquée par le programme : APPROVE, REJECT ou NOT YET pour une idée, STOP ou CONTINUE
+  pour une expérience.
+- **Preuves chiffrées.** `market_signals` compte la demande sans compte ni frais : Hacker News, Reddit,
+  suggestions Google, audience Wikipedia, GitHub, Stack Exchange, avec des liens datés.
+- **Mémoire des données.** `dataset` garde ce qu'il récolte dans `~/datasets`, et `recall` le retrouve :
+  il ne paie pas deux fois la même recherche.
+- **Surveillance.** `monitor_site` vérifie ses sites toutes les 30 minutes ; une panne te prévient et le
+  réveille.
 
 ## Étape 3 : domaine, images, réseaux
 

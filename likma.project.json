@@ -138,6 +138,42 @@
       "path": "money-lab/vps/configure.mjs",
       "purpose": "Writes the self-hosted Money Lab configuration; with the systemd unit and env template",
       "edit_when": "Deployment layout or configuration keys change"
+    },
+    {
+      "area": "Free models (harvest)",
+      "path": "src/money-lab/freeai.ts",
+      "purpose": "Extraction on free services (Groq, Gemini, OpenRouter :free, local Ollama) with sealed keys, redaction, rests, cache and Haiku fallback",
+      "edit_when": "A free provider, its limits or the fallback rule changes"
+    },
+    {
+      "area": "Opus decisions",
+      "path": "src/money-lab/decisions.ts",
+      "purpose": "Binding Opus verdicts for idea approval and for stopping an active experiment",
+      "edit_when": "Which decisions Opus makes, their dossier or their limits change"
+    },
+    {
+      "area": "Market signals",
+      "path": "src/money-lab/signals.ts",
+      "purpose": "Free demand evidence from Hacker News, Reddit, Google suggestions, Wikipedia, GitHub and Stack Exchange",
+      "edit_when": "A public data source or its output changes"
+    },
+    {
+      "area": "Datasets",
+      "path": "src/money-lab/datasets.ts",
+      "purpose": "The agent's collected data in ~/datasets/*.jsonl",
+      "edit_when": "Dataset storage, limits or search change"
+    },
+    {
+      "area": "Site monitoring",
+      "path": "src/money-lab/monitor.ts",
+      "purpose": "30-minute uptime checks of the agent's sites with owner alerts and wakes",
+      "edit_when": "Monitoring rules, alerts or wake limits change"
+    },
+    {
+      "area": "Health report",
+      "path": "src/money-lab/health.ts",
+      "purpose": "Daily Telegram health report (/sante) from local state",
+      "edit_when": "What the owner sees each morning changes"
     }
   ]
 }
