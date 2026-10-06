@@ -8,6 +8,7 @@ CAPTCHA, pas tes comptes personnels, pas de dépassement des plafonds.
 |---|---|---|---|
 | 1 | `delegate` (Haiku, 2× moins cher), `schedule_job` (tâches gratuites), `recall` (mémoire) | Mise à jour | Fait (2026-10-06) |
 | 1 bis | Réfléchir avant de construire : entonnoir d'idées notées, critique par Opus, 6 h de réflexion, lancement bloqué sans idée validée | Mise à jour | Fait (2026-10-06) |
+| 1 ter | Corrections après observation : date du jour dans ses consignes, sommeil limité à 3 h tant qu'il a moins de 5 idées notées, recherche comptée comme du progrès | Mise à jour | Fait (2026-10-06) |
 | 2 | `audit_page` (Lighthouse), `ab_test` (tests A/B sans cookies) | Mise à jour | Fait (2026-10-06) |
 | 3 | Nom de domaine choisi par le bot (`check_domain`, il te demande l'achat), images pour les réseaux (`render_image`), publication Bluesky validée par toi (`post_social`, `/publier`) | Acheter le domaine, créer le compte Bluesky | Code fait (2026-10-06), comptes à créer |
 | 4 | Adresse e-mail dédiée (après le domaine) | Créer l'adresse | À faire |

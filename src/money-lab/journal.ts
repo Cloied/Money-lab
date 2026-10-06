@@ -8,6 +8,7 @@
 
 import type Database from "better-sqlite3";
 import { ulid } from "ulid";
+import { createHash } from "crypto";
 
 type DB = Database.Database;
 
@@ -530,7 +531,9 @@ export function setNoProgressCycles(db: DB, cycles: number): void {
 export function journalFingerprint(db: DB): string {
   const exp = db.prepare("SELECT COUNT(*) AS n, COALESCE(MAX(updated_at), '') AS t FROM money_lab_experiments").get() as any;
   const help = db.prepare("SELECT COALESCE(MAX(resolved_at), '') AS t FROM money_lab_help_requests").get() as any;
-  return `${exp.n}|${exp.t}|${help.t}`;
+  // Discovery work (the idea pipeline) is progress too.
+  const ideas = createHash("sha256").update(getKV(db, "money_lab.ideas") ?? "").digest("hex").slice(0, 16);
+  return `${exp.n}|${exp.t}|${help.t}|${ideas}`;
 }
 
 /** Closed help requests, most recently resolved first. */
