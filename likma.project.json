@@ -1,26 +1,85 @@
 {
   "schema": 1,
   "name": "money-lab",
+  "profile": "bot",
   "commands": {
+    "setup": {
+      "install": {
+        "argv": [
+          "pnpm",
+          "install",
+          "--frozen-lockfile"
+        ],
+        "env": [],
+        "description": "Install dependencies (run `corepack enable pnpm` once first)"
+      }
+    },
     "start": [],
+    "start_disabled": "Starting runs the paid autonomous agent; only with the owner's explicit approval",
     "check": {
-      "types": [
-        "pnpm",
-        "run",
-        "typecheck"
-      ],
-      "money-lab": [
-        "pnpm",
-        "exec",
-        "vitest",
-        "run",
-        "src/__tests__/money-lab"
-      ],
-      "build": [
-        "pnpm",
-        "run",
-        "build"
-      ]
+      "types": {
+        "argv": [
+          "pnpm",
+          "run",
+          "typecheck"
+        ],
+        "env": [],
+        "description": "TypeScript typecheck"
+      },
+      "money-lab": {
+        "argv": [
+          "pnpm",
+          "exec",
+          "vitest",
+          "run",
+          "src/__tests__/money-lab"
+        ],
+        "env": [],
+        "timeout_seconds": 600,
+        "description": "Money Lab unit suite (network replaced by a failing spy)"
+      },
+      "build": {
+        "argv": [
+          "pnpm",
+          "run",
+          "build"
+        ],
+        "env": [],
+        "description": "Compile dist/ and the CLI package"
+      },
+      "e2e": {
+        "argv": [
+          "node",
+          "money-lab/e2e/run.mjs",
+          "harness"
+        ],
+        "env": [],
+        "timeout_seconds": 900,
+        "description": "Build, then run dist/index.js --run against strict fake Anthropic/Telegram/Stripe APIs (no network, no cost)"
+      },
+      "chaos": {
+        "argv": [
+          "node",
+          "money-lab/e2e/run.mjs",
+          "chaos"
+        ],
+        "env": [],
+        "timeout_seconds": 900,
+        "description": "Build, then run the real process against failing fake APIs (529, broken body, Telegram down)"
+      },
+      "upstream": {
+        "argv": [
+          "pnpm",
+          "exec",
+          "vitest",
+          "run",
+          "--exclude",
+          "src/__tests__/context-hardening.test.ts"
+        ],
+        "env": [],
+        "timeout_seconds": 900,
+        "description": "Full vitest suite except context-hardening.test.ts, which hangs on unmodified upstream"
+      }
     }
   },
   "required_env": [],
@@ -32,7 +91,7 @@
   "check_timeout_seconds": 300,
   "budget": {
     "max_failed_attempts": 3,
-    "max_minutes": 60,
+    "max_minutes": 240,
     "max_cost": null,
     "currency": "EUR"
   },
@@ -240,6 +299,101 @@
       "path": "money-lab/skills/money-lab-design/SKILL.md",
       "purpose": "The agent's design method, free resources and publishing checklist",
       "edit_when": "The design method or the resource list changes"
+    },
+    {
+      "area": "End-to-end checks",
+      "path": "money-lab/e2e/run.mjs",
+      "purpose": "Builds, then runs harness.mjs (scripted run) or chaos.mjs (failing services) against strict fake Anthropic/Telegram/Stripe APIs; validate.mjs holds the request validator",
+      "edit_when": "A scenario, the fake APIs or the Anthropic request rules change"
+    },
+    {
+      "area": "Privilege drop",
+      "path": "src/launch.ts",
+      "purpose": "Root-started launcher that switches to MONEY_LAB_USER before loading the runtime",
+      "edit_when": "The service user, unit or startup order changes"
+    },
+    {
+      "area": "Headless browser",
+      "path": "src/money-lab/browser.ts",
+      "purpose": "browse tool: one headless Chrome session with its own profile",
+      "edit_when": "Browser actions, profile or idle limits change"
+    },
+    {
+      "area": "Budget focus and weekly review",
+      "path": "src/money-lab/allocation.ts",
+      "purpose": "set_budget_focus plan per purpose and weekly spend attribution; review.ts runs the weekly review with ~/LESSONS.md",
+      "edit_when": "Budget purposes or the review routine change"
+    },
+    {
+      "area": "State backups",
+      "path": "src/money-lab/backup.ts",
+      "purpose": "Daily state.db backup (7 kept, .partial then rename)",
+      "edit_when": "Backup timing, retention or location change"
+    },
+    {
+      "area": "Delegation, jobs and recall",
+      "path": "src/money-lab/delegate.ts",
+      "purpose": "delegate to free models or Haiku; jobs.ts scheduled commands without inference; recall.ts search over notes",
+      "edit_when": "Delegation routing, job limits or recall sources change"
+    },
+    {
+      "area": "Site measurement",
+      "path": "src/money-lab/audit.ts",
+      "purpose": "Lighthouse audit_page; abtest.ts A/B verdicts; searchconsole.ts read-only Search Console",
+      "edit_when": "Audit, A/B statistics or Search Console usage change"
+    },
+    {
+      "area": "Domain, images and social",
+      "path": "src/money-lab/social.ts",
+      "purpose": "Bluesky drafts with owner approval; domain.ts RDAP checks; image.ts render_image presets",
+      "edit_when": "Publishing rules, domain lookup or image presets change"
+    },
+    {
+      "area": "Idea pipeline",
+      "path": "src/money-lab/ideas.ts",
+      "purpose": "Idea scoring, approval gates and active-experiment limits; critic.ts parses the Opus critique",
+      "edit_when": "Approval gates, criteria or critique handling change"
+    },
+    {
+      "area": "Agent tools",
+      "path": "src/money-lab/tools.ts",
+      "purpose": "Money Lab tool definitions (record_experiment, view_page, idea, harvest, ...)",
+      "edit_when": "A Money Lab tool is added or its arguments change"
     }
-  ]
+  ],
+  "bot_guards": {
+    "spend_caps": [
+      "src/__tests__/money-lab/money-lab.test.ts",
+      "src/__tests__/money-lab/money-lab-harvest.test.ts",
+      "src/__tests__/money-lab/money-lab-vps.test.ts"
+    ],
+    "unknown_cost": "src/__tests__/money-lab/money-lab.test.ts",
+    "loop_guard": [
+      "src/__tests__/money-lab/money-lab.test.ts",
+      "src/__tests__/money-lab/money-lab-vps.test.ts"
+    ],
+    "pause_switch": [
+      "src/__tests__/money-lab/money-lab.test.ts",
+      "money-lab/e2e/harness.mjs"
+    ],
+    "owner_channel": [
+      "src/__tests__/money-lab/money-lab-vps.test.ts",
+      "money-lab/e2e/harness.mjs",
+      "money-lab/e2e/chaos.mjs"
+    ],
+    "secret_scrub": [
+      "src/__tests__/money-lab/money-lab-vps.test.ts",
+      "src/__tests__/money-lab/money-lab-harvest.test.ts"
+    ],
+    "history_integrity": [
+      "src/__tests__/money-lab/money-lab-vps.test.ts",
+      "src/__tests__/money-lab/money-lab-harvest.test.ts",
+      "money-lab/e2e/harness.mjs",
+      "money-lab/e2e/validate.mjs"
+    ],
+    "stop_reasons": [
+      "src/__tests__/money-lab/money-lab-vps.test.ts",
+      "money-lab/e2e/harness.mjs"
+    ]
+  }
 }
