@@ -26,5 +26,9 @@
 | Datasets | src/money-lab/datasets.ts | The agent's collected data in ~/datasets/*.jsonl | Dataset storage, limits or search change |
 | Site monitoring | src/money-lab/monitor.ts | 30-minute uptime checks of the agent's sites with owner alerts and wakes | Monitoring rules, alerts or wake limits change |
 | Health report | src/money-lab/health.ts | Daily Telegram health report (/sante) from local state | What the owner sees each morning changes |
+| Design checks | src/money-lab/design.ts | check_design (axe-core and mechanical checks with screenshots), Opus design review, first-impression test | Design checks, the review rubric or screenshot handling change |
+| Bundled assets | src/money-lab/assets.ts | Copies bundled skills and the design kit into the agent's home at start | What ships with the runtime or how it is refreshed changes |
+| Design kit | money-lab/design-kit/base.css | CSS foundation, themes, templates and resource notes the agent starts pages from | The kit's defaults, themes or templates change |
+| Design skill | money-lab/skills/money-lab-design/SKILL.md | The agent's design method, free resources and publishing checklist | The design method or the resource list changes |
 
 Keep entries short and tied to actual paths. Agents must confirm ownership before editing.

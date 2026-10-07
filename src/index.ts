@@ -442,6 +442,19 @@ async function run(): Promise<void> {
 
   // Load skills
   const skillsDir = config.skillsDir || "~/.automaton/skills";
+  if (moneyLab && selfHosted) {
+    // Bundled skills and the design kit, copied into the agent's home (it cannot read the runtime tree).
+    try {
+      const { installBundledAssets } = await import("./money-lab/assets.js");
+      const home = process.env.HOME || "/root";
+      const installed = installBundledAssets(home, skillsDir.startsWith("~") ? path.join(home, skillsDir.slice(1)) : skillsDir);
+      if (installed.skills.length || installed.kit.length) {
+        logger.info(`[MONEY LAB] Ressources installées : compétences ${installed.skills.join(", ") || "à jour"}, kit de design ${installed.kit.length} fichier(s).`);
+      }
+    } catch (err: any) {
+      logger.warn(`[MONEY LAB] Ressources groupées non installées : ${err?.message ?? err}`);
+    }
+  }
   let skills: Skill[] = [];
   try {
     skills = loadSkills(skillsDir, db);

@@ -182,6 +182,33 @@
         "report": ".likma/checks/282d6a949f0f430e8b63269ae16625e6.json",
         "contract": "2990e8c50e5212f755a43da23877d82eb0478fd54e39b0f5d4b25fa204e2714a"
       }
+    },
+    {
+      "id": "design-toolkit",
+      "title": "Design kit, method and checks",
+      "criteria": [
+        "Bundled skills and the design kit are copied into the agent's home at start without overwriting its own files or following symbolic links",
+        "check_design finds accessibility, mobile overflow, tap target, image, metadata and console problems in a real browser and returns both screenshots",
+        "design_review sends the screenshots to Opus as image blocks and first_impression runs the above-the-fold text through the free models",
+        "The project typechecks and builds"
+      ],
+      "status": "verified",
+      "implementation": {
+        "at": "2026-10-07T00:33:39.606047+00:00",
+        "note": "src/money-lab/design.ts, assets.ts, money-lab/design-kit, money-lab/skills/money-lab-design; tests in money-lab-design.test.ts"
+      },
+      "verification": {
+        "at": "2026-10-07T00:35:07.997991+00:00",
+        "fingerprint": "44b5b0eccbf12a92f003dc1f4f8f06c6c76f640b01903ad2c02a6ce9a99747a5",
+        "criterion_checks": {
+          "1": "money-lab",
+          "2": "money-lab",
+          "3": "money-lab",
+          "4": "build"
+        },
+        "report": ".likma/checks/03f9ecc3ebb349db97897c849bdaf2c9.json",
+        "contract": "b0ec67622a67f2f3b7080c789b11b82106d5cad4003a0182ed689fb3060a1813"
+      }
     }
   ]
 }

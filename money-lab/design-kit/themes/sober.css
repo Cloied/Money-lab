@@ -1,0 +1,20 @@
+/* Theme: sober — calm, precise, trustworthy (tools, calculators, B2B) */
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap");
+:root {
+  --font-body: "Inter", system-ui, sans-serif;
+  --font-heading: "Inter", system-ui, sans-serif;
+  --bg: #fbfbfd;
+  --bg-elevated: #ffffff;
+  --text: #15181e;
+  --text-muted: #5a6373;
+  --border: #e4e7ec;
+  --accent: #1f4fd6;
+  --accent-contrast: #ffffff;
+  --accent-soft: #e9efff;
+  --radius: 0.4rem;
+  --radius-lg: 0.75rem;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --bg: #0e1117; --bg-elevated: #161b24; --text: #e9ecf2; --text-muted: #98a2b3; --border: #232a37; --accent: #6b93ff; --accent-contrast: #0e1117; --accent-soft: #19243d; }
+}
+h1, h2 { letter-spacing: -0.03em; }

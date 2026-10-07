@@ -567,20 +567,33 @@ function transformMessagesForAnthropic(
     }
 
     if (msg.role === "user") {
-      // Merge consecutive user messages
       const last = transformed[transformed.length - 1];
+      // A user message may carry screenshots (Money Lab design review): the
+      // same image markers as tool results become image blocks.
+      const rich = msg.content.includes("[[image:") ? toolResultContent(msg.content, imageBudget) : msg.content;
+      if (Array.isArray(rich)) {
+        if (last && last.role === "user") {
+          const blocks = typeof last.content === "string" ? [{ type: "text", text: last.content }] : (last.content as Array<Record<string, unknown>>);
+          last.content = [...blocks, ...rich];
+        } else {
+          transformed.push({ role: "user", content: rich });
+        }
+        continue;
+      }
+      const text = typeof rich === "string" ? rich : msg.content;
+      // Merge consecutive user messages
       if (last && last.role === "user" && typeof last.content === "string") {
-        last.content = last.content + "\n" + msg.content;
+        last.content = last.content + "\n" + text;
         continue;
       }
       // Text after tool results joins the same user turn, after the results.
       if (last && last.role === "user" && Array.isArray(last.content)) {
-        (last.content as Array<Record<string, unknown>>).push({ type: "text", text: msg.content });
+        (last.content as Array<Record<string, unknown>>).push({ type: "text", text });
         continue;
       }
       transformed.push({
         role: "user",
-        content: msg.content,
+        content: text,
       });
       continue;
     }
@@ -666,7 +679,7 @@ function imageMediaType(data: Buffer): string | null {
 function recentImagePaths(messages: ChatMessage[], limit: number): Set<string> {
   const paths: string[] = [];
   for (const msg of messages) {
-    if (msg.role !== "tool" || !msg.content) continue;
+    if ((msg.role !== "tool" && msg.role !== "user") || !msg.content) continue;
     for (const m of msg.content.matchAll(IMAGE_MARKER)) paths.push(m[1]);
   }
   return new Set(paths.slice(-limit));

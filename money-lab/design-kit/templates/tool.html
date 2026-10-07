@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Nom de l'outil — ce qu'il fait en 5 mots</title>
+  <meta name="description" content="Une phrase claire : qui, quoi, pourquoi c'est mieux. 150 caractères maximum.">
+  <link rel="icon" href="/favicon.png" type="image/png">
+  <meta property="og:title" content="Nom de l'outil">
+  <meta property="og:description" content="La même phrase que la description.">
+  <meta property="og:image" content="https://EXEMPLE/og.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="/design/base.css">
+  <link rel="stylesheet" href="/design/themes/sober.css">
+  <link rel="stylesheet" href="/site.css">
+</head>
+<body>
+  <header class="container site-header">
+    <a class="brand" href="/">
+      <svg width="28" height="28" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="4"/><path d="M8 12h8M12 8v8"/></svg>
+      Marque
+    </a>
+    <nav class="nav" aria-label="Principal">
+      <a href="/#comment">Comment ça marche</a>
+      <a href="/#faq">Questions</a>
+      <a href="/a-propos/">À propos</a>
+    </nav>
+  </header>
+
+  <main id="main">
+    <section class="hero container">
+      <div class="stack">
+        <span class="badge">Gratuit · sans inscription</span>
+        <h1>Le résultat que le visiteur veut, dit simplement</h1>
+        <p class="lede">Pour qui, et ce que ça change pour lui. Une seule promesse, vérifiable en 30 secondes.</p>
+        <div class="actions cluster">
+          <a class="button large" href="#outil">Commencer</a>
+          <a class="button secondary" href="#comment">Voir un exemple</a>
+        </div>
+      </div>
+    </section>
+
+    <section id="outil" class="section container">
+      <div class="card stack" style="max-width: 44rem; margin-inline: auto;">
+        <h2 class="visually-hidden">L'outil</h2>
+        <form class="stack" action="#" method="get" novalidate>
+          <div class="field">
+            <label for="champ-1">Premier champ</label>
+            <input id="champ-1" name="champ1" type="text" placeholder="Exemple de valeur" required>
+            <p class="hint">Une aide courte si besoin.</p>
+          </div>
+          <div class="field">
+            <label for="champ-2">Deuxième champ</label>
+            <select id="champ-2" name="champ2"><option>Option A</option><option>Option B</option></select>
+          </div>
+          <button class="button large" type="submit">Calculer</button>
+        </form>
+        <div class="notice success" role="status" hidden id="resultat">Le résultat apparaît ici.</div>
+      </div>
+    </section>
+
+    <section id="comment" class="section container">
+      <h2 class="center">Comment ça marche</h2>
+      <div class="grid" style="margin-top: var(--space-6);">
+        <article class="card"><h3>1. Vous saisissez</h3><p>Ce que la personne doit fournir, en une phrase.</p></article>
+        <article class="card"><h3>2. L'outil calcule</h3><p>Ce qui se passe, et pourquoi c'est fiable (source, règle).</p></article>
+        <article class="card"><h3>3. Vous repartez avec</h3><p>Le livrable concret : PDF, lien, chiffre, liste.</p></article>
+      </div>
+    </section>
+
+    <section id="faq" class="narrow section">
+      <h2>Questions fréquentes</h2>
+      <details><summary>Est-ce vraiment gratuit ?</summary><p>Oui. Explique ce qui finance le site, honnêtement.</p></details>
+      <details><summary>Mes données sont-elles envoyées quelque part ?</summary><p>Dis exactement ce qui est traité dans le navigateur et ce qui ne l'est pas.</p></details>
+      <details><summary>Qui a fait cet outil ?</summary><p>Une phrase vraie sur le projet, avec un lien vers la page À propos.</p></details>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container cluster" style="justify-content: space-between;">
+      <span>© 2026 Marque · <a href="/mentions/">Mentions</a> · <a href="/confidentialite/">Confidentialité</a></span>
+      <a href="mailto:contact@exemple.fr">Nous écrire</a>
+    </div>
+  </footer>
+</body>
+</html>

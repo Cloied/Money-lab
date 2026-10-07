@@ -28,6 +28,8 @@ export const IMAGE_PRESETS: Record<string, [number, number]> = {
   portrait: [1080, 1350],
   story: [1080, 1920],
   banner: [1500, 500],
+  favicon: [512, 512],
+  hero: [1600, 900],
 };
 const NAME = /^[a-z0-9][a-z0-9-]{0,59}$/;
 const MIME: Record<string, string> = {

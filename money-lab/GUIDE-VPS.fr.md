@@ -256,6 +256,15 @@ Outils gratuits ou économiques à sa disposition :
   `recall` (recherche dans ses notes, ses idées et ses données), `audit_page` (notes Lighthouse) et
   `ab_test` (tests A/B sans cookies).
 
+**Design.** Le bot a une méthode de design (compétence `money-lab-design`) et un kit de départ dans
+`~/library/design` : une base CSS moderne, 6 styles très différents (sobre, chaleureux, éditorial,
+ludique, technique, rétro), des gabarits de page, les composants et une liste de ressources gratuites
+(polices, icônes, illustrations, palettes, sites d'inspiration). Avant de publier une page, il doit
+passer `check_design` (accessibilité, mobile, images, polices, avec captures), `first_impression`
+(test des 5 secondes par une IA gratuite) et `design_review` (Opus note la page sur captures d'écran
+et donne les corrections ; quelques centimes). Le kit et les compétences se mettent à jour tout seuls
+à chaque redémarrage.
+
 **Les décisions importantes sont prises par Claude Opus 5.5**, et le programme les applique : approuver
 une idée (elle devient une expérience) et arrêter une expérience active. Le bot prépare le dossier,
 Opus tranche (environ 5 centimes par décision, compté dans le budget). Le rapport de santé indique les

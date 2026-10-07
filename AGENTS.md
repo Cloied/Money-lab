@@ -30,6 +30,9 @@ identity, scope and constraints are defined here and in the Money Lab specificat
   to free services (Groq, Gemini, OpenRouter ":free" models, local Ollama) with keys the agent cannot read,
   falling back to Haiku; approving an idea and stopping an active experiment are binding Claude Opus
   decisions applied by the runtime. The owner creates the free service accounts; the bot never does.
+- Owner request (2026-10-07): pages must look professional, simple and original. The runtime ships a
+  design kit and a design skill (money-lab/design-kit, money-lab/skills/money-lab-design), copied into
+  the agent's home at start, and three checks (check_design, first_impression, design_review).
 - In-process limits are not tamper-proof (exec can bypass them). Never describe them as secure isolation.
 - Unknown cost is never free. Funding is not revenue; estimated income is not cash.
 - Tests must not make network or payment calls (src/__tests__/money-lab replaces fetch with a failing spy).

@@ -11,9 +11,25 @@ CAPTCHA, pas tes comptes personnels, pas de dépassement des plafonds.
 | 1 ter | Corrections après observation : date du jour dans ses consignes, sommeil limité à 3 h tant qu'il a moins de 5 idées notées, recherche comptée comme du progrès | Mise à jour | Fait (2026-10-06) |
 | 2 | `audit_page` (Lighthouse), `ab_test` (tests A/B sans cookies) | Mise à jour | Fait (2026-10-06) |
 | 3 bis | IA gratuites pour la récolte (`harvest`), décisions confiées à Opus (approbation des idées, arrêt des expériences), signaux de marché gratuits (`market_signals`), données gardées (`dataset`), surveillance des sites (`monitor_site`), rapport de santé | Créer 1 à 3 clés d'IA gratuites ; Ollama si le serveur a assez de mémoire | Code fait (2026-10-06), clés à créer |
+| 3 ter | Design : kit de départ (base CSS, 6 styles, gabarits), méthode (compétence `money-lab-design`, ressources gratuites), `check_design` (contrôles gratuits + captures), `first_impression` (test 5 secondes), `design_review` (Opus juge les captures) | Mise à jour | Code fait (2026-10-07) |
 | 3 | Nom de domaine choisi par le bot (`check_domain`, il te demande l'achat), images pour les réseaux (`render_image`), publication Bluesky validée par toi (`post_social`, `/publier`) | Acheter le domaine, créer le compte Bluesky | Code fait (2026-10-06), comptes à créer |
 | 4 | Adresse e-mail dédiée (après le domaine) | Créer l'adresse | À faire |
 | 5 | Revenus : Stripe, affiliation, publicité | Statut, comptes | Après le reste |
+
+## Étape 3 ter : des sites jolis, simples et originaux
+
+- **Kit de départ** (`~/library/design`) : `base.css` (tailles de texte fluides, espacements réguliers,
+  boutons et formulaires accessibles, mode sombre, impression), 6 thèmes (polices Google Fonts +
+  palette), gabarits `tool.html` et `landing.html`, page de composants, guide des icônes.
+- **Méthode** (compétence relue à chaque site) : brief de design avant le code (lecteur, action unique,
+  deux adjectifs, 3 concurrents, un élément distinctif), règles du beau simple (espace, 2 polices, une
+  couleur d'accent, mobile d'abord, vrai contenu), signaux de confiance honnêtes, ressources gratuites
+  à consulter (polices, palettes, composants, inspiration, illustrations, icônes, images, accessibilité).
+- **Contrôles** : `check_design` (axe-core, débordement mobile, cibles tactiles, images, polices, titre,
+  description, viewport, favicon, og:image, erreurs console, poids, captures ordinateur + mobile),
+  `first_impression` (une IA gratuite lit ce qu'un visiteur voit en 5 secondes), `design_review` (Opus
+  voit les deux captures et le texte, note 9 critères, donne les corrections précises, verdict SHIP ou
+  FIX FIRST), puis `audit_page` et `view_page` avant publication.
 
 ## Étape 3 bis : les IA gratuites récoltent, la meilleure décide
 

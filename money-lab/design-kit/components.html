@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Kit de design — composants</title>
+  <link rel="stylesheet" href="base.css">
+  <link rel="stylesheet" href="themes/sober.css">
+  <style>.demo{padding-block:var(--space-6);border-bottom:1px solid var(--border)} .swatch{width:3rem;height:3rem;border-radius:var(--radius);border:1px solid var(--border)}</style>
+</head>
+<body class="container stack-lg">
+  <h1>Composants du kit</h1>
+  <p class="lede">Change le thème dans le &lt;head&gt; pour voir chaque style. Tout vient de base.css.</p>
+
+  <section class="demo stack"><h2>Typographie</h2><h1>Titre 1</h1><h2>Titre 2</h2><h3>Titre 3</h3><p>Paragraphe limité à 65 caractères par ligne pour rester lisible. <a href="#">Un lien</a>, du <code>code</code>.</p><p class="muted">Texte secondaire.</p></section>
+
+  <section class="demo stack"><h2>Couleurs</h2>
+    <div class="cluster"><div class="swatch" style="background:var(--accent)"></div><div class="swatch" style="background:var(--accent-soft)"></div><div class="swatch" style="background:var(--bg-elevated)"></div><div class="swatch" style="background:var(--text)"></div><div class="swatch" style="background:var(--success)"></div><div class="swatch" style="background:var(--danger)"></div></div>
+  </section>
+
+  <section class="demo stack"><h2>Boutons</h2>
+    <div class="cluster"><a class="button" href="#">Principal</a><a class="button secondary" href="#">Secondaire</a><a class="button ghost" href="#">Discret</a><a class="button large" href="#">Grand</a><button class="button" disabled>Désactivé</button></div>
+  </section>
+
+  <section class="demo stack"><h2>Cartes et badges</h2>
+    <div class="grid"><article class="card"><span class="badge">Nouveau</span><h3>Une carte</h3><p>Un paragraphe court.</p></article><article class="card"><h3>Une autre</h3><p>Avec une <a href="#">action</a>.</p></article></div>
+  </section>
+
+  <section class="demo stack"><h2>Messages</h2>
+    <div class="notice">Information.</div><div class="notice success">Réussi.</div><div class="notice danger">Erreur, avec quoi faire.</div>
+  </section>
+
+  <section class="demo stack"><h2>Formulaire</h2>
+    <form class="stack" style="max-width:32rem">
+      <div class="field"><label for="a">Nom</label><input id="a" type="text" placeholder="Exemple"><p class="hint">Aide courte.</p></div>
+      <div class="field"><label for="b">Montant</label><input id="b" type="number" inputmode="decimal" aria-invalid="true"><p class="error">Un nombre est attendu.</p></div>
+      <div class="field"><label for="c">Choix</label><select id="c"><option>A</option><option>B</option></select></div>
+      <button class="button" type="button">Envoyer</button>
+    </form>
+  </section>
+
+  <section class="demo stack"><h2>Tableau</h2>
+    <table><thead><tr><th>Outil</th><th>Prix</th><th>Limite</th></tr></thead><tbody><tr><td>A</td><td>Gratuit</td><td>5 / mois</td></tr><tr><td>B</td><td>9 €</td><td>Illimité</td></tr></tbody></table>
+  </section>
+
+  <section class="demo stack"><h2>FAQ</h2>
+    <details><summary>Une question</summary><p>Une réponse.</p></details><details><summary>Une autre</summary><p>Une réponse.</p></details>
+  </section>
+</body>
+</html>
