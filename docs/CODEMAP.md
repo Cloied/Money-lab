@@ -47,6 +47,10 @@
 | Domain, images and social | src/money-lab/social.ts | Bluesky drafts with owner approval; domain.ts RDAP checks; image.ts render_image presets | Publishing rules, domain lookup or image presets change |
 | Idea pipeline | src/money-lab/ideas.ts | Idea scoring, approval gates and active-experiment limits; critic.ts parses the Opus critique | Approval gates, criteria or critique handling change |
 | Agent tools | src/money-lab/tools.ts | Money Lab tool definitions (record_experiment, view_page, idea, harvest, ...) | A Money Lab tool is added or its arguments change |
+| Semantic recall | src/money-lab/embeddings.ts | Free embeddings cached in the state database; recall by meaning blended with words | How the bot searches its own memory changes |
+| IndexNow | src/money-lab/indexnow.ts | Key file per site and URL submission to Bing, Yandex and partners | How new pages are announced to search engines changes |
+| Free services (owner accounts) | src/money-lab/services.ts | Tavily search, Bing Webmaster, INSEE Sirene, API Adresse, Légifrance (PISTE), UptimeRobot, Resend e-mail; daily caps per service | A free service, its endpoint, cap or key name changes |
+| Cloudflare Pages deployment | src/money-lab/deploy.ts | deploy_site drives wrangler with the Pages token to publish ~/sites/<name> | The deployment flow, token scope or wrangler lookup changes |
 
 Generated from likma.project.json; regenerate with `project map`.
 Keep entries short and tied to actual paths. Agents must confirm ownership before editing.

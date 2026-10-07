@@ -9,7 +9,10 @@ Every product should be faster and better than the last. The order is always the
 **reuse, scaffold, build, test, review, publish.** Writing from scratch is the last resort.
 
 ## 1. Reuse before writing (free)
-- `recall` first: your own library (`~/library`, `~/library/vendor/INDEX.md`) may already have it.
+- `recall` first (by words and by meaning): your own library (`~/library`, `~/library/vendor/INDEX.md`)
+  may already have it.
+- `free_services find <need>`: a free service or API for hosting, data, e-mail, forms, maps, monitoring,
+  payments or search, from free-for-dev and public-apis; `free_services search` looks in what you saved.
 - `repo_scout`: search GitHub by what the code must do ("pdf merge browser", "invoice generator
   javascript", "cron expression parser"). Keep repositories that are maintained (pushed within two
   years), used (stars) and **permissively licensed** (MIT, Apache-2.0, BSD, ISC). GPL/AGPL and
@@ -48,8 +51,10 @@ with the publishing commands, and a git repository. Then:
 ## 5. Review, then publish
 - `code_review files:[index.html, app.js]`: the free models list bugs, security and accessibility
   problems with a fix each. Fix what is real; note what you leave and why.
-- `design_review` once per page before it goes live. Then publish (README commands) and run
-  `test_site` on the live URL. Add the URL to `monitor_site`.
+- `design_review` once per page before it goes live. Then publish: GitHub Pages (README commands or
+  `scaffold_site publish`) or `deploy_site name` to Cloudflare Pages (`<name>.pages.dev`, when the
+  owner configured it; one host per site, redeploy the same name to update). Run `test_site` on the
+  live URL, add it to `monitor_site`, tell Bing with `bing_webmaster submit` when configured.
 
 ## Catalogue: proven libraries to start from (check the licence page once)
 All run in the browser unless noted; licences as of 2026, verify before copying.

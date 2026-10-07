@@ -47,6 +47,10 @@ interface ProviderSpec {
   listModels?: (base: string, key: string, fetchFn: FetchFn) => Promise<string[]>;
   /** Extra request headers. */
   headers?: Record<string, string>;
+  /** Free embedding model on the same OpenAI-style API (recall's semantic search). */
+  embedModel?: string;
+  /** Accepts images in chat messages (design reviews). */
+  vision?: boolean;
   /** Input characters per request, under the free tier's per-minute token limit. */
   maxInputChars: number;
   /** Output tokens per request (thinking models spend part of them before answering). */
@@ -84,6 +88,8 @@ const PROVIDERS: ProviderSpec[] = [
     prefer: [/^gemini-[\d.]+-flash$/, /^gemini-[\d.]+-flash-lite$/, /^gemini-[\d.]+-flash/, /flash/],
     usable: (id) => /^gemini-/.test(id) && !/image|tts|live|audio|embedding|aqa|imagen|veo|robotics|computer-use|native/i.test(id),
     dailyRequests: 240,
+    embedModel: "gemini-embedding-001",
+    vision: true,
   },
   {
     id: "mistral",
@@ -99,6 +105,7 @@ const PROVIDERS: ProviderSpec[] = [
     // 1 request per second, 1 billion tokens per month on the free plan.
     dailyRequests: 5000,
     minIntervalMs: 1100,
+    embedModel: "mistral-embed",
   },
   {
     id: "nvidia",
@@ -160,6 +167,7 @@ const PROVIDERS: ProviderSpec[] = [
     usable: (id) => id.startsWith("@cf/") && !/embed|bge|whisper|m2m100|resnet|stable-diffusion|flux|melotts|uform|llamaguard|detr/i.test(id),
     // 10,000 free neurons per day: about 100-200 answers.
     dailyRequests: 120,
+    embedModel: "@cf/baai/bge-m3",
     // The OpenAI-style endpoint has no model listing; these are the current free text models.
     listModels: async () => [
       "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
@@ -477,10 +485,13 @@ async function resolveModel(db: Database.Database, ready: Ready, env: NodeJS.Pro
 /** Last request time per provider, for free tiers that cap requests per second. */
 const lastRequestAt = new Map<FreeProviderId, number>();
 
+/** OpenAI-style message content: text, or text plus images for vision models. */
+type RichContent = string | Array<{ type: "text"; text: string } | { type: "image_url"; image_url: { url: string } }>;
+
 async function chatOnce(
   ready: Ready,
   model: string,
-  messages: Array<{ role: string; content: string }>,
+  messages: Array<{ role: string; content: RichContent }>,
   maxTokens: number,
   fetchFn: FetchFn,
   sleep: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms)),
@@ -520,7 +531,7 @@ async function chatOnce(
 async function chat(
   ready: Ready,
   model: string,
-  messages: Array<{ role: string; content: string }>,
+  messages: Array<{ role: string; content: RichContent }>,
   maxTokens: number,
   fetchFn: FetchFn,
   sleep: (ms: number) => Promise<void>,
@@ -636,6 +647,131 @@ function notifyKeyProblem(db: Database.Database, spec: ProviderSpec, err: Provid
   queueOwnerNotification(db,
     `⚠️ ${spec.label} refuse la clé ${spec.keyEnv} (${err.message.slice(0, 120)}). Vérifie-la dans /etc/money-lab.env ` +
     "puis redémarre (systemctl restart money-lab). En attendant, le bot utilise les autres IA gratuites ou Haiku.");
+}
+
+// ─── Embeddings (recall) ────────────────────────────────────────
+
+export interface EmbeddingResult {
+  provider: FreeProviderId;
+  model: string;
+  vectors: number[][];
+}
+
+const EMBED_BATCH = 32;
+const EMBED_MAX_CHARS = 2000;
+
+/**
+ * Embeds texts with the first free provider that offers an embedding model
+ * (Gemini, Mistral, Cloudflare, else a local Ollama embedding model).
+ * Returns null when none is configured or all failed; the caller then
+ * falls back to lexical search. One provider per call, so every vector of
+ * a result shares the same space.
+ */
+export async function freeEmbeddings(
+  texts: string[],
+  options: { db: Database.Database; env?: NodeJS.ProcessEnv; fetchFn?: FetchFn; now?: () => Date; preferred?: string },
+): Promise<EmbeddingResult | null> {
+  if (texts.length === 0) return null;
+  const env = options.env ?? withSecrets();
+  const fetchFn = options.fetchFn ?? fetch;
+  const now = options.now ?? (() => new Date());
+  const { ready } = await readyProviders(options.db, env, fetchFn, now().getTime());
+  const candidates = ready.filter((r) => r.spec.embedModel || r.spec.id === "ollama");
+  // Stay with the model that embedded the existing cache when it is still available.
+  if (options.preferred) candidates.sort((a, b) => Number(`${b.spec.id} ${b.spec.embedModel ?? ""}`.startsWith(options.preferred!)) - Number(`${a.spec.id} ${a.spec.embedModel ?? ""}`.startsWith(options.preferred!)));
+  const clean = texts.map((t) => redactSecrets(t, env).slice(0, EMBED_MAX_CHARS));
+  for (const r of candidates) {
+    try {
+      let model = r.spec.embedModel ?? "";
+      if (r.spec.id === "ollama") {
+        const models = (await ollamaModels(r.base, fetchFn, now().getTime())) ?? [];
+        model = env.OLLAMA_EMBED_MODEL?.trim() || models.find((m) => /embed|bge|nomic|minilm|mxbai/i.test(m)) || "";
+        if (!model) continue;
+      }
+      const vectors: number[][] = [];
+      for (let i = 0; i < clean.length; i += EMBED_BATCH) {
+        const batch = clean.slice(i, i + EMBED_BATCH);
+        countUsage(options.db, r.spec.id, "calls", now());
+        if (r.spec.id === "ollama") {
+          const data = await fetchJson(fetchFn, `${r.base}/api/embed`, {
+            method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ model, input: batch }),
+          }, r.spec.timeoutMs);
+          for (const v of Array.isArray(data?.embeddings) ? data.embeddings : []) vectors.push((v as number[]).map(Number));
+        } else {
+          const data = await fetchJson(fetchFn, `${r.base}/embeddings`, {
+            method: "POST",
+            headers: { "content-type": "application/json", authorization: `Bearer ${r.key}`, ...(r.spec.headers ?? {}) },
+            body: JSON.stringify({ model, input: batch }),
+          }, r.spec.timeoutMs);
+          const rows = (Array.isArray(data?.data) ? data.data : []).sort((a: any, b: any) => (a.index ?? 0) - (b.index ?? 0));
+          for (const row of rows) vectors.push((row.embedding as number[]).map(Number));
+        }
+      }
+      if (vectors.length !== clean.length) throw new ProviderError("empty", `${vectors.length} vectors for ${clean.length} texts`);
+      return { provider: r.spec.id, model, vectors };
+    } catch (err: any) {
+      const raw = err instanceof ProviderError ? err : new ProviderError("server", String(err?.message ?? err).slice(0, 200));
+      countUsage(options.db, r.spec.id, "failures", now());
+      rest(options.db, r.spec.id, new ProviderError(raw.kind, redactSecrets(raw.message, env), raw.retryAfterMs), now().getTime(), false);
+    }
+  }
+  return null;
+}
+
+/** Names of configured providers that can embed, for the prompt and reports. */
+export function embeddingProviders(env: NodeJS.ProcessEnv = withSecrets()): string[] {
+  return PROVIDERS.filter((p) => p.embedModel && p.keyEnv && env[p.keyEnv]?.trim() && !(p.requiresEnv ?? []).some((n) => !env[n]?.trim())).map((p) => p.id as string);
+}
+
+// ─── Vision (design reviews on a free model) ────────────────────
+
+const IMAGE_MAX_BYTES = 4 * 1024 * 1024;
+
+/**
+ * Asks a free vision model (Gemini) a question about images on disk. Returns
+ * null when no vision provider is configured or answered, so the caller can
+ * use the paid reviewer instead.
+ */
+export async function freeImageChat(
+  system: string,
+  user: string,
+  imagePaths: string[],
+  options: { db: Database.Database; home: string; env?: NodeJS.ProcessEnv; fetchFn?: FetchFn; now?: () => Date; maxTokens?: number },
+): Promise<{ text: string; provider: FreeProviderId; model: string } | null> {
+  const env = options.env ?? withSecrets();
+  const fetchFn = options.fetchFn ?? fetch;
+  const now = options.now ?? (() => new Date());
+  const images: Array<{ type: "image_url"; image_url: { url: string } }> = [];
+  for (const file of imagePaths.slice(0, 4)) {
+    try {
+      const resolved = fs.realpathSync(path.resolve(options.home, file.replace(/^~(?=$|\/)/, options.home)));
+      if (!resolved.startsWith(fs.realpathSync(options.home) + path.sep)) continue;
+      const data = fs.readFileSync(resolved);
+      if (data.length > IMAGE_MAX_BYTES) continue;
+      const mime = /\.jpe?g$/i.test(resolved) ? "image/jpeg" : /\.webp$/i.test(resolved) ? "image/webp" : "image/png";
+      images.push({ type: "image_url", image_url: { url: `data:${mime};base64,${data.toString("base64")}` } });
+    } catch {
+      // unreadable image: skip
+    }
+  }
+  if (images.length === 0) return null;
+  const { ready } = await readyProviders(options.db, env, fetchFn, now().getTime());
+  for (const r of ready.filter((x) => x.spec.vision)) {
+    try {
+      const model = await resolveModel(options.db, r, env, fetchFn, now().getTime());
+      countUsage(options.db, r.spec.id, "calls", now());
+      const text = await chat(r, model, [
+        { role: "system", content: system },
+        { role: "user", content: [{ type: "text", text: redactSecrets(user, env) }, ...images] },
+      ], options.maxTokens ?? 1800, fetchFn, (ms) => new Promise((res) => setTimeout(res, ms)));
+      return { text, provider: r.spec.id, model };
+    } catch (err: any) {
+      const raw = err instanceof ProviderError ? err : new ProviderError("server", String(err?.message ?? err).slice(0, 200));
+      countUsage(options.db, r.spec.id, "failures", now());
+      rest(options.db, r.spec.id, new ProviderError(raw.kind, redactSecrets(raw.message, env), raw.retryAfterMs), now().getTime(), !!env[r.spec.modelEnv]?.trim());
+    }
+  }
+  return null;
 }
 
 // ─── Cache ──────────────────────────────────────────────────────

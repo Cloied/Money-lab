@@ -1,6 +1,6 @@
 # Working status
 - Updated: 2026-10-07
-- Branch / commit: claude/affectionate-bohr-nyhhv3 (from main 5937f48; main 8d0b2de code workshop, 2405b06 niche funnel and 5919534 publication kits merged in), on upstream Automaton d8f816881fd24b6f5e3d616e59edec387a447667 (0.2.1)
+- Branch / commit: claude/money-lab-first-run-bezu7x (packs 5a and 5b on main a8b75bc, Likma adoption merged), on upstream Automaton d8f816881fd24b6f5e3d616e59edec387a447667 (0.2.1)
 - Current goal: self-hosted VPS runtime (Claude Sonnet 5.5, Telegram, Stripe, survival goal); development only, no launch.
 - Accepted decisions:
   - Thin extension under src/money-lab/ plus narrow upstream patches; inert without a moneyLab block.
@@ -125,8 +125,18 @@
 - First live report after the cache fix (07:39 Paris) still read 85k tokens per turn, but that average
   counted cached tokens and turns before the update. /sante now shows the last 10 turns: tokens read,
   cost per turn and cache use.
+- Repository moved to the owner's organization moneylab-djib (2026-10-07); old URLs redirect.
+- PR 5b done (same branch and PR as 5a, rebuilt on main a8b75bc after the Likma adoption merge): free
+  services with owner accounts, each env-keyed and capped per day (Tavily free_search, Bing Webmaster,
+  INSEE Sirene and Légifrance through france_data, API Adresse without account, UptimeRobot on
+  monitor_site, Resend email_owner), deploy_site to Cloudflare Pages through wrangler, kits for dev.to
+  and Mastodon posted by the runtime after /publie. Guide section "Comptes gratuits" walks the owner
+  through each account. Not yet used live.
 - Owner plan (2026-10-07, validated): 4 PRs, then a free capability pack (5a without owner accounts,
-  5b with). PR 4 done: publication kits the owner posts (/kits, /publie, /passe), owner window on
+  5b with). PR 5a done: Jina Reader page reading, semantic recall on free embeddings, free design
+  review (Gemini) with Opus on final, IndexNow pings, free_services finder, Cloudflare Web Analytics
+  snippet. Not yet used live.
+- PR 4 done: publication kits the owner posts (/kits, /publie, /passe), owner window on
   finalists (/choisis, /ecarte), Opus shortlist. Not yet used live.
 - PR 3 done: niche funnel (seed universe, niche_scan with a fixed
   formula on free signals, rejected memory) and probes measured by Search Console with a daily check

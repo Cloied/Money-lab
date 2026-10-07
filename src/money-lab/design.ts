@@ -23,7 +23,7 @@ import type { DelegateRouter } from "./delegate.js";
 import { RUNTIME_ROOT } from "./guard.js";
 import { REVIEW_MODEL } from "./review.js";
 import { scrubbedEnv } from "./selfhosted.js";
-import { harvest } from "./freeai.js";
+import { freeImageChat, harvest } from "./freeai.js";
 
 const VIEWPORTS = { desktop: { width: 1280, height: 1600 }, mobile: { width: 390, height: 844 } } as const;
 const KEEP_SHOTS = 30;
@@ -262,6 +262,26 @@ export async function designReview(
     return { text: `Design review not done (${result.finishReason}): ${result.content.slice(0, 200)}`, costCents: result.costCents };
   }
   return { text: `${result.content.trim()}\n[design review: ${result.model}, ${result.costCents}c]`, costCents: result.costCents };
+}
+
+/** The same review on a free vision model (Gemini); null when none is configured or answered. */
+export async function designReviewFree(
+  check: DesignCheck,
+  context: string,
+  options: { db: Database.Database; home: string; env?: NodeJS.ProcessEnv; fetchFn?: typeof fetch },
+): Promise<{ text: string; provider: string } | null> {
+  const findings = check.findings.slice(0, 15).map((f) => `- ${f.severity}: ${f.text.slice(0, 200)}`).join("\n") || "- none";
+  const user = [
+    `Page: ${check.url}`,
+    `Title: ${check.title || "none"}`,
+    context ? `What the agent wants to achieve with this page: ${context}` : "",
+    `Visible text near the top: ${check.aboveFold || "(none)"}`,
+    `Fonts: ${check.fonts.join(", ") || "?"}; weight ${Math.round(check.weightBytes / 1000)} KB.`,
+    `Automatic check results:\n${findings}`,
+    "The first image is the desktop screenshot, the second the mobile screenshot.",
+  ].filter(Boolean).join("\n");
+  const answer = await freeImageChat(REVIEW_SYSTEM, user, [check.screenshots.desktop, check.screenshots.mobile], { ...options, maxTokens: 1800 });
+  return answer ? { text: `${answer.text.trim()}\n[design review: ${answer.provider} ${answer.model}, free]`, provider: `${answer.provider} ${answer.model}` } : null;
 }
 
 // ─── First impression (free model) ──────────────────────────────

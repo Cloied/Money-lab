@@ -15,6 +15,7 @@ import type Database from "better-sqlite3";
 import { getKV, queueOwnerNotification, setKV } from "./journal.js";
 import { searchAnalyticsRows, searchConsoleSite } from "./searchconsole.js";
 import { getIdea, upsertIdea } from "./ideas.js";
+import { submitIndexNow } from "./indexnow.js";
 
 const PROBES_KEY = "money_lab.probes";
 export const MAX_PROBES = 12;
@@ -55,6 +56,18 @@ export function listProbes(db: Database.Database): Probe[] {
 
 function save(db: Database.Database, probes: Probe[]): void {
   setKV(db, PROBES_KEY, JSON.stringify(probes));
+}
+
+/** Registers the probe and tells the IndexNow engines about its page (best effort). */
+export async function addProbeAndPing(
+  db: Database.Database,
+  input: { id: string; url: string; queries: string[]; ideaId?: string; windowDays?: number; minImpressions?: number },
+  options: { fetchFn?: typeof fetch; env?: NodeJS.ProcessEnv; now?: Date } = {},
+): Promise<string> {
+  const added = addProbe(db, input, options.now);
+  if (!/^Probe "/.test(added)) return added;
+  const ping = await submitIndexNow([String(input.url)], { fetchFn: options.fetchFn, env: options.env });
+  return `${added}\n${ping}`;
 }
 
 export function addProbe(

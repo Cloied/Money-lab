@@ -25,9 +25,9 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/Cloied/Money-lab.git"
+    "url": "https://github.com/moneylab-djib/Money-lab.git"
   },
-  "homepage": "https://github.com/Cloied/Money-lab",
+  "homepage": "https://github.com/moneylab-djib/Money-lab",
   "keywords": [
     "autonomous-agent",
     "sovereign-ai",

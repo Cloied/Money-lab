@@ -24,11 +24,12 @@ import type { ExecResult } from "../types.js";
 import { saveRecord } from "./datasets.js";
 import { findBrowser, runLocalCommand, scrubbedEnv, shellQuote } from "./selfhosted.js";
 import { DESIGN_KIT_DIR } from "./assets.js";
+import { indexNowKey } from "./indexnow.js";
 
 type FetchFn = typeof fetch;
 
 const GITHUB_API = "https://api.github.com";
-const USER_AGENT = "MoneyLabBot/1.0 (code reuse; https://github.com/Cloied/Money-lab)";
+const USER_AGENT = "MoneyLabBot/1.0 (code reuse; https://github.com/moneylab-djib/Money-lab)";
 const TIMEOUT_MS = 20_000;
 
 /** Licences the owner allows the agent to copy from (attribution kept in NOTICE.md). */
@@ -409,9 +410,11 @@ export async function scaffoldSite(
   if (args.h1?.trim()) html = html.replace(/<h1>[^<]*<\/h1>/, `<h1>${escapeHtml(args.h1.trim())}</h1>`);
   if (args.lede?.trim()) html = html.replace(/<p class="lede">[^<]*<\/p>/, `<p class="lede">${escapeHtml(args.lede.trim())}</p>`);
   if (lang === "en") for (const [fr, en] of EN_STRINGS) html = html.split(fr).join(en);
-  const analytics = env.GOATCOUNTER_SITE
+  const analytics = (env.GOATCOUNTER_SITE
     ? `  <script data-goatcounter="https://${env.GOATCOUNTER_SITE}.goatcounter.com/count" async src="//gc.zgo.at/count.js"></script>\n`
-    : "";
+    : "") + (env.CF_WEB_ANALYTICS_TOKEN
+    ? `  <script defer src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='{"token": "${env.CF_WEB_ANALYTICS_TOKEN.replace(/[^a-zA-Z0-9]/g, "")}"}'></script>\n`
+    : "");
   html = html.replace(/<\/body>/, `${analytics}</body>`);
 
   fs.mkdirSync(path.join(dir, "design", "themes"), { recursive: true });
@@ -433,6 +436,9 @@ export async function scaffoldSite(
   const today = (options.now ?? new Date()).toISOString().slice(0, 10);
   fs.writeFileSync(path.join(dir, "sitemap.xml"), `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n  <url><loc>${baseUrl}</loc><lastmod>${today}</lastmod></url>\n  <url><loc>${baseUrl}${lang === "en" ? "about/" : "a-propos/"}</loc><lastmod>${today}</lastmod></url>\n</urlset>\n`);
   fs.writeFileSync(path.join(dir, ".nojekyll"), "");
+  // IndexNow key file: Bing and partners index new pages within minutes once told (probe add tells them).
+  const indexKey = indexNowKey(new URL(baseUrl.replace("EXAMPLE", "example.invalid")).hostname, env);
+  fs.writeFileSync(path.join(dir, `${indexKey}.txt`), indexKey);
   fs.writeFileSync(path.join(dir, "README.md"), [
     `# ${args.title.trim()}`, "", args.description.trim(), "",
     `Built from the Money Lab design kit (theme ${theme}). Site URL once published: ${baseUrl}`, "",
@@ -461,10 +467,10 @@ export async function scaffoldSite(
         : `Publishing failed: ${(create.stderr || create.stdout).slice(0, 300)}`;
     }
   }
-  const files = ["index.html", "site.css", `design/base.css`, `design/themes/${theme}.css`, `${lang === "en" ? "about" : "a-propos"}/index.html`, "404.html", "robots.txt", "sitemap.xml", ".nojekyll", "README.md"];
+  const files = ["index.html", "site.css", `design/base.css`, `design/themes/${theme}.css`, `${lang === "en" ? "about" : "a-propos"}/index.html`, "404.html", "robots.txt", "sitemap.xml", ".nojekyll", `${indexKey}.txt (IndexNow key)`, "README.md"];
   return [
     `Site ~/sites/${name} created (${template} template, theme ${theme}, ${lang}): ${files.join(", ")}.`,
-    analytics ? "Analytics snippet included." : "No analytics token: no snippet.",
+    analytics ? `Analytics snippet included (${[env.GOATCOUNTER_SITE ? "GoatCounter" : "", env.CF_WEB_ANALYTICS_TOKEN ? "Cloudflare Web Analytics" : ""].filter(Boolean).join(", ")}).` : "No analytics token: no snippet.",
     published,
     ...notes,
     "Next: replace the placeholder texts in index.html (keep one main action), add favicon.png and og.png (render_image), " +

@@ -25,6 +25,7 @@ import { recentDecisions } from "./decisions.js";
 import { siteStates } from "./monitor.js";
 import { listProbes } from "./probes.js";
 import { listKits } from "./kits.js";
+import { configuredServices, servicesUsageToday } from "./services.js";
 import { pendingFinalists } from "./decisions.js";
 
 const EVENTS_KEY = "money_lab.health_events";
@@ -234,6 +235,8 @@ export function buildHealthReport(
     `${free.fallbacks ? ` — ${free.fallbacks} repli(s) payant(s) sur Haiku` : ""}`);
   const refused = freeAiKeyProblems(db, now);
   if (refused.length) watch.push(`clé refusée par ${refused.join(", ")} (vérifie /etc/money-lab.env)`);
+  const services = configuredServices();
+  if (services.length) lines.push(`  Services gratuits (tes comptes) : ${services.join(", ")} — aujourd'hui ${servicesUsageToday(db, now)}`);
 
   // ── Work ──
   const ideas = listIdeas(db);
@@ -253,6 +256,8 @@ export function buildHealthReport(
     lines.push(`  Décisions d'Opus (7 jours) : ${decisions.length}, dernière : ${last.verdict} sur ${last.target} (${last.at.slice(0, 10)})`);
   }
   const pendingKits = listKits(db).filter((k) => k.status === "pending").length;
+  const failedKits = listKits(db).filter((k) => k.status === "failed" && nowMs - Date.parse(k.decidedAt ?? k.createdAt) < 86_400_000);
+  if (failedKits.length) watch.push(`${failedKits.length} kit(s) non publié(s) par le programme (${failedKits.map((k) => k.id).join(", ")}) : vérifie la clé dev.to ou Mastodon`);
   const finalists = pendingFinalists(db, now);
   if (help || pendingPosts || pendingKits || finalists.length) {
     lines.push(`  En attente de toi : ${[

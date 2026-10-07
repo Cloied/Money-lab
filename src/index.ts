@@ -600,6 +600,19 @@ async function run(): Promise<void> {
       });
       logger.info("[MONEY LAB] Publication Bluesky active.");
     }
+    const { kitChannelsConfigured, publishApprovedKits } = await import("./money-lab/kits.js");
+    const kitChannels = kitChannelsConfigured();
+    if (kitChannels.length) {
+      every(60_000, "Kits", async () => {
+        await publishApprovedKits(db.raw, {
+          wake: (reason) => db.raw.prepare("INSERT INTO wake_events (source, reason, payload) VALUES ('money_lab_operator', ?, '{}')").run(reason),
+        });
+      });
+      logger.info(`[MONEY LAB] Publication des kits par le programme : ${kitChannels.join(", ")}.`);
+    }
+    const { configuredServices } = await import("./money-lab/services.js");
+    const services = configuredServices();
+    if (services.length) logger.info(`[MONEY LAB] Services gratuits configurés : ${services.join(", ")}.`);
   }
   if (moneyLab?.stripe) {
     const stripeCfg = moneyLab.stripe;

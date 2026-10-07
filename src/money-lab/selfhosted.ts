@@ -205,6 +205,18 @@ export const SECRET_ENV_VARS = [
   "CLOUDFLARE_AI_TOKEN",
   "CLOUDFLARE_ACCOUNT_ID",
   "OPENROUTER_API_KEY",
+  "JINA_API_KEY",
+  // Free services with owner accounts (step 5b): runtime only.
+  "TAVILY_API_KEY",
+  "BING_WEBMASTER_KEY",
+  "INSEE_API_KEY",
+  "PISTE_CLIENT_ID",
+  "PISTE_CLIENT_SECRET",
+  "DEVTO_API_KEY",
+  "MASTODON_TOKEN",
+  "RESEND_API_KEY",
+  "UPTIMEROBOT_API_KEY",
+  "CLOUDFLARE_PAGES_TOKEN",
 ] as const;
 
 /**
@@ -256,6 +268,9 @@ const CREDENTIAL_PATTERNS: RegExp[] = [
   /\bsk-[A-Za-z0-9_-]{16,}/g, // Anthropic, OpenAI, OpenRouter
   /\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})/g,
   /\bgsk_[A-Za-z0-9]{20,}/g, // Groq
+  /\btvly-[A-Za-z0-9_-]{16,}/g, // Tavily
+  /\bre_[A-Za-z0-9_-]{20,}/g, // Resend
+  /\bu\d{5,}-[a-f0-9]{20,}\b/g, // UptimeRobot
   /\bAIza[0-9A-Za-z_-]{30,}/g, // Google
   /\b(?:sk|rk|pk)_(?:live|test)_[A-Za-z0-9]{10,}/g, // Stripe
   /\bxox[abprs]-[A-Za-z0-9-]{10,}/g, // Slack
