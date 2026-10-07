@@ -206,20 +206,37 @@ puisse faire avec, c'est modifier ses propres dépôts ou lire ses propres stati
    Ajouter*. Mets dans `/etc/money-lab.env` : `BLUESKY_HANDLE=ton-compte.bsky.social` et
    `BLUESKY_APP_PASSWORD=xxxx-xxxx-xxxx-xxxx`, puis redémarre. Le bot ne voit pas ce mot de passe. Chaque
    publication t'arrive sur Telegram : `/publier <id>` ou `/rejeter <id> [raison]`.
-7. **IA gratuites pour la récolte** (conseillé, gratuit) : le bot confie la lecture des pages et l'extraction
-   des données (prix, concurrents, avis) à des IA gratuites, et garde Claude pour réfléchir et Opus pour
-   décider. Sans clé, il utilise Claude Haiku (payant). Crée une ou plusieurs clés, avec un compte à toi :
-   - **Google Gemini** (le plus généreux) : https://aistudio.google.com/apikey → *Create API key*. La clé
-     commence par `AIza`. Sur l'offre gratuite, Google peut utiliser ce qui lui est envoyé pour améliorer
-     ses produits : le bot n'y envoie que des pages publiques, et le programme masque toute clé.
-   - **Groq** (très rapide) : https://console.groq.com → *API Keys* → *Create API Key* (commence par `gsk_`).
-   - **OpenRouter** (facultatif) : https://openrouter.ai → *Keys* → *Create Key* (commence par `sk-or-`).
-     Le programme n'utilise que les modèles gratuits (nom finissant par `:free`) : jamais de facturation.
+7. **IA gratuites : la rotation** (conseillé, gratuit) : le bot confie la lecture des pages, l'extraction
+   des données, les résumés et les relectures à des IA gratuites, et garde Claude pour réfléchir et Opus
+   pour décider. Il tourne entre les fournisseurs dans la limite du quota gratuit de chacun, compte ses
+   requêtes par jour et s'arrête avant la limite ; sans aucune clé, il utilise Claude Haiku (payant).
+   Crée une clé chez chaque fournisseur que tu acceptes, avec un compte à toi, et garde-la dans un fichier
+   texte sur ton ordinateur (jamais dans un chat). Les trois premiers suffisent pour commencer :
+   - **Google Gemini** (le plus généreux, gros contexte) : https://aistudio.google.com/apikey → *Create API
+     key*. Variable `GEMINI_API_KEY` (commence par `AIza`). Sur l'offre gratuite, Google peut utiliser ce
+     qui lui est envoyé pour améliorer ses produits : le bot n'y envoie que des pages publiques.
+   - **Mistral** (1 milliard de tokens par mois, en France) : https://console.mistral.ai → crée un compte
+     → *Billing* → choisis le plan **Experiment** (gratuit ; il demande de vérifier un numéro de téléphone
+     et d'accepter que les données servent à l'entraînement) → *API Keys* → *Create new key*. Variable
+     `MISTRAL_API_KEY`.
+   - **Groq** (très rapide) : https://console.groq.com → *API Keys* → *Create API Key*. Variable
+     `GROQ_API_KEY` (commence par `gsk_`).
+   - **NVIDIA NIM** (plus de 100 grands modèles ouverts) : https://build.nvidia.com → *Join* avec une
+     adresse e-mail → sur la page d'un modèle, *Get API Key*. Variable `NVIDIA_API_KEY` (commence par `nvapi-`).
+   - **SambaNova Cloud** : https://cloud.sambanova.ai → compte → *API Keys*. Variable `SAMBANOVA_API_KEY`.
+   - **GitHub Models** (GPT-4o mini, Llama, Codestral ; bon pour le code) : https://github.com/settings/tokens
+     → *Generate new token (classic)* → coche uniquement `models:read` (ou aucun droit si la case n'existe
+     pas) → *Generate*. Variable `GITHUB_MODELS_TOKEN`. Prends un jeton différent de celui du bot (`GH_TOKEN`).
+   - **Cloudflare Workers AI** (10 000 « neurones » par jour) : https://dash.cloudflare.com → compte
+     gratuit → *AI → Workers AI → Use REST API* → *Create a Workers AI API Token*. Variables
+     `CLOUDFLARE_AI_TOKEN` et `CLOUDFLARE_ACCOUNT_ID` (l'identifiant de compte est affiché sur la même page).
+   - **OpenRouter** (facultatif) : https://openrouter.ai → *Keys* → *Create Key*. Variable `OPENROUTER_API_KEY`
+     (commence par `sk-or-`). Le programme n'utilise que les modèles gratuits (nom finissant par `:free`).
 
-   Ajoute dans `/etc/money-lab.env` les lignes de tes clés, par exemple `GEMINI_API_KEY=AIza…` et
-   `GROQ_API_KEY=gsk_…`, puis `systemctl restart money-lab`. Le journal affiche alors
-   « IA gratuites pour la récolte : groq, gemini ». Le bot ne voit pas ces clés. Si l'une est refusée,
-   tu reçois un message Telegram et le rapport de santé l'indique.
+   Ajoute ensuite dans `/etc/money-lab.env` une ligne par clé, par exemple `GEMINI_API_KEY=AIza…`, puis
+   `systemctl restart money-lab`. Le journal affiche alors « IA gratuites pour la récolte : groq, gemini,
+   mistral… ». Le bot ne voit pas ces clés. Si l'une est refusée, tu reçois un message Telegram et le
+   rapport de santé l'indique ; `/sante` montre aussi combien de requêtes gratuites il a faites par jour.
 
    **IA sur ton serveur (Ollama, facultatif)** : gratuite et illimitée, mais lente sans carte graphique
    (une à trois minutes par lecture). Vérifie d'abord la mémoire avec `free -h` : il faut au moins 4 Go
@@ -230,6 +247,14 @@ puisse faire avec, c'est modifier ses propres dépôts ou lire ses propres stati
    systemctl restart money-lab
    ```
    Ollama n'écoute que sur le serveur lui-même (127.0.0.1). Le bot s'en sert après les IA en ligne.
+
+   **Modes de travail** : le programme déduit un mode du journal du bot et plafonne ses tours payants en
+   conséquence. *Découverte* (recherche de niches, sur les IA gratuites) : 1 $ par jour et 0,40 $ par
+   heure au maximum, modifiables avec `MONEY_LAB_DISCOVERY_DAILY_CENTS` et
+   `MONEY_LAB_DISCOVERY_HOURLY_CENTS` dans `/etc/money-lab.env` (en centimes). *Construction* (une
+   expérience a le statut « building ») : tes plafonds de `/plafond`. *Observation* (rien à construire,
+   idées notées) : il peut dormir 24 h, et seuls les contrôles gratuits (sites, tâches planifiées) ou toi
+   le réveillent. `/sante` et `/statut` indiquent le mode en cours.
 8. **Nom de domaine** (quand le bot le demande) : achète le nom qu'il propose chez OVH (*Noms de domaine →
    Commander*), puis dans *Zone DNS* ajoute les enregistrements qu'il t'indique (4 lignes A vers
    185.199.108.153 à 185.199.111.153, et `www` en CNAME vers son organisation GitHub). Réponds `/ok <id>`

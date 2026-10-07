@@ -8,6 +8,7 @@
 import type Database from "better-sqlite3";
 import type { AutomatonConfig } from "../types.js";
 import { inferenceGetDailyCost, inferenceGetHourlyCost } from "../state/database.js";
+import { currentMode, modeBudget, modeLabelFr } from "./modes.js";
 import { paymentsSpentTodayCents } from "./guard.js";
 import { survivalBalance } from "./selfhosted.js";
 import {
@@ -66,6 +67,9 @@ export function formatStatus(
     if (s.balanceCents < 0) out.push("  ÉTAT : MORT (plus de fonds). /fonds ou un revenu confirmé le ranime.");
   }
   out.push("", "Inférence (UTC) :");
+  const mode = currentMode(db);
+  const caps = modeBudget(mode, lab);
+  out.push(`  Mode : ${modeLabelFr(mode)} (plafond du mode : ${limit(caps.dailyCents)} par jour, ${limit(caps.hourlyCents)} par heure)`);
   out.push(`  Aujourd'hui : ${usd(inferenceGetDailyCost(db))} / ${limit(lab.inference.dailyCents)}`);
   out.push(`  Heure en cours : ${usd(inferenceGetHourlyCost(db))} / ${limit(lab.inference.hourlyCents)}`);
   out.push(`  Plafond par appel : ${limit(lab.inference.perCallCents)} — modèle ${lab.inference.model ?? "choisi par le runtime"}`);

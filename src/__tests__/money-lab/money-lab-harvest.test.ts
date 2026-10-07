@@ -631,3 +631,110 @@ describe("Cache-stable shortened history", () => {
     expect(grown.text.length).toBeLessThan(29 * 6100 * 0.65);
   });
 });
+
+// ─── Free provider pool and work modes (2026-10-07) ─────────────
+import { FREE_PROVIDER_IDS } from "../../money-lab/freeai.js";
+import { currentMode, describeMode, maxSleepSeconds, modeBudgetBlock } from "../../money-lab/modes.js";
+import { upsertExperiment as upsertExp } from "../../money-lab/journal.js";
+
+describe("Free provider pool", () => {
+  it("knows nine providers and rotates to Mistral, GitHub Models and Cloudflare with their own listings", async () => {
+    expect([...FREE_PROVIDER_IDS]).toEqual(["groq", "gemini", "mistral", "nvidia", "sambanova", "github", "cloudflare", "openrouter", "ollama"]);
+    const db = openDb();
+    const home = tmp("money-lab-home-");
+    let mistralCalls = 0;
+    const { fn, calls } = fakeFetch([
+      [/api\.mistral\.ai\/v1\/models$/, () => json({ data: [{ id: "mistral-embed" }, { id: "mistral-large-latest" }, { id: "mistral-small-latest" }, { id: "codestral-latest" }] })],
+      [/api\.mistral\.ai\/v1\/chat\/completions$/, () => { mistralCalls++; return mistralCalls === 1 ? json({ message: "Service unavailable" }, 503) : chatAnswer("Réponse Mistral"); }],
+      [/models\.github\.ai\/catalog\/models$/, () => json([{ id: "openai/o3-mini" }, { id: "openai/gpt-4o-mini" }, { id: "meta/Llama-3.3-70B-Instruct" }])],
+      [/models\.github\.ai\/inference\/chat\/completions$/, () => chatAnswer("Réponse GitHub")],
+      [/api\.cloudflare\.com\/client\/v4\/accounts\/acc123\/ai\/v1\/chat\/completions$/, () => chatAnswer("Réponse Cloudflare")],
+    ]);
+    const env = { MISTRAL_API_KEY: "mk", GITHUB_MODELS_TOKEN: "ghp_models", CLOUDFLARE_AI_TOKEN: "cf", CLOUDFLARE_ACCOUNT_ID: "acc123" };
+    expect(configuredFreeProviders(env)).toEqual(["mistral", "github", "cloudflare"]);
+    expect(configuredFreeProviders({ CLOUDFLARE_AI_TOKEN: "cf" })).toEqual([]);
+    // Mistral fails once (rests), GitHub answers with a model from its catalog.
+    const first = await harvest({ task: "Résume", text: "Texte public" }, { db: db.raw, home, sessionId: "s", fetchFn: fn, env });
+    expect(first.text).toMatch(/^Réponse GitHub[\s\S]*\[harvest: github openai\/gpt-4o-mini, free/);
+    const gh = calls.find((c) => /models\.github\.ai\/inference/.test(c.url))!;
+    expect((gh.init!.headers as Record<string, string>).authorization).toBe("Bearer ghp_models");
+    expect(freeAiUsageToday(db.raw).text).toContain("mistral 1 (1 échecs)");
+    db.close();
+  });
+
+  it("skips a provider whose free daily quota is used and spaces Mistral requests", async () => {
+    const db = openDb();
+    const home = tmp("money-lab-home-");
+    const { fn, calls } = fakeFetch([
+      [/api\.mistral\.ai\/v1\/models$/, () => json({ data: [{ id: "mistral-small-latest" }] })],
+      [/api\.mistral\.ai\/v1\/chat\/completions$/, () => chatAnswer("Mistral")],
+      [/api\.cloudflare\.com.*chat\/completions$/, () => chatAnswer("Cloudflare")],
+    ]);
+    const env = { MISTRAL_API_KEY: "mk", CLOUDFLARE_AI_TOKEN: "cf", CLOUDFLARE_ACCOUNT_ID: "acc" };
+    // Cloudflare's 120 requests of the day are spent: it is not even tried.
+    const state = { providers: {}, usage: { [new Date().toISOString().slice(0, 10)]: { cloudflare: { calls: 120, failures: 0 } } } };
+    db.raw.prepare("INSERT OR REPLACE INTO kv (key, value) VALUES ('money_lab.freeai', ?)").run(JSON.stringify(state));
+    const waits: number[] = [];
+    const sleep = async (ms: number) => { waits.push(ms); };
+    await harvest({ task: "A", text: "x" }, { db: db.raw, home, sessionId: "s", fetchFn: fn, env, sleep });
+    await harvest({ task: "B", text: "y" }, { db: db.raw, home, sessionId: "s", fetchFn: fn, env, sleep });
+    expect(calls.filter((c) => /cloudflare/.test(c.url))).toHaveLength(0);
+    expect(calls.filter((c) => /mistral.*chat/.test(c.url))).toHaveLength(2);
+    // The second Mistral request waited for the 1-request-per-second spacing.
+    expect(waits.some((ms) => ms > 0 && ms <= 1100)).toBe(true);
+    // Mistral spent too: the paid fallback is reported, not a silent failure.
+    db.raw.prepare("INSERT OR REPLACE INTO kv (key, value) VALUES ('money_lab.freeai', ?)").run(JSON.stringify({
+      providers: {}, usage: { [new Date().toISOString().slice(0, 10)]: { cloudflare: { calls: 120, failures: 0 }, mistral: { calls: 5000, failures: 0 } } },
+    }));
+    const out = await harvest({ task: "C", text: "z", freeOnly: true }, { db: db.raw, home, sessionId: "s", fetchFn: fn, env, sleep });
+    expect(out.text).toMatch(/Harvest not done: no free model answered \(.*daily free quota used/);
+    db.close();
+  });
+});
+
+describe("Work modes", () => {
+  it("derives discovery, build and observe from the journal and caps sleep accordingly", () => {
+    const db = openDb();
+    expect(currentMode(db.raw)).toBe("discovery");
+    expect(maxSleepSeconds(db.raw, "discovery")).toBe(3 * 3600);
+    const scores = Object.fromEntries(CRITERIA.map((c) => [c, { score: 5, why: "fait vérifié et sourcé" }]));
+    for (const id of ["a", "b", "c", "d", "e"]) upsertIdea(db.raw, { id, title: id, problem: "p", scores });
+    expect(currentMode(db.raw)).toBe("observe");
+    expect(maxSleepSeconds(db.raw, "observe")).toBe(24 * 3600);
+    upsertExp(db.raw, { id: "x", hypothesis: "h", status: "building" } as any);
+    expect(currentMode(db.raw)).toBe("build");
+    expect(maxSleepSeconds(db.raw, "build")).toBe(6 * 3600);
+    // A build nobody touched for over a week is not a build any more.
+    db.raw.prepare("UPDATE money_lab_experiments SET updated_at = '2026-09-01 00:00:00' WHERE id = 'x'").run();
+    expect(currentMode(db.raw)).toBe("observe");
+    db.close();
+  });
+
+  it("blocks paid turns at the discovery cap, never in build mode, and tells the agent its mode", () => {
+    const db = openDb();
+    const lab = vpsConfig().moneyLab!;
+    const env = { MONEY_LAB_DISCOVERY_DAILY_CENTS: "50", MONEY_LAB_DISCOVERY_HOURLY_CENTS: "20" };
+    const now = new Date("2026-10-07T10:30:00Z");
+    const spend = (cents: number, at: string) => db.raw.prepare(
+      "INSERT INTO inference_costs (id, session_id, model, provider, input_tokens, cost_cents, tier, task_type, created_at) VALUES (?, 's', 'm', 'anthropic', 1, ?, 'normal', 'agent_turn', ?)",
+    ).run(`c${Math.random()}`, cents, at);
+    expect(modeBudgetBlock(db.raw, lab, 8, env, now)).toBeNull();
+    spend(45, "2026-10-07 08:00:00");
+    const daily = modeBudgetBlock(db.raw, lab, 8, env, now)!;
+    expect(daily.limit).toBe("daily");
+    expect(daily.until.toISOString()).toBe("2026-10-08T00:00:00.000Z");
+    expect(daily.reason).toContain("plafond du mode discovery atteint (0.45 $ sur 0.50 $ par jour)");
+    expect(describeMode(db.raw, lab, env, now)).toContain("Mode DISCOVERY");
+    expect(describeMode(db.raw, lab, env, now)).toContain("Caps: $0.50 per UTC day, $0.20 per hour; spent today $0.45");
+    // The owner's message is read even at the cap (its reply is one turn).
+    db.insertInboxMessage({ id: "tg_1", from: "owner (Telegram)", to: "", content: "stop", signedAt: now.toISOString(), createdAt: now.toISOString() });
+    // A discovery cap equal to the owner's cap is left to the router.
+    expect(modeBudgetBlock(db.raw, lab, 8, { MONEY_LAB_DISCOVERY_DAILY_CENTS: "300", MONEY_LAB_DISCOVERY_HOURLY_CENTS: "9000" }, now)).toBeNull();
+    // Building: the owner's caps (3 $ per day here) apply instead.
+    upsertExp(db.raw, { id: "b", hypothesis: "h", status: "building" } as any);
+    expect(modeBudgetBlock(db.raw, lab, 8, env, now)).toBeNull();
+    expect(describeMode(db.raw, lab, env, now)).toContain("Mode BUILD");
+    expect(describeMode(db.raw, lab, env, now)).toContain("Caps: $3.00 per UTC day, no cap per hour");
+    db.close();
+  });
+});

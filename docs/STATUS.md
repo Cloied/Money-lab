@@ -86,6 +86,11 @@
 - First live report after the cache fix (07:39 Paris) still read 85k tokens per turn, but that average
   counted cached tokens and turns before the update. /sante now shows the last 10 turns: tokens read,
   cost per turn and cache use.
+- Owner plan (2026-10-07, validated): 4 PRs. PR 1 done: work modes with budgets (discovery ~1 $/day,
+  build = owner caps, observe sleeps 24 h), nine free providers in rotation with daily quotas, mission
+  rewritten (channel first, probes before products). Next: PR 2 code workshop (repo_scout, vendor_code,
+  scaffold_site, test_site, code_review), PR 3 niche funnel and probes, PR 4 publish kits and dated
+  Opus decisions. Owner commits ~100 $ over 60 days and publishes prepared kits; markets FR + EN.
 - Likma Dev System 0.7.0 (main 902f3e9) now drives the checks: project check passed, features re-verified
   with fingerprint v2 evidence, code map regenerated.
 - Blockers and known regressions:

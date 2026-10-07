@@ -198,6 +198,12 @@ export const SECRET_ENV_VARS = [
   // Free model services (harvest): the runtime calls them, the agent never sees the keys.
   "GROQ_API_KEY",
   "GEMINI_API_KEY",
+  "MISTRAL_API_KEY",
+  "NVIDIA_API_KEY",
+  "SAMBANOVA_API_KEY",
+  "GITHUB_MODELS_TOKEN",
+  "CLOUDFLARE_AI_TOKEN",
+  "CLOUDFLARE_ACCOUNT_ID",
   "OPENROUTER_API_KEY",
 ] as const;
 
