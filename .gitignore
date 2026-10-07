@@ -21,3 +21,6 @@ dist
 
 # Likma private agent history
 **/.likma/agent-runtime.json
+
+# Likma local execution records
+**/.likma/.lock

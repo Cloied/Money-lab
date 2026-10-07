@@ -1,6 +1,6 @@
 # Working status
-- Updated: 2026-10-06
-- Branch / commit: claude/money-lab-first-run-bezu7x on upstream Automaton d8f816881fd24b6f5e3d616e59edec387a447667 (0.2.1)
+- Updated: 2026-10-07
+- Branch / commit: claude/affectionate-bohr-nyhhv3 from main 5937f48, on upstream Automaton d8f816881fd24b6f5e3d616e59edec387a447667 (0.2.1)
 - Current goal: self-hosted VPS runtime (Claude Sonnet 5.5, Telegram, Stripe, survival goal); development only, no launch.
 - Accepted decisions:
   - Thin extension under src/money-lab/ plus narrow upstream patches; inert without a moneyLab block.
@@ -10,13 +10,36 @@
   - Owner decision 2026-10-04: Conway Cloud closed; run self-hosted on a VPS; Claude Sonnet 5.5; Stripe revenue sync; survival as the bot's ultimate goal.
   - No start command configured: starting runs the agent and requires owner approval.
 - Completed behaviour: profile, spend guards, experiment/help journal, operator ledger, pause/resume,
-  status/summary, no-progress sleep, integration note, Conway checklist (features verified in docs/FEATURES.md).
+  status/summary, no-progress sleep, integration note, Conway checklist; 20 of 21 features verified on
+  2026-10-07 (docs/FEATURES.md), privilege-drop built without a test.
 - Checks run (command, result, date):
-  - likma project feature verify (types/money-lab/build): pass, 2026-10-03
-  - pnpm exec vitest run --exclude src/__tests__/context-hardening.test.ts: 1754/1754 pass (lighter turns), 2026-10-07
-  - node money-lab/e2e/harness.mjs (real process, strict fake Anthropic/Telegram/Stripe): PASS, 2026-10-06
-  - node money-lab/e2e/chaos.mjs: PASS, 2026-10-07; likma project check (types/money-lab/build): PASS, 2026-10-07
-    (upstream d8f8168 baseline: 1614/1614)
+  - 2026-10-07, migration to Likma 0.8.1 (Node 22.22.0, pnpm 10.28.1 via corepack), no network or payment:
+    - `corepack enable pnpm && pnpm install --frozen-lockfile`: done.
+    - `likma project check` (all six labels, report .likma/checks/77b5d83c19344ffaa0b6058c4a80aa7e.json): PASS
+      - types `pnpm run typecheck`: pass (7 s)
+      - money-lab `pnpm exec vitest run src/__tests__/money-lab`: 4 files, 145/145 pass (69 s)
+      - build `pnpm run build`: pass (16 s)
+      - e2e `node money-lab/e2e/run.mjs harness` (build, then harness.mjs): PASS, no findings (183 s);
+        history cache 9/13 consecutive requests reuse the previous history
+      - chaos `node money-lab/e2e/run.mjs chaos` (build, then chaos.mjs): PASS, no findings (73 s)
+      - upstream `pnpm exec vitest run --exclude src/__tests__/context-hardening.test.ts`: 67 files, 1761/1761 pass (80 s)
+    - `likma project feature verify` for 20 of 21 features (each re-ran its mapped checks: money-lab 145/145
+      every time, build, e2e PASS, chaos PASS): all verified with fingerprint v3 evidence (docs/FEATURES.md).
+    - `likma project audit`: PASS, 0 failures (bot_guards map every guard to a test).
+  - Earlier: 1754/1754 upstream suite and E2E/chaos PASS on 2026-10-06/07 (before this branch).
+- Likma migration (2026-10-07): profile `bot`; checks e2e, chaos and upstream added (object form, 900 s);
+  `start_disabled` replaces the empty start; setup `install`; `money-lab/e2e/run.mjs` builds before each
+  end-to-end scenario so a check never runs a stale dist/; feature scopes now name source, upstream patches
+  and tests; 11 features recorded for capabilities added since 2026-10-04; `bot_guards` in
+  likma.project.json; Likma audit workflow (.github/workflows/likma-audit.yml, needs a LIKMA_REPO_TOKEN
+  secret) and Claude Code hooks (.claude/settings.json, need the `likma` command on PATH).
+- Evidence gaps (not claimed):
+  - privilege-drop stays built: no automated test starts dist/launch.js as root and checks the switch to
+    MONEY_LAB_USER (checked once by hand with a test user, 2026-10-06); the unit test only asserts that an
+    unprotected process reports itself as unprotected.
+  - view_page, browse, render_image (real files) and check_design tests are skipped when no Chrome is found;
+    here Chrome was at /opt/pw-browsers/chromium-1194, so they ran.
+  - Live behaviour (real Anthropic, Telegram, Stripe, Bluesky, free providers) is not covered by any check.
 - First supervised run (owner-approved, 2026-10-04, OVH VPS, $15 funding): Telegram works; the agent
   spent about $0.52 in 30 s re-checking a falsely "exposed" port until the hourly cap slept it; the owner
   paused it. Fixes: prompt caching with cache-aware cost, expose_port removed on self-hosted, VPS prompt
@@ -91,8 +114,6 @@
   rewritten (channel first, probes before products). Next: PR 2 code workshop (repo_scout, vendor_code,
   scaffold_site, test_site, code_review), PR 3 niche funnel and probes, PR 4 publish kits and dated
   Opus decisions. Owner commits ~100 $ over 60 days and publishes prepared kits; markets FR + EN.
-- Likma Dev System 0.7.0 (main 902f3e9) now drives the checks: project check passed, features re-verified
-  with fingerprint v2 evidence, code map regenerated.
 - Blockers and known regressions:
   - Upstream context-hardening.test.ts hangs on unmodified upstream; upstream CI masks it as a warning.
   - In-process limits are bypassable through exec; supervised run only.

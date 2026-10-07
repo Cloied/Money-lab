@@ -32,6 +32,16 @@
 | Bundled assets | src/money-lab/assets.ts | Copies bundled skills and the design kit into the agent's home at start | What ships with the runtime or how it is refreshed changes |
 | Design kit | money-lab/design-kit/base.css | CSS foundation, themes, templates and resource notes the agent starts pages from | The kit's defaults, themes or templates change |
 | Design skill | money-lab/skills/money-lab-design/SKILL.md | The agent's design method, free resources and publishing checklist | The design method or the resource list changes |
+| End-to-end checks | money-lab/e2e/run.mjs | Builds, then runs harness.mjs (scripted run) or chaos.mjs (failing services) against strict fake Anthropic/Telegram/Stripe APIs; validate.mjs holds the request validator | A scenario, the fake APIs or the Anthropic request rules change |
+| Privilege drop | src/launch.ts | Root-started launcher that switches to MONEY_LAB_USER before loading the runtime | The service user, unit or startup order changes |
+| Headless browser | src/money-lab/browser.ts | browse tool: one headless Chrome session with its own profile | Browser actions, profile or idle limits change |
+| Budget focus and weekly review | src/money-lab/allocation.ts | set_budget_focus plan per purpose and weekly spend attribution; review.ts runs the weekly review with ~/LESSONS.md | Budget purposes or the review routine change |
+| State backups | src/money-lab/backup.ts | Daily state.db backup (7 kept, .partial then rename) | Backup timing, retention or location change |
+| Delegation, jobs and recall | src/money-lab/delegate.ts | delegate to free models or Haiku; jobs.ts scheduled commands without inference; recall.ts search over notes | Delegation routing, job limits or recall sources change |
+| Site measurement | src/money-lab/audit.ts | Lighthouse audit_page; abtest.ts A/B verdicts; searchconsole.ts read-only Search Console | Audit, A/B statistics or Search Console usage change |
+| Domain, images and social | src/money-lab/social.ts | Bluesky drafts with owner approval; domain.ts RDAP checks; image.ts render_image presets | Publishing rules, domain lookup or image presets change |
+| Idea pipeline | src/money-lab/ideas.ts | Idea scoring, approval gates and active-experiment limits; critic.ts parses the Opus critique | Approval gates, criteria or critique handling change |
+| Agent tools | src/money-lab/tools.ts | Money Lab tool definitions (record_experiment, view_page, idea, harvest, ...) | A Money Lab tool is added or its arguments change |
 
 Generated from likma.project.json; regenerate with `project map`.
 Keep entries short and tied to actual paths. Agents must confirm ownership before editing.
