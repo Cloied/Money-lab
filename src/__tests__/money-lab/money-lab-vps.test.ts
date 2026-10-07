@@ -1297,6 +1297,10 @@ describe("Idea pipeline", () => {
       .toMatch(/answer the critique/);
     await call("idea", { action: "update", id: "devis-plombiers", response_to_critic: "D'accord, kill criteria resserrés." });
     expect(await call("idea", { action: "decide", id: "e", decision: "approve", note: "x" })).toMatch(/top 3/);
+    // The owner sees the finalist first (24 h), then Opus decides.
+    expect(await call("idea", { action: "decide", id: "devis-plombiers", decision: "approve", note: "meilleure du pipeline" }))
+      .toMatch(/owner has been told about this finalist/);
+    setJournalKV(db.raw, "money_lab.finalists", JSON.stringify({ "devis-plombiers": { askedAt: new Date(Date.now() - 25 * 3_600_000).toISOString() } }));
     expect(await call("idea", { action: "decide", id: "devis-plombiers", decision: "approve", note: "meilleure du pipeline" }))
       .toMatch(/approved \(80\/100\)/);
     expect(getIdea(db.raw, "devis-plombiers")!.critiques.map((c) => c.verdict)).toEqual(["NO-GO", "GO"]);
@@ -1321,6 +1325,7 @@ describe("Idea pipeline", () => {
     await call("idea", { action: "update", id: "a", response_to_critic: "Pris en compte." });
     vi.setSystemTime(new Date("2026-10-07T09:00:00Z"));
     expect(await call("record_experiment", { status: "building", hypothesis: "Devis", idea_id: "a" })).toMatch(/is candidate, not approved/);
+    setJournalKV(db.raw, "money_lab.finalists", JSON.stringify({ a: { askedAt: new Date(Date.now() - 25 * 3_600_000).toISOString() } }));
     await call("idea", { action: "decide", id: "a", decision: "approve", note: "ok" });
     const launched = await call("record_experiment", { status: "building", hypothesis: "Devis plombiers", idea_id: "a" });
     expect(launched).toMatch(/recorded with status building/);

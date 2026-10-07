@@ -15,11 +15,12 @@
 import type Database from "better-sqlite3";
 import type { DelegateRouter } from "./delegate.js";
 import type { MoneyLabConfig } from "./profile.js";
-import { type Experiment, getKV, listExperiments, setKV } from "./journal.js";
+import { type Experiment, getKV, listExperiments, queueOwnerNotification, setKV } from "./journal.js";
 import { approvalBlockers, decideIdea, getIdea, ideaDossier, rankedIdeas } from "./ideas.js";
 import { REVIEW_MODEL } from "./review.js";
 import { survivalBalance } from "./selfhosted.js";
-import { probeEvidenceFor } from "./probes.js";
+import { listProbes, probeEvidenceFor } from "./probes.js";
+import { topNiches } from "./funnel.js";
 
 export const DECISION_MODEL = REVIEW_MODEL;
 const DECISIONS_KEY = "money_lab.decisions";
@@ -27,8 +28,14 @@ const MAX_STORED = 200;
 export const MAX_IDEA_DECISIONS = 3;
 const CONTINUE_HOLD_MS = 24 * 3_600_000;
 
-export type DecisionKind = "approve_idea" | "stop_experiment";
-export type DecisionVerdict = "APPROVE" | "REJECT" | "NOT YET" | "STOP" | "CONTINUE";
+export type DecisionKind = "approve_idea" | "stop_experiment" | "shortlist";
+export type DecisionVerdict = "APPROVE" | "REJECT" | "NOT YET" | "STOP" | "CONTINUE" | "SHORTLIST";
+/** The owner may pick or dismiss a finalist before Opus decides. */
+export const OWNER_WINDOW_MS = 24 * 3_600_000;
+const FINALISTS_KEY = "money_lab.finalists";
+const SHORTLIST_KEY = "money_lab.shortlist";
+export const SHORTLIST_MIN_IDEAS = 8;
+export const SHORTLIST_INTERVAL_MS = 7 * 86_400_000;
 
 export interface Decision {
   at: string;
@@ -171,6 +178,12 @@ export async function decideIdeaWithOpus(
   if (!agentCase.trim()) return { text: "Give your case for approval in note: Opus reads it with the dossier.", costCents: 0 };
   const blockers = approvalBlockers(db, idea, now);
   if (blockers.length) return { text: `Not ready for a decision yet. Still needed:\n- ${blockers.join("\n- ")}`, costCents: 0 };
+  // Owner decision (2026-10-07): the owner sees each finalist first and may
+  // pick or dismiss it on Telegram; Opus decides once the window has passed.
+  if (options.lab?.telegram) {
+    const window = ownerWindow(db, id, now, idea.title, agentCase.trim());
+    if (window) return { text: window, costCents: 0 };
+  }
   const previous = listDecisions(db).filter((d) => d.kind === "approve_idea" && d.target === id);
   if (previous.length >= MAX_IDEA_DECISIONS) {
     return {
@@ -207,6 +220,150 @@ export async function decideIdeaWithOpus(
   return {
     text: `${answer.content}${trailer}\nNot yet: get the missing evidence, update the idea, then ask again (decide approve). ` +
       `${MAX_IDEA_DECISIONS - previous.length - 1} decision(s) left for this idea.`,
+    costCents: answer.costCents,
+  };
+}
+
+// ─── Owner window on finalists ──────────────────────────────────
+
+function loadFinalists(db: Database.Database): Record<string, { askedAt: string }> {
+  try {
+    const raw = JSON.parse(getKV(db, FINALISTS_KEY) ?? "{}");
+    return raw && typeof raw === "object" ? raw : {};
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * First request for an idea: tells the owner and returns the waiting text.
+ * Within the window: returns how long is left. After it: null (Opus decides).
+ */
+function ownerWindow(db: Database.Database, id: string, now: Date, title: string, agentCase: string): string | null {
+  const finalists = loadFinalists(db);
+  const asked = finalists[id]?.askedAt;
+  if (!asked) {
+    finalists[id] = { askedAt: now.toISOString() };
+    setKV(db, FINALISTS_KEY, JSON.stringify(finalists));
+    queueOwnerNotification(db,
+      `🏁 Finaliste : ${title} (${id}).\nLe bot veut la construire. Son argument : ${agentCase.slice(0, 600)}\n` +
+      `Tu as 24 h : /choisis ${id} pour la construire, /ecarte ${id} [raison] pour l'écarter. Sans réponse, Opus décide.`);
+    return `The owner has been told about this finalist and has ${OWNER_WINDOW_MS / 3_600_000} h to pick or dismiss it (/choisis, /ecarte). ` +
+      "Ask decide approve again after that window if the owner has not answered: Opus decides then. Meanwhile, work on something else.";
+  }
+  const left = Date.parse(asked) + OWNER_WINDOW_MS - now.getTime();
+  if (left > 0) return `The owner's window on "${id}" is open for ${Math.ceil(left / 3_600_000)} more hour(s): wait for /choisis or /ecarte, or ask again after it.`;
+  return null;
+}
+
+/** The owner picks a finalist: approved in the owner's name (the gates were already checked). */
+export function ownerPicksIdea(db: Database.Database, id: string, now = new Date()): string {
+  const idea = getIdea(db, id);
+  if (!idea) return `Idée ${id} introuvable.`;
+  if (idea.status !== "candidate") return `Idée ${id} déjà ${idea.status}.`;
+  if (!loadFinalists(db)[id]) return `L'idée ${id} n'est pas une finaliste proposée : le bot doit d'abord demander son approbation.`;
+  const applied = decideIdea(db, id, "approve", `Owner pick (${now.toISOString().slice(0, 10)})`, now);
+  if (!/approved/.test(applied)) return `Impossible : ${applied}`;
+  recordDecision(db, { at: now.toISOString(), kind: "approve_idea", target: id, verdict: "APPROVE", model: "owner", costCents: 0, text: "Owner picked this finalist on Telegram." });
+  return `Idée ${id} choisie : le bot peut la construire (statut approuvé).`;
+}
+
+export function ownerDismissesIdea(db: Database.Database, id: string, reason: string, now = new Date()): string {
+  const idea = getIdea(db, id);
+  if (!idea) return `Idée ${id} introuvable.`;
+  if (idea.status !== "candidate") return `Idée ${id} déjà ${idea.status}.`;
+  decideIdea(db, id, "reject", `Owner dismissed (${now.toISOString().slice(0, 10)}): ${reason.trim() || "sans raison"}`, now);
+  recordDecision(db, { at: now.toISOString(), kind: "approve_idea", target: id, verdict: "REJECT", model: "owner", costCents: 0, text: `Owner dismissed: ${reason.trim()}` });
+  return `Idée ${id} écartée${reason.trim() ? ` (${reason.trim()})` : ""}. Le bot ne la reprendra pas.`;
+}
+
+/** Finalists waiting for the owner, for the reports. */
+export function pendingFinalists(db: Database.Database, now = new Date()): string[] {
+  return Object.entries(loadFinalists(db))
+    .filter(([id, f]) => getIdea(db, id)?.status === "candidate" && now.getTime() - Date.parse(f.askedAt) < OWNER_WINDOW_MS)
+    .map(([id]) => id);
+}
+
+// ─── Shortlist ──────────────────────────────────────────────────
+
+const SHORTLIST_RULES = `The agent has researched many niches and recorded ideas. Pick the ones worth a probe now: a probe is one
+useful page built in a day, published on the agent's domain, measured by Google Search Console for two weeks.
+Choose at most 5 ideas (or niches to turn into ideas) with the best chance of real searches the agent can
+rank for without ads or spam, and name the ideas to reject outright with the reason. Prefer narrow, precise
+search intents over broad subjects; a crowded niche needs a real angle.
+
+Answer in under 400 words, in this exact structure:
+Decision: SHORTLIST
+Probe now: (one line per pick, starting with "- <idea id or niche>: " then why and the 3 searches to target)
+Reject: (one line per idea id to drop, with the reason, or "none")
+Advice: (2-3 bullets on what to research next)`;
+
+export interface Shortlist {
+  at: string;
+  picks: string[];
+  text: string;
+}
+
+export function currentShortlist(db: Database.Database): Shortlist | null {
+  try {
+    const raw = JSON.parse(getKV(db, SHORTLIST_KEY) ?? "null");
+    return raw && Array.isArray(raw.picks) ? (raw as Shortlist) : null;
+  } catch {
+    return null;
+  }
+}
+
+function shortlistDossier(db: Database.Database, lab: MoneyLabConfig | undefined, now: Date): string {
+  const ideas = rankedIdeas(db).filter((i) => i.total !== null && (i.status === "candidate" || i.status === "approved")).slice(0, 12);
+  const probes = listProbes(db);
+  const niches = topNiches(db, 15);
+  return [
+    `Today: ${now.toISOString().slice(0, 10)}.`,
+    `Scored ideas (best first):\n${ideas.map((i) => `- ${i.id} — ${i.title}: ${i.total}/100 [${i.status}]; audience: ${i.audience.slice(0, 120)}; channels: ${i.channels.slice(0, 120)}; ` +
+      `evidence: ${i.evidence.length}; critic: ${i.critiques.at(-1)?.verdict ?? "none"}` +
+      `${probes.filter((p) => p.ideaId === i.id).map((p) => `; probe ${p.id} ${p.status} ${p.impressions} impr.`).join("")}`).join("\n")}`,
+    niches.length ? `Top scanned niches (fixed formula on counted signals):\n${niches.map((n) => `- ${n.niche} (${n.lang}): ${n.score.total}/100, ${n.signals.suggestions} suggestions, ${n.signals.commercial} commercial, ${n.signals.githubRepos ?? "?"} repos`).join("\n")}` : "",
+    `Probes so far: ${probes.length ? probes.map((p) => `${p.id} [${p.status}] ${p.impressions} impr.`).join("; ") : "none"}.`,
+    runway(db, lab, now),
+  ].filter(Boolean).join("\n\n");
+}
+
+/** Why the agent may not ask for a shortlist now, or null. */
+export function shortlistBlocker(db: Database.Database, now = new Date(), fresh = false): string | null {
+  const scored = rankedIdeas(db).filter((i) => i.total !== null && i.status === "candidate").length;
+  if (scored < SHORTLIST_MIN_IDEAS) return `A shortlist needs at least ${SHORTLIST_MIN_IDEAS} scored candidate ideas (have ${scored}): keep scanning and recording.`;
+  const last = currentShortlist(db);
+  if (last && !fresh && now.getTime() - Date.parse(last.at) < SHORTLIST_INTERVAL_MS) {
+    return `Opus shortlisted on ${last.at.slice(0, 10)}: ${last.picks.join(", ") || "nothing"}. Probe those first; a new shortlist is possible after ` +
+      `${new Date(Date.parse(last.at) + SHORTLIST_INTERVAL_MS).toISOString().slice(0, 10)} (or with fresh: true if the pipeline changed a lot).`;
+  }
+  return null;
+}
+
+/** Opus picks up to 5 ideas to probe and names the ones to reject; the runtime records both. */
+export async function shortlistWithOpus(db: Database.Database, options: DecisionOptions, fresh = false): Promise<{ text: string; costCents: number }> {
+  const now = options.now ?? new Date();
+  const blocker = shortlistBlocker(db, now, fresh);
+  if (blocker) return { text: blocker, costCents: 0 };
+  const answer = await askOpus(SHORTLIST_RULES, shortlistDossier(db, options.lab, now), options);
+  if (!answer.ok) return { text: `Shortlist not made (${answer.finishReason}): ${answer.content.slice(0, 200)}.`, costCents: answer.costCents };
+  if (!/Decision\**\s*:\s*\**\s*SHORTLIST/i.test(answer.content)) {
+    return { text: `${answer.content}\n[decision: ${answer.model}, ${answer.costCents}c] No decision line: nothing recorded, ask again.`, costCents: answer.costCents };
+  }
+  const section = (name: string) => {
+    const m = new RegExp(`${name}\\**\\s*:\\**([\\s\\S]*?)(?=\\n[A-Z][a-z ]+\\**\\s*:|$)`).exec(answer.content);
+    return m ? m[1] : "";
+  };
+  const ids = new Set(rankedIdeas(db).map((i) => i.id));
+  const lineIds = (block: string) => [...block.matchAll(/^\s*[-*]\s*\**([a-z0-9][a-z0-9-]{0,39})\**\s*[:—-]/gm)].map((m) => m[1]);
+  const picks = [...new Set(lineIds(section("Probe now")))].slice(0, 5);
+  const rejects = lineIds(section("Reject")).filter((id) => ids.has(id) && !picks.includes(id));
+  for (const id of rejects) decideIdea(db, id, "reject", `Opus shortlist (${now.toISOString().slice(0, 10)}): not worth a probe`, now);
+  setKV(db, SHORTLIST_KEY, JSON.stringify({ at: now.toISOString(), picks, text: answer.content.slice(0, 4000) } satisfies Shortlist));
+  recordDecision(db, { at: now.toISOString(), kind: "shortlist", target: picks.join(",") || "none", verdict: "SHORTLIST", model: answer.model, costCents: answer.costCents, text: answer.content.slice(0, 4000) });
+  return {
+    text: `${answer.content}\n[decision: ${answer.model}, ${answer.costCents}c, binding]\nRecorded: probe ${picks.length ? picks.join(", ") : "nothing"}` +
+      `${rejects.length ? `; rejected ${rejects.join(", ")}` : ""}. Build each probe page (scaffold_site), publish, then probe add with idea_id.`,
     costCents: answer.costCents,
   };
 }

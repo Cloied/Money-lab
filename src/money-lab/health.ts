@@ -24,6 +24,8 @@ import { currentMode, modeBudget, modeLabelFr } from "./modes.js";
 import { recentDecisions } from "./decisions.js";
 import { siteStates } from "./monitor.js";
 import { listProbes } from "./probes.js";
+import { listKits } from "./kits.js";
+import { pendingFinalists } from "./decisions.js";
 
 const EVENTS_KEY = "money_lab.health_events";
 const MAX_EVENTS = 200;
@@ -250,8 +252,15 @@ export function buildHealthReport(
     const last = decisions.at(-1)!;
     lines.push(`  Décisions d'Opus (7 jours) : ${decisions.length}, dernière : ${last.verdict} sur ${last.target} (${last.at.slice(0, 10)})`);
   }
-  if (help || pendingPosts) {
-    lines.push(`  En attente de toi : ${[help ? `${help} demande(s) d'aide (/aides)` : "", pendingPosts ? `${pendingPosts} publication(s) (/publications)` : ""].filter(Boolean).join(", ")}`);
+  const pendingKits = listKits(db).filter((k) => k.status === "pending").length;
+  const finalists = pendingFinalists(db, now);
+  if (help || pendingPosts || pendingKits || finalists.length) {
+    lines.push(`  En attente de toi : ${[
+      help ? `${help} demande(s) d'aide (/aides)` : "",
+      pendingPosts ? `${pendingPosts} publication(s) (/publications)` : "",
+      pendingKits ? `${pendingKits} kit(s) à publier (/kits)` : "",
+      finalists.length ? `${finalists.length} idée(s) finaliste(s) : /choisis ou /ecarte ${finalists.join(", ")}` : "",
+    ].filter(Boolean).join(", ")}`);
   }
 
   // ── Sites ──

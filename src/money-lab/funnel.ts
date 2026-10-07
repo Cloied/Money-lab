@@ -343,6 +343,12 @@ export function describeSeeds(category?: string, lang?: Lang): string {
   return [`Seeds for "${key}":`, ...langs.map((l) => `${l}: ${seeds[l].join(" | ")}`)].join("\n");
 }
 
+/** Best scanned niches not rejected, for the shortlist dossier. */
+export function topNiches(db: Database.Database, limit = 15): ScannedNiche[] {
+  const state = loadState(db);
+  return Object.values(state.scanned).filter((n) => !state.rejected[n.niche]).sort((a, b) => b.score.total - a.score.total).slice(0, limit);
+}
+
 /** One line for the prompt. */
 export function describeFunnel(db: Database.Database): string {
   const state = loadState(db);
