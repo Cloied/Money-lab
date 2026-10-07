@@ -583,6 +583,7 @@ async function run(): Promise<void> {
     const { checkProbes } = await import("./money-lab/probes.js");
     every(24 * 3_600_000, "Sondes", async () => {
       await checkProbes(db.raw, {
+        db: db.raw,
         wake: (reason) => insertWakeEvent(db.raw, "money_lab_probe", reason),
         canWake: () => db.getAgentState() !== "dead" && !String(db.getKV("sleep_reason") ?? "").startsWith("plafond"),
       });

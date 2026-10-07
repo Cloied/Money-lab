@@ -9,6 +9,9 @@
  * are not experiments: they do not count toward the active limit, and a
  * passing probe becomes evidence on the idea it tests. The runtime checks
  * them daily, tells the owner and wakes the agent when one is decided.
+ * When the owner configured Bing Webmaster, Bing's impressions for the page
+ * are read too and count toward the threshold (PR 6): a second engine, and
+ * numbers that arrive sooner.
  */
 
 import type Database from "better-sqlite3";
@@ -16,6 +19,7 @@ import { getKV, queueOwnerNotification, setKV } from "./journal.js";
 import { searchAnalyticsRows, searchConsoleSite } from "./searchconsole.js";
 import { getIdea, upsertIdea } from "./ideas.js";
 import { submitIndexNow } from "./indexnow.js";
+import { bingRows, serviceConfigured } from "./services.js";
 
 const PROBES_KEY = "money_lab.probes";
 export const MAX_PROBES = 12;
@@ -40,6 +44,8 @@ export interface Probe {
   clicks: number;
   position: number | null;
   topQueries: string[];
+  bingImpressions?: number;
+  bingClicks?: number;
   note?: string;
 }
 
@@ -125,6 +131,7 @@ function daysSince(iso: string, now: Date): number {
 export function formatProbe(p: Probe, now = new Date()): string {
   const age = daysSince(p.createdAt, now);
   const numbers = `${p.impressions} impressions, ${p.clicks} clicks${p.position !== null ? `, position ${p.position.toFixed(1)}` : ""}` +
+    `${p.bingImpressions !== undefined ? ` on Google; ${p.bingImpressions} impressions, ${p.bingClicks ?? 0} clicks on Bing` : ""}` +
     `${p.checkedAt ? ` (checked ${p.checkedAt.slice(0, 10)})` : " (not checked yet)"}`;
   const head = `- ${p.id} [${p.status}] ${p.url}${p.ideaId ? ` (idea ${p.ideaId})` : ""}: ${numbers}`;
   const tail = p.status === "live"
@@ -139,6 +146,23 @@ export interface CheckOptions {
   keyFile?: string;
   wake?: (reason: string) => void;
   canWake?: () => boolean;
+  env?: NodeJS.ProcessEnv;
+  db?: Database.Database;
+}
+
+/** Bing impressions and clicks for a page, from the page stats of its site; null when Bing is not configured or fails. */
+async function bingNumbers(probe: Probe, options: CheckOptions, cache: Map<string, ReturnType<typeof bingRows>>): Promise<{ impressions: number; clicks: number } | null> {
+  if (!serviceConfigured("bing", options.env)) return null;
+  const url = new URL(probe.url);
+  const site = `${url.origin}/`;
+  try {
+    if (!cache.has(site)) cache.set(site, bingRows(site, "page", { env: options.env, fetchFn: options.fetchFn, db: options.db, now: options.now }));
+    const rows = await cache.get(site)!;
+    const mine = rows.filter((r) => { try { return new URL(String(r.Query ?? "")).pathname.startsWith(url.pathname); } catch { return false; } });
+    return { impressions: mine.reduce((n, r) => n + (r.Impressions ?? 0), 0), clicks: mine.reduce((n, r) => n + (r.Clicks ?? 0), 0) };
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -156,6 +180,7 @@ export async function checkProbes(db: Database.Database, options: CheckOptions =
   if (!site) return ["No Search Console access: probes cannot be checked."];
   const report: string[] = [];
   const decided: Probe[] = [];
+  const bingCache = new Map<string, ReturnType<typeof bingRows>>();
   for (const probe of live) {
     const probePath = new URL(probe.url).pathname;
     const days = Math.max(1, Math.min(probe.windowDays, daysSince(probe.createdAt, now) + 2));
@@ -175,12 +200,16 @@ export async function checkProbes(db: Database.Database, options: CheckOptions =
         .filter((r) => probe.queries.includes(r.key.toLowerCase()) || words.some((w) => r.key.toLowerCase().includes(w)))
         .sort((a, b) => b.impressions - a.impressions).slice(0, 5)
         .map((r) => `${r.key} (${r.impressions} impr., ${r.clicks} clicks)`);
+      const bing = await bingNumbers(probe, options, bingCache);
+      if (bing) { probe.bingImpressions = bing.impressions; probe.bingClicks = bing.clicks; }
       probe.checkedAt = now.toISOString();
       if (daysSince(probe.createdAt, now) >= probe.windowDays) {
-        probe.status = probe.impressions >= probe.minImpressions ? "passed" : "failed";
+        const total = probe.impressions + (probe.bingImpressions ?? 0);
+        const where = probe.bingImpressions !== undefined ? ` (${probe.impressions} Google + ${probe.bingImpressions} Bing)` : "";
+        probe.status = total >= probe.minImpressions ? "passed" : "failed";
         probe.note = probe.status === "passed"
-          ? `demand shown: ${probe.impressions} impressions in ${probe.windowDays} days (threshold ${probe.minImpressions})`
-          : `too few impressions: ${probe.impressions} in ${probe.windowDays} days (threshold ${probe.minImpressions})`;
+          ? `demand shown: ${total} impressions${where} in ${probe.windowDays} days (threshold ${probe.minImpressions})`
+          : `too few impressions: ${total}${where} in ${probe.windowDays} days (threshold ${probe.minImpressions})`;
         decided.push(probe);
       }
       report.push(formatProbe(probe, now));

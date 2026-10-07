@@ -51,6 +51,8 @@
 | IndexNow | src/money-lab/indexnow.ts | Key file per site and URL submission to Bing, Yandex and partners | How new pages are announced to search engines changes |
 | Free services (owner accounts) | src/money-lab/services.ts | Tavily search, Bing Webmaster, INSEE Sirene, API Adresse, Légifrance (PISTE), UptimeRobot, Resend e-mail; daily caps per service | A free service, its endpoint, cap or key name changes |
 | Cloudflare Pages deployment | src/money-lab/deploy.ts | deploy_site drives wrangler with the Pages token to publish ~/sites/<name> | The deployment flow, token scope or wrangler lookup changes |
+| Cloudflare Workers deployment | src/money-lab/workers.ts | deploy_worker: code rules, wrangler.toml with KV or D1 bindings, storage created once, deploy and URL check | The Worker flow, bindings, forbidden patterns or wrangler commands change |
+| Cloudflare Web Analytics | src/money-lab/cfanalytics.ts | web_analytics: site lookup and GraphQL page-view groups for the bot's sites | The analytics query, dimensions or token scope change |
 
 Generated from likma.project.json; regenerate with `project map`.
 Keep entries short and tied to actual paths. Agents must confirm ownership before editing.

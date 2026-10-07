@@ -156,15 +156,30 @@ export async function tavilySearch(args: TavilyArgs, options: ServiceOptions = {
 
 const BING_API = "https://ssl.bing.com/webmaster/api.svc/json";
 
-export async function bingQueryStats(site: string, options: ServiceOptions & { dimension?: "query" | "page" } = {}): Promise<string> {
+export interface BingRow { Query?: string; Impressions?: number; Clicks?: number; AvgImpressionPosition?: number; Date?: string }
+
+/** Raw Bing rows (queries or pages; Query holds the page URL for pages). Throws without a key or on HTTP errors. */
+export async function bingRows(site: string, dimension: "query" | "page", options: ServiceOptions = {}): Promise<BingRow[]> {
   const env = options.env ?? withSecrets();
   const key = env.BING_WEBMASTER_KEY?.trim();
-  if (!key) return "Bing Webmaster is not configured (BING_WEBMASTER_KEY): ask the owner.";
+  if (!key) throw new Error("Bing Webmaster is not configured (BING_WEBMASTER_KEY).");
   const refused = takeServiceQuota(options.db, "bing", options.now);
-  if (refused) return refused;
-  const method = options.dimension === "page" ? "GetPageStats" : "GetQueryStats";
+  if (refused) throw new Error(refused);
+  const method = dimension === "page" ? "GetPageStats" : "GetQueryStats";
   const data = await call(options.fetchFn ?? fetch, `${BING_API}/${method}?siteUrl=${encodeURIComponent(site)}&apikey=${encodeURIComponent(key)}`, { headers: { accept: "application/json" } }, "Bing Webmaster");
-  const rows: Array<{ Query?: string; Impressions?: number; Clicks?: number; AvgImpressionPosition?: number }> = Array.isArray(data.d) ? data.d : [];
+  return Array.isArray(data.d) ? data.d : [];
+}
+
+export async function bingQueryStats(site: string, options: ServiceOptions & { dimension?: "query" | "page" } = {}): Promise<string> {
+  const env = options.env ?? withSecrets();
+  if (!env.BING_WEBMASTER_KEY?.trim()) return "Bing Webmaster is not configured (BING_WEBMASTER_KEY): ask the owner.";
+  let rows: BingRow[];
+  try {
+    rows = await bingRows(site, options.dimension === "page" ? "page" : "query", { ...options, env });
+  } catch (err: any) {
+    if (/daily cap reached/.test(String(err?.message))) return String(err.message);
+    throw err;
+  }
   if (rows.length === 0) return `Bing Webmaster: no ${options.dimension === "page" ? "page" : "query"} data yet for ${site} (Bing needs a few days after verification).`;
   const sorted = [...rows].sort((a, b) => (b.Impressions ?? 0) - (a.Impressions ?? 0)).slice(0, 25);
   const total = rows.reduce((n, r) => n + (r.Impressions ?? 0), 0);

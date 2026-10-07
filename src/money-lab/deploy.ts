@@ -30,6 +30,16 @@ export function wranglerCommand(env: NodeJS.ProcessEnv = process.env): string {
   return "npx --yes wrangler@4";
 }
 
+/** The environment of a wrangler command: scrubbed, plus the Cloudflare token under the name wrangler reads. */
+export function wranglerEnv(env: NodeJS.ProcessEnv = withSecrets()): NodeJS.ProcessEnv {
+  return {
+    ...scrubbedEnv(env),
+    CLOUDFLARE_API_TOKEN: env.CLOUDFLARE_PAGES_TOKEN,
+    CLOUDFLARE_ACCOUNT_ID: env.CLOUDFLARE_ACCOUNT_ID,
+    CI: "1", WRANGLER_SEND_METRICS: "false", WRANGLER_LOG: "error",
+  };
+}
+
 export interface DeployArgs {
   name: string;
   dir?: string;
@@ -63,12 +73,7 @@ export async function deploySite(args: DeployArgs, options: DeployOptions): Prom
   if (!real.startsWith(home + path.sep)) return "dir must be inside your home directory.";
   if (!fs.existsSync(path.join(real, "index.html"))) return `${real} has no index.html: deploy a finished static site.`;
   const run = options.run ?? runLocalCommand;
-  const cmdEnv = {
-    ...scrubbedEnv(env),
-    CLOUDFLARE_API_TOKEN: env.CLOUDFLARE_PAGES_TOKEN,
-    CLOUDFLARE_ACCOUNT_ID: env.CLOUDFLARE_ACCOUNT_ID,
-    CI: "1", WRANGLER_SEND_METRICS: "false", WRANGLER_LOG: "error",
-  };
+  const cmdEnv = wranglerEnv(env);
   const wrangler = wranglerCommand(env);
   const notes: string[] = [];
   const create = await run(`${wrangler} pages project create ${shellQuote(name)} --production-branch main 2>&1`, 180_000, cmdEnv);
