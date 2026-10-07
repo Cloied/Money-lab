@@ -83,6 +83,9 @@ const MONEY_LAB_IDLE_SLEEP_MS = 15 * 60_000;
 const MONEY_LAB_WINDOW = 20;
 const MONEY_LAB_WINDOW_STEP = 10;
 const MONEY_LAB_STORED_RESULT_CHARS = 20_000;
+/** Turns whose tool results stay whole in the history; older results keep their start and end. */
+const MONEY_LAB_FULL_RESULT_TURNS = 4;
+const MONEY_LAB_OLD_RESULT_CHARS = 1200;
 /** Tool names the Anthropic API accepts. */
 const VALID_TOOL_NAME = /^[a-zA-Z0-9_-]{1,64}$/;
 
@@ -631,7 +634,15 @@ export async function runAgentLoop(
         // calls are repetition, not three different commands.
         // A larger turn budget keeps the summary split from moving every turn
         // (the cached history is billed at a tenth of the input price).
-        moneyLab ? { repeatByCall: true, budget: { ...DEFAULT_TOKEN_BUDGET, recentTurns: 100_000 } } : undefined,
+        moneyLab
+          ? {
+            repeatByCall: true,
+            budget: { ...DEFAULT_TOKEN_BUDGET, recentTurns: 100_000 },
+            // Most of each request was old tool output (pages, files, command logs).
+            fullResultTurns: MONEY_LAB_FULL_RESULT_TURNS,
+            oldResultChars: MONEY_LAB_OLD_RESULT_CHARS,
+          }
+          : undefined,
       );
 
       // Inject memory block after system prompt, before conversation history

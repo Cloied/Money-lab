@@ -36,7 +36,7 @@ import { challengeIdea } from "./critic.js";
 import { checkDomains } from "./domain.js";
 import { IMAGE_PRESETS, playwrightRender, renderImage } from "./image.js";
 import { blueskyCredentials, describePosts, draftPost } from "./social.js";
-import { harvest } from "./freeai.js";
+import { configuredFreeProviders, harvest } from "./freeai.js";
 import { SIGNAL_SOURCES, type SignalSource, marketSignals } from "./signals.js";
 import { deleteDataset, formatRecords, listDatasets, readDataset, saveRecord, searchDatasets } from "./datasets.js";
 import { decideIdeaWithOpus, decideStopWithOpus, isStop, stopDecisionBlocker } from "./decisions.js";
@@ -732,10 +732,11 @@ export function createMoneyLabTools(): AutomatonTool[] {
     {
       name: "delegate",
       description:
-        "Hand a simple task to a cheaper model (Claude Haiku 4.5, about half the price of your model): summarize " +
-        "long pages, extract or sort data, compare documents, draft text. Give it the task and the material " +
-        "(text, your own files, up to 5 URLs it downloads itself) instead of reading long content yourself. " +
-        "It has no tools and no memory: include everything it needs. Its cost counts toward your budget.",
+        "Hand a simple task to a cheaper model: summarize long pages, extract or sort data, compare documents, " +
+        "draft text. It goes to the free models first (as harvest does) and to Claude Haiku 4.5 (about half your " +
+        "price) when none answers; pass quality \"high\" to go straight to Haiku for subtle work. Give it the task " +
+        "and the material (text, your own files, up to 5 URLs it downloads itself) instead of reading long content " +
+        "yourself. It has no tools and no memory: include everything it needs.",
       category: "survival",
       riskLevel: "safe",
       parameters: {
@@ -746,11 +747,30 @@ export function createMoneyLabTools(): AutomatonTool[] {
           files: { type: "array", items: { type: "string" }, description: "Your files, e.g. ~/research/niches.md" },
           urls: { type: "array", items: { type: "string" }, description: "Up to 5 http(s) pages to download and read" },
           max_tokens: { type: "integer", description: "Answer length cap, default 2000 (max 2400: you read at most 10,000 characters)" },
+          quality: { type: "string", enum: ["normal", "high"], description: "high: Haiku directly (paid) for subtle work; default tries the free models first" },
         },
         required: ["task"],
       },
       execute: async (args, ctx) => {
         if (!ctx.inferenceRouter) return "delegate is not available in this runtime.";
+        // Free models first (owner request): Haiku only when they do not answer or for quality "high".
+        if (args.quality !== "high" && configuredFreeProviders().length > 0) {
+          try {
+            const free = await harvest(
+              {
+                task: String(args.task ?? ""),
+                text: typeof args.text === "string" ? args.text : undefined,
+                files: looseList(args.files),
+                urls: looseList(args.urls)?.slice(0, 5),
+                freeOnly: true,
+              },
+              { db: ctx.db.raw, home: process.env.HOME || "/root", sessionId: ctx.db.getKV("session_id") || "default" },
+            );
+            if (free.provider !== "none") return `${free.text}\n[delegate: answered by a free model; quality "high" for Haiku]`;
+          } catch {
+            // fall through to Haiku
+          }
+        }
         try {
           const result = await delegate(
             {

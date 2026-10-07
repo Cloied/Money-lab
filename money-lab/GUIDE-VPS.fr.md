@@ -252,7 +252,8 @@ Outils gratuits ou économiques à sa disposition :
   fois la même recherche ;
 - `monitor_site` : surveillance de ses sites toutes les 30 minutes ; si un site tombe, tu reçois
   « 🔴 Site hors ligne » sur Telegram et le bot est réveillé, puis « 🟢 » quand il revient ;
-- `delegate` (lectures soignées par Claude Haiku), `schedule_job` (tâches automatiques sans frais),
+- `delegate` (lectures et rédactions confiées d'abord aux IA gratuites, puis à Claude Haiku si aucune ne
+  répond ou pour un travail délicat), `schedule_job` (tâches automatiques sans frais),
   `recall` (recherche dans ses notes, ses idées et ses données), `audit_page` (notes Lighthouse) et
   `ab_test` (tests A/B sans cookies).
 

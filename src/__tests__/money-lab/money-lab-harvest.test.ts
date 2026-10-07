@@ -527,3 +527,69 @@ describe("Free model keys and the prompt", () => {
     db.close();
   });
 });
+
+// ─── Lighter turns and free-first delegate (2026-10-07) ─────────
+import { buildContextMessages, shortenOldResult } from "../../agent/context.js";
+
+describe("Lighter turns", () => {
+  const turn = (i: number, result: string) => ({
+    id: `t${i}`, timestamp: `2026-10-07T0${i}:00:00Z`, state: "running" as const, thinking: `tour ${i}`,
+    toolCalls: [{ id: `c${i}`, name: "exec", arguments: { command: "cat index.html" }, result, durationMs: 1 }],
+    tokenUsage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 }, costCents: 1,
+  });
+
+  it("keeps the last results whole and shortens older ones to their start and end", () => {
+    const big = `DEBUT ${"x".repeat(9000)} FIN`;
+    const turns = [1, 2, 3, 4, 5, 6].map((i) => turn(i, big)) as any[];
+    const messages = buildContextMessages("system", turns, undefined, { fullResultTurns: 4, oldResultChars: 1200, budget: { total: 1e9, systemPrompt: 1e9, recentTurns: 1e9, toolResults: 1e9, memoryRetrieval: 1e9 } as any });
+    const results = messages.filter((m) => m.role === "tool").map((m) => m.content);
+    expect(results).toHaveLength(6);
+    for (const old of results.slice(0, 2)) {
+      expect(old.length).toBeLessThan(1400);
+      expect(old).toMatch(/^DEBUT/);
+      expect(old).toMatch(/FIN$/);
+      expect(old).toMatch(/older result shortened: 7810 of 9010 characters/);
+    }
+    for (const recent of results.slice(2)) expect(recent).toBe(big);
+    // Without the option (upstream), nothing changes.
+    const upstream = buildContextMessages("system", turns, undefined, { budget: { total: 1e9, systemPrompt: 1e9, recentTurns: 1e9, toolResults: 1e9, memoryRetrieval: 1e9 } as any });
+    expect(upstream.filter((m) => m.role === "tool").every((m) => m.content === big)).toBe(true);
+    expect(shortenOldResult("court", 1200)).toBe("court");
+  });
+
+  it("sends delegate to the free models first, and to Haiku for quality high", async () => {
+    const db = openDb();
+    const previous = { GROQ_API_KEY: process.env.GROQ_API_KEY, HOME: process.env.HOME };
+    process.env.GROQ_API_KEY = "gsk_test0123456789abcdefghij";
+    process.env.HOME = tmp("money-lab-home-");
+    const routed: any[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: any) => {
+      if (/models$/.test(String(url))) return json({ data: [{ id: "llama-3.3-70b-versatile" }] });
+      return chatAnswer("Résumé gratuit");
+    }));
+    try {
+      const ctx: ToolContext = {
+        identity: { ...createTestIdentity(), sandboxId: "" }, config: vpsConfig(), db, conway: new MockConwayClient(), inference: new MockInferenceClient(),
+        inferenceRouter: { route: async (request: any) => { routed.push(request); return { content: "Résumé Haiku", model: request.model, provider: "anthropic", inputTokens: 1, outputTokens: 1, costCents: 1, latencyMs: 1, finishReason: "stop" } as any; } },
+      };
+      const call = (args: Record<string, unknown>) => executeTool("delegate", args, createMoneyLabTools(), ctx, new PolicyEngine(db.raw, createDefaultRules()),
+        { inputSource: "agent", turnToolCallCount: 0, sessionSpend: new SpendTracker(db.raw) }).then((r) => r.result || r.error || "");
+      expect(await call({ task: "Résume", text: "Un texte" })).toMatch(/^Résumé gratuit[\s\S]*answered by a free model/);
+      expect(routed).toHaveLength(0);
+      expect(await call({ task: "Résume finement", text: "Un texte", quality: "high" })).toMatch(/^Résumé Haiku/);
+      expect(routed[0].model).toBe("claude-haiku-4-5");
+    } finally {
+      for (const [k, v] of Object.entries(previous)) if (v === undefined) delete process.env[k]; else process.env[k] = v;
+      db.close();
+    }
+  });
+
+  it("shows the average turn size in the health report", () => {
+    const db = openDb();
+    db.raw.prepare("INSERT INTO inference_costs (id, session_id, model, provider, input_tokens, cost_cents, tier, task_type, created_at) VALUES ('a', 's', 'm', 'anthropic', 40000, 3, 'normal', 'agent_turn', '2026-10-07 05:00:00')").run();
+    db.raw.prepare("INSERT INTO inference_costs (id, session_id, model, provider, input_tokens, cost_cents, tier, task_type, created_at) VALUES ('b', 's', 'm', 'anthropic', 20000, 2, 'normal', 'agent_turn', '2026-10-07 06:00:00')").run();
+    const report = buildHealthReport(db.raw, vpsConfig().moneyLab!, { now: new Date("2026-10-07T08:00:00Z"), home: tmp("h-") });
+    expect(report.text).toContain("Taille moyenne d'un tour aujourd'hui : 30 k tokens lus");
+    db.close();
+  });
+});

@@ -195,7 +195,10 @@ export function buildMoneyLabPromptBlock(db: Database.Database, lab: MoneyLabCon
       ? (() => {
         const free = configuredFreeProviders();
         const home = process.env.HOME || "/root";
-        return "Models, cheapest first: harvest collects and extracts with free models (" +
+        return "Every page or file you read yourself (web_fetch, cat, read_file) is paid at your price and stays in " +
+          "your history: read long material through harvest or delegate (free models first) and keep only their " +
+          "answer. Print only the lines you need from files (grep, sed -n, head). " +
+          "Models, cheapest first: harvest collects and extracts with free models (" +
           (free.length ? free.join(", ") : "none configured yet: it falls back to Haiku, paid") + "); delegate gives " +
           "careful reading and drafting to Haiku (half your price); you reason, plan and build; Opus makes the binding " +
           "calls: approving an idea (idea decide approve) and stopping an active experiment (record_experiment with " +
