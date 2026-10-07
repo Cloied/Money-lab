@@ -43,6 +43,8 @@ import { decideIdeaWithOpus, decideStopWithOpus, isStop, stopDecisionBlocker } f
 import { addSite, checkSites, describeSites, removeSite } from "./monitor.js";
 import { checkDesign, designReview, firstImpression, formatDesignCheck } from "./design.js";
 import { repoScout, scaffoldSite, testSite, vendorCode } from "./workshop.js";
+import { MAX_NICHES_PER_SCAN, describeSeeds, listNiches, rejectNiche, scanNiches } from "./funnel.js";
+import { addProbe, checkProbes, formatProbe, listProbes, stopProbe } from "./probes.js";
 
 /** Marker the Anthropic client turns into an image block (recent results only). */
 export const SCREENSHOT_MARKER = /\[\[image:([^\]\s]+\.(?:png|jpe?g))\]\]/g;
@@ -1017,6 +1019,92 @@ export function createMoneyLabTools(): AutomatonTool[] {
         });
         recordFocusSpend(ctx.db.raw, result.costCents);
         return result.text;
+      },
+    },
+    {
+      name: "niche_scan",
+      description:
+        "Discover niches wide and cheap (free, no inference). seeds: the categories of needs and their starting phrases " +
+        "(expand each into 5-10 concrete search intents with harvest first). scan: for up to " + MAX_NICHES_PER_SCAN + " phrases, counts " +
+        "demand signals from public sources (Google suggestions by intent, commercial intent, Wikipedia audience, Hacker News " +
+        "discussion, open-source alternatives) and scores them with a fixed formula; results are kept and listed. " +
+        "list: the ranking. reject: drop a niche with the reason so it is never studied again. " +
+        "Then study the top ones with market_signals and harvest, and record the best as ideas.",
+      category: "vm",
+      riskLevel: "safe",
+      parameters: {
+        type: "object",
+        properties: {
+          action: { type: "string", enum: ["seeds", "scan", "list", "reject"] },
+          category: { type: "string", description: "For seeds: a category name (partial match)" },
+          niches: { type: "array", items: { type: "string" }, description: "For scan: short search phrases, 3-6 words each" },
+          lang: { type: "string", enum: ["fr", "en"], description: "Market language (default fr)" },
+          niche: { type: "string", description: "For reject" },
+          reason: { type: "string", description: "For reject" },
+          limit: { type: "integer", description: "For list, default 30" },
+          fresh: { type: "boolean", description: "For scan: redo niches scanned within a week" },
+        },
+        required: ["action"],
+      },
+      execute: async (args, ctx) => {
+        const lang = args.lang === "en" ? "en" : "fr";
+        switch (args.action) {
+          case "seeds": return describeSeeds(typeof args.category === "string" ? args.category : undefined, args.lang === "en" || args.lang === "fr" ? args.lang : undefined);
+          case "scan":
+            try {
+              return await scanNiches(ctx.db.raw, looseList(args.niches) ?? [], lang, {
+                home: process.env.HOME || "/root", githubToken: process.env.GH_TOKEN || undefined, fresh: args.fresh === true,
+              });
+            } catch (err: any) {
+              return `niche_scan failed: ${String(err?.message ?? err).slice(0, 300)}`;
+            }
+          case "reject": return rejectNiche(ctx.db.raw, String(args.niche ?? ""), String(args.reason ?? ""));
+          default: return listNiches(ctx.db.raw, { limit: args.limit as number | undefined, lang: args.lang === "en" || args.lang === "fr" ? args.lang : undefined });
+        }
+      },
+    },
+    {
+      name: "probe",
+      description:
+        "Measure demand before building: a probe is one useful page (built in a day with scaffold_site), published under your " +
+        "Search Console property, aimed at 2-8 searches. add registers it; the runtime reads Search Console daily and, after the " +
+        "window (14 days by default), the probe passes at the impressions threshold (50) or fails; the owner is told, you are " +
+        "woken, and a probe linked to an idea adds its numbers to that idea's evidence. Probes do not count as experiments. " +
+        "Actions: add, list, check (read Search Console now), stop.",
+      category: "vm",
+      riskLevel: "safe",
+      parameters: {
+        type: "object",
+        properties: {
+          action: { type: "string", enum: ["add", "list", "check", "stop"] },
+          id: { type: "string" },
+          url: { type: "string", description: "For add: the page's public URL" },
+          queries: { type: "array", items: { type: "string" }, description: "For add: 2-8 searches the page targets" },
+          idea_id: { type: "string", description: "For add: the idea this probe tests" },
+          window_days: { type: "integer", description: "7-45, default 14" },
+          min_impressions: { type: "integer", description: "Default 50" },
+          note: { type: "string", description: "For stop" },
+        },
+        required: ["action"],
+      },
+      execute: async (args, ctx) => {
+        switch (args.action) {
+          case "add":
+            return addProbe(ctx.db.raw, {
+              id: String(args.id ?? ""), url: String(args.url ?? ""), queries: looseList(args.queries) ?? [],
+              ideaId: typeof args.idea_id === "string" && args.idea_id ? args.idea_id : undefined,
+              windowDays: args.window_days as number | undefined, minImpressions: args.min_impressions as number | undefined,
+            });
+          case "check": {
+            const report = await checkProbes(ctx.db.raw);
+            return report.length ? report.join("\n") : "No live probe.";
+          }
+          case "stop": return stopProbe(ctx.db.raw, String(args.id ?? ""), String(args.note ?? ""));
+          default: {
+            const probes = listProbes(ctx.db.raw);
+            return probes.length ? probes.map((p) => formatProbe(p)).join("\n") : "No probe yet. Build one page with scaffold_site, publish it, then probe add.";
+          }
+        }
       },
     },
     {

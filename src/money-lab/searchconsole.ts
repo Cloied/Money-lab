@@ -61,26 +61,39 @@ export interface SearchConsoleQuery {
   site: string;
   dimension: "query" | "page" | "date" | "country" | "device";
   days: number;
+  /** Only rows whose dimension value contains this text (e.g. a page path). */
+  contains?: string;
+  rowLimit?: number;
 }
 
-/** Top rows of search analytics for the last `days` days (Search Console data lags ~2 days). */
-export async function searchAnalytics(
+export interface SearchConsoleRow {
+  key: string;
+  clicks: number;
+  impressions: number;
+  ctr: number;
+  position: number;
+}
+
+/** Rows of search analytics for the last `days` days (Search Console data lags ~2 days). */
+export async function searchAnalyticsRows(
   q: SearchConsoleQuery,
   options: { keyFile?: string; fetchFn?: FetchFn; now?: Date } = {},
-): Promise<string> {
+): Promise<{ rows: SearchConsoleRow[]; start: string; end: string }> {
   const fetchFn = options.fetchFn ?? fetch;
   const now = options.now ?? new Date();
   const token = await accessToken(options.keyFile ?? gscKeyFile(), fetchFn, now.getTime());
   const end = new Date(now.getTime() - 2 * 86_400_000);
   const start = new Date(end.getTime() - (q.days - 1) * 86_400_000);
   const day = (d: Date) => d.toISOString().slice(0, 10);
+  const body: Record<string, unknown> = { startDate: day(start), endDate: day(end), dimensions: [q.dimension], rowLimit: q.rowLimit ?? 25 };
+  if (q.contains) body.dimensionFilterGroups = [{ filters: [{ dimension: q.dimension, operator: "contains", expression: q.contains }] }];
   const resp = await fetchFn(
     `https://www.googleapis.com/webmasters/v3/sites/${encodeURIComponent(q.site)}/searchAnalytics/query`,
     {
       method: "POST",
       signal: AbortSignal.timeout(30_000),
       headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
-      body: JSON.stringify({ startDate: day(start), endDate: day(end), dimensions: [q.dimension], rowLimit: 25 }),
+      body: JSON.stringify(body),
     },
   );
   const data = await resp.json().catch(() => ({})) as {
@@ -88,13 +101,22 @@ export async function searchAnalytics(
     error?: { message?: string };
   };
   if (!resp.ok) throw new Error(`Search Console error ${resp.status}: ${data.error?.message ?? "unknown"}`);
-  const rows = data.rows ?? [];
-  const header = `Search Console ${q.site}, ${day(start)} to ${day(end)}, by ${q.dimension}:`;
+  const rows = (data.rows ?? []).map((r) => ({ key: r.keys[0], clicks: r.clicks, impressions: r.impressions, ctr: r.ctr, position: r.position }));
+  return { rows, start: day(start), end: day(end) };
+}
+
+/** Top rows of search analytics, formatted for the agent. */
+export async function searchAnalytics(
+  q: SearchConsoleQuery,
+  options: { keyFile?: string; fetchFn?: FetchFn; now?: Date } = {},
+): Promise<string> {
+  const { rows, start, end } = await searchAnalyticsRows(q, options);
+  const header = `Search Console ${q.site}, ${start} to ${end}, by ${q.dimension}:`;
   if (rows.length === 0) return `${header}\nNo data yet (new sites take days to weeks to appear).`;
   const total = rows.reduce((t, r) => ({ c: t.c + r.clicks, i: t.i + r.impressions }), { c: 0, i: 0 });
   return [
     header,
     `Top rows: ${total.c} clicks, ${total.i} impressions.`,
-    ...rows.map((r) => `- ${r.keys[0]}: ${r.clicks} clicks, ${r.impressions} impr., CTR ${(r.ctr * 100).toFixed(1)}%, pos ${r.position.toFixed(1)}`),
+    ...rows.map((r) => `- ${r.key}: ${r.clicks} clicks, ${r.impressions} impr., CTR ${(r.ctr * 100).toFixed(1)}%, pos ${r.position.toFixed(1)}`),
   ].join("\n");
 }

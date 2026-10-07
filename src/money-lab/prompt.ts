@@ -20,6 +20,8 @@ import { configuredFreeProviders } from "./freeai.js";
 import { describeDatasets } from "./datasets.js";
 import { describeSites } from "./monitor.js";
 import { describeMode } from "./modes.js";
+import { describeFunnel } from "./funnel.js";
+import { describeProbes } from "./probes.js";
 
 export const MONEY_LAB_GENESIS_PROMPT = `You operate Money Lab, a small economic experiment built on Automaton.
 Your ultimate goal is to stay alive by creating real value: every action costs money from a finite
@@ -219,6 +221,9 @@ export function buildMoneyLabPromptBlock(db: Database.Database, lab: MoneyLabCon
       })()
       : "",
     `Idea pipeline: ${describePipeline(db)}.`,
+    `Niche funnel (niche_scan): ${describeFunnel(db)}. Probes (probe): ${describeProbes(db)}. ` +
+      "Discovery order: seeds → expand with harvest → scan → reject the weak with a reason → market_signals and harvest on the top → " +
+      "idea → probe page (scaffold_site, one day) → Search Console decides in two weeks → Opus approves the build.",
     "Journal: use record_experiment for every status change, evidence link, metric and cost; " +
       "use request_help when a human action is needed (accounts, verification, payments outside your wallet), then sleep.",
     lab.noProgressCycles !== null
