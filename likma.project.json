@@ -176,6 +176,12 @@
       "edit_when": "What the owner sees each morning changes"
     },
     {
+      "area": "Inference caps",
+      "path": "src/money-lab/caps.ts",
+      "purpose": "/plafond on Telegram: writes the daily and hourly inference caps, then restarts",
+      "edit_when": "The owner changes the spending caps"
+    },
+    {
       "area": "Design checks",
       "path": "src/money-lab/design.ts",
       "purpose": "check_design (axe-core and mechanical checks with screenshots), Opus design review, first-impression test",

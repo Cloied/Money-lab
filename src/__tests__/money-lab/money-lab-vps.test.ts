@@ -2040,3 +2040,61 @@ describe("Money Lab health report", () => {
     db.close();
   });
 });
+
+// ─── /plafond (2026-10-07) ──────────────────────────────────────
+import { setInferenceCaps } from "../../money-lab/caps.js";
+
+describe("/plafond", () => {
+  function configFile(inference: Record<string, unknown>): string {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "money-lab-caps-"));
+    tmpDirs.push(dir);
+    const file = path.join(dir, "automaton.json");
+    const profile = vpsProfile({ inference: { model: "claude-opus-5-5", effort: "medium", perCallCents: 40, hourlyCents: 150, dailyCents: 500, maxOutputTokens: 16000, ...inference } });
+    fs.writeFileSync(file, JSON.stringify({ name: "lab", genesisPrompt: "garder", moneyLab: profile }, null, 2));
+    return file;
+  }
+
+  it("writes the new caps, keeps the rest of the file and validates the order", () => {
+    const file = configFile({});
+    expect(setInferenceCaps(file, 800)).toEqual({ before: { dailyCents: 500, hourlyCents: 150 }, after: { dailyCents: 800, hourlyCents: 150 } });
+    const saved = JSON.parse(fs.readFileSync(file, "utf-8"));
+    expect(saved.genesisPrompt).toBe("garder");
+    expect(saved.moneyLab.inference).toMatchObject({ dailyCents: 800, hourlyCents: 150, perCallCents: 40 });
+    expect(setInferenceCaps(file, 100).after).toEqual({ dailyCents: 100, hourlyCents: 100 });
+    expect(() => setInferenceCaps(file, 300, 400)).toThrow(/par heure ne peut pas dépasser/);
+    expect(() => setInferenceCaps(file, 300, 20)).toThrow(/au moins 0.40 \$/);
+    expect(() => setInferenceCaps(file, 20_000)).toThrow(/limité à 100 \$/);
+    expect(JSON.parse(fs.readFileSync(file, "utf-8")).moneyLab.inference.dailyCents).toBe(100);
+  });
+
+  it("answers in French and restarts the bot only after a change, once the reply is sent", async () => {
+    const db = openDb();
+    const file = configFile({});
+    const sent: string[] = [];
+    let texts = ["/plafond 8 1,5"];
+    const fetchFn = vi.fn(async (url: string, init: RequestInit) => {
+      const body = JSON.parse(String(init.body));
+      if (url.endsWith("/getUpdates")) {
+        const result = texts.map((text, i) => ({ update_id: body.offset + i, message: { message_id: 1, chat: { id: 42 }, text } }));
+        texts = [];
+        return new Response(JSON.stringify({ ok: true, result }));
+      }
+      sent.push(body.text);
+      return new Response(JSON.stringify({ ok: true, result: {} }));
+    });
+    const channel = new TelegramChannel("TOKEN", 42, db, vpsConfig(), fetchFn as any);
+    channel.configPath = () => file;
+    const restarts: number[] = [];
+    channel.restart = () => restarts.push(sent.length);
+    await channel.tick(new Date("2026-10-07T05:00:00Z"));
+    expect(sent[0]).toMatch(/Par jour : 5.00 \$ → 8.00 \$\nPar heure : 1.50 \$ → 1.50 \$/);
+    expect(restarts).toEqual([1]);
+    texts = ["/plafond", "/plafond 2 3"];
+    await channel.tick(new Date("2026-10-07T05:01:00Z"));
+    expect(sent[1]).toMatch(/^Usage : \/plafond/);
+    expect(sent[2]).toMatch(/^Plafond inchangé : le plafond par heure ne peut pas dépasser/);
+    expect(restarts).toEqual([1]);
+    expect(JSON.parse(fs.readFileSync(file, "utf-8")).moneyLab.inference).toMatchObject({ dailyCents: 800, hourlyCents: 150 });
+    db.close();
+  });
+});

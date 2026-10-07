@@ -541,7 +541,7 @@ describe("Lighter turns", () => {
   it("keeps the last results whole and shortens older ones to their start and end", () => {
     const big = `DEBUT ${"x".repeat(9000)} FIN`;
     const turns = [1, 2, 3, 4, 5, 6].map((i) => turn(i, big)) as any[];
-    const messages = buildContextMessages("system", turns, undefined, { fullResultTurns: 4, oldResultChars: 1200, budget: { total: 1e9, systemPrompt: 1e9, recentTurns: 1e9, toolResults: 1e9, memoryRetrieval: 1e9 } as any });
+    const messages = buildContextMessages("system", turns, undefined, { shortResultTurnIds: new Set(["t1", "t2"]), oldResultChars: 1200, budget: { total: 1e9, systemPrompt: 1e9, recentTurns: 1e9, toolResults: 1e9, memoryRetrieval: 1e9 } as any });
     const results = messages.filter((m) => m.role === "tool").map((m) => m.content);
     expect(results).toHaveLength(6);
     for (const old of results.slice(0, 2)) {
@@ -591,5 +591,42 @@ describe("Lighter turns", () => {
     const report = buildHealthReport(db.raw, vpsConfig().moneyLab!, { now: new Date("2026-10-07T08:00:00Z"), home: tmp("h-") });
     expect(report.text).toContain("Taille moyenne d'un tour aujourd'hui : 30 k tokens lus");
     db.close();
+  });
+});
+
+// ─── Cache-stable history (2026-10-07) ──────────────────────────
+import { moneyLabHistoryWindow } from "../../agent/loop.js";
+
+describe("Cache-stable shortened history", () => {
+  it("keeps each request a prefix of the next, except when the window moves every 10 turns", () => {
+    const big = `DEBUT ${"y".repeat(6000)} FIN`;
+    const all = Array.from({ length: 60 }, (_, i) => ({
+      id: `t${String(i).padStart(2, "0")}`, timestamp: new Date(Date.UTC(2026, 9, 7, 0, i)).toISOString(), state: "running" as const,
+      thinking: `tour ${i}`, toolCalls: [{ id: `c${i}`, name: "exec", arguments: { command: `cat f${i}` }, result: big, durationMs: 1 }],
+      tokenUsage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 }, costCents: 1,
+    })) as any[];
+    const render = (count: number) => {
+      const recent = all.slice(0, count).slice(-29);
+      const w = moneyLabHistoryWindow(recent, count);
+      const msgs = buildContextMessages("system", w.turns, undefined, { repeatByCall: true, shortResultTurnIds: w.shortResultTurnIds, oldResultChars: 1200, budget: { total: 1e9, systemPrompt: 1e9, recentTurns: 100_000, toolResults: 1e9, memoryRetrieval: 1e9 } as any });
+      return { text: JSON.stringify(msgs.slice(1)), shortened: w.shortResultTurnIds.size, kept: w.turns.length };
+    };
+    let breaks = 0;
+    for (let count = 31; count < 60; count++) {
+      const before = render(count).text.slice(0, -2); // without the closing "]"
+      const after = render(count + 1).text;
+      if (!after.startsWith(before)) {
+        breaks++;
+        expect((count + 1) % 10).toBe(0); // only when the window moves
+      }
+    }
+    expect(breaks).toBe(3); // 40, 50 and 60
+    const fresh = render(40);
+    expect(fresh.kept).toBe(20);
+    expect(fresh.shortened).toBe(16);
+    const grown = render(49);
+    expect(grown.kept).toBe(29);
+    expect(grown.shortened).toBe(16);
+    expect(grown.text.length).toBeLessThan(29 * 6100 * 0.65);
   });
 });

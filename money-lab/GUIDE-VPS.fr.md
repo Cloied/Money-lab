@@ -121,6 +121,7 @@ Envoie `/aide` à ton bot. Commandes principales :
 | --- | --- |
 | `/statut` | solde, jours restants, expériences, demandes, finances |
 | `/sante` | rapport de santé : verdict (✅ tout va bien, ⚠️ à surveiller, 🚨 problème), activité et erreurs des dernières 24 h, dépense, idées, disque, sauvegarde. Envoyé aussi automatiquement chaque matin (vers 9 h l'été, 8 h l'hiver) |
+| `/plafond 5` ou `/plafond 5 1.5` | change le plafond de dépense IA : 5 $ par jour (et 1,50 $ par heure si tu donnes le 2e montant ; sinon le plafond par heure actuel est gardé). Le bot répond avec l'avant/après puis redémarre tout seul (environ 30 secondes). Maximum 100 $ par jour depuis Telegram ; le plafond par heure ne peut pas dépasser celui par jour |
 | `/resume` | résumé détaillé (budget, expériences, finances) |
 | `/aides` | ce que le bot te demande |
 | `/ok <id> [note]` / `/non <id> [raison]` | répondre à une demande |

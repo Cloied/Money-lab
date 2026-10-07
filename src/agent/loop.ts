@@ -83,7 +83,23 @@ const MONEY_LAB_IDLE_SLEEP_MS = 15 * 60_000;
 const MONEY_LAB_WINDOW = 20;
 const MONEY_LAB_WINDOW_STEP = 10;
 const MONEY_LAB_STORED_RESULT_CHARS = 20_000;
-/** Turns whose tool results stay whole in the history; older results keep their start and end. */
+/**
+ * Money Lab history: the window grows by one turn per turn and drops its
+ * oldest 10 turns every 10 turns, so the history is a stable, cacheable
+ * prefix 9 turns out of 10. Tool results stay whole for the newest turns;
+ * the older part of the window is shortened, and that boundary moves with
+ * the window (once every MONEY_LAB_WINDOW_STEP turns), never in between.
+ */
+export function moneyLabHistoryWindow(recent: AgentTurn[], turnCount: number): { turns: AgentTurn[]; shortResultTurnIds: Set<string> } {
+  const growth = turnCount % MONEY_LAB_WINDOW_STEP;
+  const turns = recent.slice(-(MONEY_LAB_WINDOW + growth));
+  const shortResultTurnIds = new Set(
+    turns.slice(0, Math.max(0, turns.length - (MONEY_LAB_FULL_RESULT_TURNS + growth))).map((t) => t.id),
+  );
+  return { turns, shortResultTurnIds };
+}
+
+/** Newest turns of a fresh window whose tool results stay whole; older results keep their start and end. */
 const MONEY_LAB_FULL_RESULT_TURNS = 4;
 const MONEY_LAB_OLD_RESULT_CHARS = 1200;
 /** Tool names the Anthropic API accepts. */
@@ -590,10 +606,11 @@ export async function runAgentLoop(
       // Money Lab: the window grows by one turn per turn and only drops its
       // oldest 10 turns every 10 turns, so the history stays a stable,
       // cacheable prefix 9 turns out of 10 (a sliding window changes it every turn).
-      const allTurns = moneyLab
-        ? db.getRecentTurns(MONEY_LAB_WINDOW + MONEY_LAB_WINDOW_STEP - 1)
-          .slice(-(MONEY_LAB_WINDOW + (db.getTurnCount() % MONEY_LAB_WINDOW_STEP)))
-        : db.getRecentTurns(20);
+      const window = moneyLab
+        ? moneyLabHistoryWindow(db.getRecentTurns(MONEY_LAB_WINDOW + MONEY_LAB_WINDOW_STEP - 1), db.getTurnCount())
+        : { turns: db.getRecentTurns(20), shortResultTurnIds: new Set<string>() };
+      const allTurns = window.turns;
+      const shortResultTurnIds = window.shortResultTurnIds;
       const meaningfulTurns = allTurns.filter((t) => {
         if (t.toolCalls.length === 0) return true; // text-only turns are meaningful
         return t.toolCalls.some((tc) => !isIdleOnlyTool(tc.name));
@@ -639,7 +656,7 @@ export async function runAgentLoop(
             repeatByCall: true,
             budget: { ...DEFAULT_TOKEN_BUDGET, recentTurns: 100_000 },
             // Most of each request was old tool output (pages, files, command logs).
-            fullResultTurns: MONEY_LAB_FULL_RESULT_TURNS,
+            shortResultTurnIds,
             oldResultChars: MONEY_LAB_OLD_RESULT_CHARS,
           }
           : undefined,
