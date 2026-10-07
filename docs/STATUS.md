@@ -1,6 +1,6 @@
 # Working status
 - Updated: 2026-10-07
-- Branch / commit: claude/affectionate-bohr-nyhhv3 from main 5937f48, on upstream Automaton d8f816881fd24b6f5e3d616e59edec387a447667 (0.2.1)
+- Branch / commit: claude/affectionate-bohr-nyhhv3 (from main 5937f48, main 8d0b2de code workshop merged in), on upstream Automaton d8f816881fd24b6f5e3d616e59edec387a447667 (0.2.1)
 - Current goal: self-hosted VPS runtime (Claude Sonnet 5.5, Telegram, Stripe, survival goal); development only, no launch.
 - Accepted decisions:
   - Thin extension under src/money-lab/ plus narrow upstream patches; inert without a moneyLab block.
@@ -10,7 +10,7 @@
   - Owner decision 2026-10-04: Conway Cloud closed; run self-hosted on a VPS; Claude Sonnet 5.5; Stripe revenue sync; survival as the bot's ultimate goal.
   - No start command configured: starting runs the agent and requires owner approval.
 - Completed behaviour: profile, spend guards, experiment/help journal, operator ledger, pause/resume,
-  status/summary, no-progress sleep, integration note, Conway checklist; 20 of 21 features verified on
+  status/summary, no-progress sleep, integration note, Conway checklist; 21 of 22 features verified on
   2026-10-07 (docs/FEATURES.md), privilege-drop built without a test.
 - Checks run (command, result, date):
   - 2026-10-07, migration to Likma 0.8.1 (Node 22.22.0, pnpm 10.28.1 via corepack), no network or payment:
@@ -23,9 +23,13 @@
         history cache 9/13 consecutive requests reuse the previous history
       - chaos `node money-lab/e2e/run.mjs chaos` (build, then chaos.mjs): PASS, no findings (73 s)
       - upstream `pnpm exec vitest run --exclude src/__tests__/context-hardening.test.ts`: 67 files, 1761/1761 pass (80 s)
-    - `likma project feature verify` for 20 of 21 features (each re-ran its mapped checks: money-lab 145/145
+    - `likma project feature verify` for 20 of 21 features (before the merge) (each re-ran its mapped checks: money-lab 145/145
       every time, build, e2e PASS, chaos PASS): all verified with fingerprint v3 evidence (docs/FEATURES.md).
     - `likma project audit`: PASS, 0 failures (bot_guards map every guard to a test).
+  - 2026-10-07, after merging main 8d0b2de (code workshop) into the branch:
+    - `likma project check` (report .likma/checks/714cf45d525b4046ada25b57b591182a.json): PASS; types pass,
+      money-lab 5 files 151/151, build pass, e2e PASS (183 s), chaos PASS (71 s), upstream 68 files 1767/1767.
+    - The 11 features whose scope the merge changed, and code-workshop, re-verified with `feature verify`.
   - Earlier: 1754/1754 upstream suite and E2E/chaos PASS on 2026-10-06/07 (before this branch).
 - Likma migration (2026-10-07): profile `bot`; checks e2e, chaos and upstream added (object form, 900 s);
   `start_disabled` replaces the empty start; setup `install`; `money-lab/e2e/run.mjs` builds before each
