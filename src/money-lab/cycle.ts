@@ -14,7 +14,7 @@ import { getKV, getNoProgressCycles, journalFingerprint, setKV, setNoProgressCyc
 
 /** During a Money Lab sleep only operator actions (resume, help resolution), scheduled-job alerts and site outages wake the agent. */
 export function isOperatorWake(event: { source: string }): boolean {
-  return event.source === "money_lab_operator" || event.source === "money_lab_job" || event.source === "money_lab_monitor";
+  return event.source === "money_lab_operator" || event.source === "money_lab_job" || event.source === "money_lab_monitor" || event.source === "money_lab_probe";
 }
 
 export interface CycleOutcome {

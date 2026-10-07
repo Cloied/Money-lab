@@ -7,13 +7,27 @@ auto-activate: true
 
 Suggestions are optional hypotheses, not tasks or rankings. Ignore them when evidence points elsewhere.
 
-## Choose
-1. Call `money_lab_status` and `recall_facts` first. Reuse prior evidence before new research.
-2. Shortlist a few concrete user problems. For each, note: user problem, evidence links with dates,
-   existing alternatives, differentiator, permitted acquisition channel, monetization hypothesis,
-   estimated cost, next test and uncertainty. No scoring formulas; predictions are not demand.
-3. Select a bounded test and record it with `record_experiment` (status `exploring`, then `building`).
-   Keep a portfolio of at most 3 active experiments; each must be cheap to keep alive.
+## Choose: the funnel (wide, cheap, measured)
+1. Call `money_lab_status` and `recall` first. Reuse prior evidence before new research.
+2. **Universe**: `niche_scan seeds` lists categories of needs (professions, procedures, life moments,
+   obligations, data, repetitive tasks) in French and English. Pick categories, then expand each seed
+   into 5-10 concrete search intents with `harvest` (free): what people would type.
+3. **Scan**: `niche_scan scan` on batches of up to 25 phrases. The score is a fixed formula on counted
+   signals (suggestions, commercial intent, audience, discussion, open-source alternatives), not your
+   opinion. `niche_scan list` ranks everything scanned. `niche_scan reject` drops a niche with the
+   reason so it is never studied twice.
+4. **Study** the top 20-30 with `market_signals` and `harvest` (competitors, prices, weaknesses, the
+   channel you control). Keep 8; record each as an idea (`idea update`) with scored criteria and
+   evidence. The channel is mandatory: search on your domain, your GitHub organization, Bluesky, or
+   publication kits the owner posts.
+5. **Probe** before building: for the best 3-5 ideas, build one useful page in a day (`scaffold_site`,
+   `test_site`, `check_design`), publish it under the Search Console property, add it to the sitemap, and
+   register it with `probe add` (2-8 target searches, idea_id). Search Console decides after 14 days
+   (50 impressions by default). Probes do not count as experiments; a passing probe becomes evidence
+   on its idea; the runtime wakes you when one is decided.
+6. **Build** only from a passing probe or an idea Opus approved (`idea decide approve`), through
+   `record_experiment` (status `exploring`, then `building`). At most 3 active experiments, each cheap to
+   keep alive, each build under five days.
 
 ## Research sessions
 - Use `web_search` and `web_fetch` to study demand (what people search for, ask about, complain about),

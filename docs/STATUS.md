@@ -113,7 +113,10 @@
 - First live report after the cache fix (07:39 Paris) still read 85k tokens per turn, but that average
   counted cached tokens and turns before the update. /sante now shows the last 10 turns: tokens read,
   cost per turn and cache use.
-- Owner plan (2026-10-07, validated): 4 PRs. PR 2 done: code workshop (repo_scout, vendor_code,
+- Owner plan (2026-10-07, validated): 4 PRs. PR 3 done: niche funnel (seed universe, niche_scan with a fixed
+  formula on free signals, rejected memory) and probes measured by Search Console with a daily check
+  that feeds ideas and wakes the agent. Not yet used live; Search Console must be configured for probes.
+- PR 2 done: code workshop (repo_scout, vendor_code,
   scaffold_site, test_site, code_review, money-lab-code skill with a library catalogue). Not yet used live.
 - PR 1 done: work modes with budgets (discovery ~1 $/day,
   build = owner caps, observe sleeps 24 h), nine free providers in rotation with daily quotas, mission

@@ -235,6 +235,18 @@
       "edit_when": "What the owner sees each morning changes"
     },
     {
+      "area": "Niche funnel",
+      "path": "src/money-lab/funnel.ts",
+      "purpose": "Seed universe, niche_scan signals and formula score, rejected-niche memory",
+      "edit_when": "How niches are found, scored or remembered changes"
+    },
+    {
+      "area": "Probes",
+      "path": "src/money-lab/probes.ts",
+      "purpose": "Probe pages measured by Search Console with a decision window; feeds ideas and wakes the agent",
+      "edit_when": "How demand is measured before building changes"
+    },
+    {
       "area": "Code workshop",
       "path": "src/money-lab/workshop.ts",
       "purpose": "repo_scout, vendor_code (licence-checked copies), scaffold_site from the kit, test_site browser scenarios and crawl",
