@@ -22,6 +22,8 @@ import { describeSites } from "./monitor.js";
 import { describeMode } from "./modes.js";
 import { describeFunnel } from "./funnel.js";
 import { describeProbes } from "./probes.js";
+import { describeKitsForPrompt } from "./kits.js";
+import { currentShortlist, pendingFinalists } from "./decisions.js";
 
 export const MONEY_LAB_GENESIS_PROMPT = `You operate Money Lab, a small economic experiment built on Automaton.
 Your ultimate goal is to stay alive by creating real value: every action costs money from a finite
@@ -115,7 +117,10 @@ function capabilityLines(): string {
         "Code workshop (money-lab-code skill): repo_scout finds reusable repositories (licence checked), vendor_code copies " +
         "one into ~/library/vendor with its licence, scaffold_site starts a complete site from the kit in one call, " +
         "test_site drives a browser through your scenario and crawls the links, code_review has the free models read " +
-        "your files. Reuse before writing; test before publishing."
+        "your files. Reuse before writing; test before publishing. " +
+        "Distribution: the owner posts for you. publish_kit prepares one ready-to-paste publication per venue (directory, " +
+        "subreddit, forum, professional group, newsletter) with the venue's rules and a tracked link; value for the reader " +
+        "first, never the same text twice, at most 3 a day. Read the venue's rules with harvest before drafting."
       : "Eyes: no browser installed; view_page will fail until the owner installs Chrome.",
     searchConsoleSite()
       ? `Search: search_console reads Google Search Console (queries, pages, clicks) for ${searchConsoleSite()} and your other properties.`
@@ -224,6 +229,13 @@ export function buildMoneyLabPromptBlock(db: Database.Database, lab: MoneyLabCon
     `Niche funnel (niche_scan): ${describeFunnel(db)}. Probes (probe): ${describeProbes(db)}. ` +
       "Discovery order: seeds → expand with harvest → scan → reject the weak with a reason → market_signals and harvest on the top → " +
       "idea → probe page (scaffold_site, one day) → Search Console decides in two weeks → Opus approves the build.",
+    (() => {
+      const shortlist = currentShortlist(db);
+      const finalists = pendingFinalists(db);
+      return `Decisions: shortlist ${shortlist ? `by Opus on ${shortlist.at.slice(0, 10)}: ${shortlist.picks.join(", ") || "nothing"}` : "none yet (idea shortlist with 8+ scored ideas)"}; ` +
+        `finalists waiting for the owner: ${finalists.length ? finalists.join(", ") : "none"}. ` +
+        `Publication kits (publish_kit; the owner posts them): ${describeKitsForPrompt(db)}.`;
+    })(),
     "Journal: use record_experiment for every status change, evidence link, metric and cost; " +
       "use request_help when a human action is needed (accounts, verification, payments outside your wallet), then sleep.",
     lab.noProgressCycles !== null

@@ -1148,17 +1148,13 @@
         "niche_scan scores phrases with the fixed formula from free signals, caches a week and skips rejected niches",
         "probe add validates the property and queries; checkProbes decides after the window, feeds the idea, notifies and wakes"
       ],
-      "status": "verified",
       "paths": [
         "src/money-lab/funnel.ts",
         "src/money-lab/probes.ts",
         "src/money-lab/searchconsole.ts",
         "src/__tests__/money-lab/money-lab-funnel.test.ts"
       ],
-      "implementation": {
-        "at": "2026-10-07T20:50:53.614621+00:00",
-        "note": "src/money-lab/funnel.ts, probes.ts, searchconsole.ts rows; tools niche_scan and probe; daily probe check in index.ts; strategy skill funnel; tests money-lab-funnel.test.ts"
-      },
+      "status": "verified",
       "verification": {
         "at": "2026-10-07T21:30:06.115704+00:00",
         "fingerprint_version": 3,
@@ -1184,6 +1180,57 @@
             "seconds": 64.155,
             "output_bytes": 41178,
             "output_sha256": "2be1066db5fb7d9a7894150e7884f6517e721cf849c1e2f699ec75843d9fff59"
+          }
+        ]
+      },
+      "implementation": {
+        "at": "2026-10-07T20:50:53.614621+00:00",
+        "note": "src/money-lab/funnel.ts, probes.ts, searchconsole.ts rows; tools niche_scan and probe; daily probe check in index.ts; strategy skill funnel; tests money-lab-funnel.test.ts"
+      }
+    },
+    {
+      "id": "publish-kits-decisions",
+      "title": "Publication kits and dated Opus decisions",
+      "criteria": [
+        "publish_kit drafts one tracked, rule-aware kit per venue within daily and pending caps and delivers it to the owner",
+        "Owner commands mark kits posted or skipped, pick or dismiss finalists, and wake the agent",
+        "Approval waits 24 h for the owner before Opus; shortlist records picks and rejections from Opus"
+      ],
+      "status": "verified",
+      "paths": [
+        "src/money-lab/kits.ts",
+        "src/money-lab/decisions.ts",
+        "src/money-lab/telegram.ts"
+      ],
+      "implementation": {
+        "at": "2026-10-07T21:09:55.655928+00:00",
+        "note": "src/money-lab/kits.ts; owner window, shortlist and owner picks in decisions.ts; Telegram commands; tests money-lab-kits.test.ts"
+      },
+      "verification": {
+        "at": "2026-10-07T21:24:13.577050+00:00",
+        "fingerprint_version": 2,
+        "fingerprint": "f5b013ac7d317a958f372c5dceeeb3bbb9958eca1d6cd7569d1d5b0c8dcd47e7",
+        "scope": [
+          "src/money-lab/kits.ts",
+          "src/money-lab/decisions.ts",
+          "src/money-lab/telegram.ts"
+        ],
+        "criterion_checks": {
+          "1": "money-lab",
+          "2": "money-lab",
+          "3": "money-lab"
+        },
+        "checks_hash": "02dbbb9668ac32079d8b239263f07b8bfd1d9cae63af4973067076656505e0a2",
+        "report": ".likma/checks/2f78e6c97d70442fb4a03ccf8be88e4f.json",
+        "contract": "043f1b1ae9ad277bfc612ffc9c211ac43cf13076c6c63a1db7974a2230ac52a7",
+        "results": [
+          {
+            "name": "money-lab",
+            "result": "passed",
+            "exit_code": 0,
+            "seconds": 77.078,
+            "output_bytes": 41363,
+            "output_sha256": "c68ebd21fefed6ac562b42ead462456a1ff227325dd8a96f6255b351fbb469b4"
           }
         ]
       }

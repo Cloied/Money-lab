@@ -235,6 +235,12 @@
       "edit_when": "What the owner sees each morning changes"
     },
     {
+      "area": "Publication kits",
+      "path": "src/money-lab/kits.ts",
+      "purpose": "Ready-to-paste publications the owner posts, with tracked links and Telegram confirmation",
+      "edit_when": "How the bot reaches people through the owner changes"
+    },
+    {
       "area": "Niche funnel",
       "path": "src/money-lab/funnel.ts",
       "purpose": "Seed universe, niche_scan signals and formula score, rejected-niche memory",

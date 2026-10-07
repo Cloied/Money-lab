@@ -751,7 +751,7 @@ describe("Money Lab journal", () => {
 
   it("agent tools cannot resolve help or write the ledger", () => {
     const names = createMoneyLabTools().map((t) => t.name);
-    expect(names).toEqual(["record_experiment", "idea", "request_help", "message_owner", "view_page", "browse", "audit_page", "check_design", "first_impression", "design_review", "ab_test", "check_domain", "render_image", "post_social", "search_console", "delegate", "harvest", "repo_scout", "vendor_code", "scaffold_site", "test_site", "code_review", "niche_scan", "probe", "market_signals", "dataset", "monitor_site", "schedule_job", "recall", "set_budget_focus", "money_lab_status"]);
+    expect(names).toEqual(["record_experiment", "idea", "request_help", "message_owner", "view_page", "browse", "audit_page", "check_design", "first_impression", "design_review", "ab_test", "check_domain", "render_image", "post_social", "publish_kit", "search_console", "delegate", "harvest", "repo_scout", "vendor_code", "scaffold_site", "test_site", "code_review", "niche_scan", "probe", "market_signals", "dataset", "monitor_site", "schedule_job", "recall", "set_budget_focus", "money_lab_status"]);
   });
 
   it("separates funding, purchases, usage, estimated revenue and cash", () => {

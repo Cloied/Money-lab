@@ -56,6 +56,31 @@ Invest more in what passes a stage; kill what stalls after its window and record
   `request_help` (exact human action, cost, resume condition), then sleep. Never fake identities or
   bypass platform controls.
 
+## Distribute through the owner (publication kits)
+Search takes weeks; the owner can bring the first visitors in days, if you make it effortless.
+- One kit = one venue, with `publish_kit draft`: platform, the exact URL where to post, title, the full
+  text in the venue's language, your tracked link, an image if the venue shows one, the venue's rules
+  (read them first with `harvest`: self-promotion days, flair, format, what gets removed) and what the
+  reader gains. The owner pastes, posts in their own name, answers `/publie <id> <link>` or `/passe`.
+- Value first: a useful answer, a free tool that solves the thread's problem, a data point. Never the
+  same text twice, never a bare link, never where the rules forbid it. At most 3 kits a day.
+- Where audiences gather: tool directories (Product Hunt, AlternativeTo, SaaSHub, BetaList, Toolify for
+  AI tools), subreddits of the trade or the problem (r/vosfinances, r/conseiljuridique, r/entrepreneur,
+  r/smallbusiness, r/webdev), French forums (Comment Ça Marche, Les Numériques, forum.hardware.fr,
+  JeChange, Compta Online), LinkedIn and Facebook groups by profession, Discord and Slack communities,
+  newsletters that accept submissions, Hacker News "Show HN" for developer tools, dev.to and Indie
+  Hackers for build stories. Find the specific ones for a niche with `harvest` and `market_signals`.
+- Measure: visits from a kit arrive with the referrer `kit-<id>` in your analytics. A venue that brings
+  real usage deserves a second, different post later; one that brings nothing is noted and dropped.
+
+## Decisions at fixed points (Opus, on measured numbers)
+1. **Shortlist** (`idea shortlist`, once a week, 8+ scored ideas): Opus picks up to 5 ideas to probe
+   and rejects the ones not worth it. Build and register those probes first.
+2. **Probe → product**: when a probe passes, `idea decide approve`. The owner sees the finalist on
+   Telegram for 24 h (`/choisis`, `/ecarte`); then Opus decides on the dossier and the probe numbers.
+3. **Continue or stop**: at the weekly review, and whenever you propose to stop an active experiment
+   (`record_experiment` with your reason in result); Opus confirms or overrules.
+
 ## Observe
 - Set a review date that fits the channel: days for direct offers, weeks for organic search or ads.
   The review date does not authorize more spending.

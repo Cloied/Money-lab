@@ -39,12 +39,13 @@ import { blueskyCredentials, describePosts, draftPost } from "./social.js";
 import { configuredFreeProviders, harvest } from "./freeai.js";
 import { SIGNAL_SOURCES, type SignalSource, marketSignals } from "./signals.js";
 import { deleteDataset, formatRecords, listDatasets, readDataset, saveRecord, searchDatasets } from "./datasets.js";
-import { decideIdeaWithOpus, decideStopWithOpus, isStop, stopDecisionBlocker } from "./decisions.js";
+import { decideIdeaWithOpus, decideStopWithOpus, isStop, shortlistWithOpus, stopDecisionBlocker } from "./decisions.js";
 import { addSite, checkSites, describeSites, removeSite } from "./monitor.js";
 import { checkDesign, designReview, firstImpression, formatDesignCheck } from "./design.js";
 import { repoScout, scaffoldSite, testSite, vendorCode } from "./workshop.js";
 import { MAX_NICHES_PER_SCAN, describeSeeds, listNiches, rejectNiche, scanNiches } from "./funnel.js";
 import { addProbe, checkProbes, formatProbe, listProbes, stopProbe } from "./probes.js";
+import { MAX_KITS_PER_DAY, MAX_PENDING_KITS, describeKits, draftKit, listKits } from "./kits.js";
 
 /** Marker the Anthropic client turns into an image block (recent results only). */
 export const SCREENSHOT_MARKER = /\[\[image:([^\]\s]+\.(?:png|jpe?g))\]\]/g;
@@ -181,7 +182,9 @@ export function createMoneyLabTools(): AutomatonTool[] {
         CRITERIA.map((c) => `${c} (${IDEA_CRITERIA[c].help})`).join("; ") + ". " +
         "Actions: update (create or edit; lists are appended), list (ranked), show, challenge (a stronger model " +
         "critiques the dossier like a sceptical investor, a few cents), decide (reject, or approve: once every gate " +
-        "passes, Opus reviews the dossier and your note and its APPROVE, REJECT or NOT YET is applied, a few cents). " +
+        "passes, the owner sees the finalist on Telegram for 24 h (/choisis or /ecarte), then Opus reviews the dossier and your note and its " +
+        "APPROVE, REJECT or NOT YET is applied, a few cents), shortlist (with 8+ scored ideas: Opus picks up to 5 to probe now and " +
+        "rejects the ones not worth it; once a week). " +
         `Approval requires: every criterion scored, ${IDEA_GATES.minEvidence}+ evidence sources, ` +
         `${IDEA_GATES.minCompetitors}+ competitors studied, ${IDEA_GATES.minScoredIdeas}+ scored ideas compared, a top-` +
         `${IDEA_GATES.topRank} rank, a total of ${IDEA_GATES.minTotal}+, a critique that is not NO-GO and your answer to it, ` +
@@ -191,7 +194,7 @@ export function createMoneyLabTools(): AutomatonTool[] {
       parameters: {
         type: "object",
         properties: {
-          action: { type: "string", enum: ["update", "list", "show", "challenge", "decide"] },
+          action: { type: "string", enum: ["update", "list", "show", "challenge", "decide", "shortlist"] },
           id: { type: "string", description: "Short slug, e.g. quote-generator-plumbers" },
           title: { type: "string" },
           problem: { type: "string", description: "The painful problem, in the users' words" },
@@ -211,6 +214,7 @@ export function createMoneyLabTools(): AutomatonTool[] {
           response_to_critic: { type: "string", description: "Your answer to the latest critique" },
           decision: { type: "string", enum: ["approve", "reject"], description: "For decide" },
           note: { type: "string", description: "For decide: your reason (reject) or your case for approval, which Opus reads" },
+          fresh: { type: "boolean", description: "For shortlist: redo it within the week because the pipeline changed a lot" },
         },
         required: ["action"],
       },
@@ -243,6 +247,19 @@ export function createMoneyLabTools(): AutomatonTool[] {
               return result.text;
             } catch (err: any) {
               return `Critique failed: ${String(err?.message ?? err).slice(0, 300)}`;
+            }
+          }
+          case "shortlist": {
+            if (!ctx.inferenceRouter) return "shortlist needs an Opus decision, which is not available in this runtime.";
+            try {
+              const result = await shortlistWithOpus(ctx.db.raw, {
+                router: ctx.inferenceRouter, chat: (msgs, opts) => ctx.inference.chat(msgs, opts),
+                sessionId: ctx.db.getKV("session_id") || "default", lab: ctx.config.moneyLab,
+              }, args.fresh === true);
+              recordFocusSpend(ctx.db.raw, result.costCents);
+              return result.text;
+            } catch (err: any) {
+              return `Shortlist failed: ${String(err?.message ?? err).slice(0, 300)}`;
             }
           }
           case "decide": {
@@ -702,6 +719,42 @@ export function createMoneyLabTools(): AutomatonTool[] {
         return post.status === "pending"
           ? `Draft ${post.id} sent to the owner for approval; it is published once approved. Do not wait for it.`
           : `Post ${post.id} queued: it is published within a minute.`;
+      },
+    },
+    {
+      name: "publish_kit",
+      description:
+        "Reach people through the owner: you cannot post on directories, forums or groups, but the owner posts for you if " +
+        "nothing is left to write. A kit is one ready-to-paste publication for one venue: platform, the exact URL where to " +
+        "post, the title, the full text in the venue's language, your page link (it gets ?ref=kit-<id> so visits are " +
+        "attributed), an optional image, the venue's rules (read them first with harvest) and what readers gain. The owner " +
+        "receives it on Telegram and answers /publie or /passe; you are woken. Value first, never the same text twice, " +
+        `at most ${MAX_KITS_PER_DAY} a day and ${MAX_PENDING_KITS} waiting. Actions: draft, list.`,
+      category: "survival",
+      riskLevel: "caution",
+      parameters: {
+        type: "object",
+        properties: {
+          action: { type: "string", enum: ["draft", "list"] },
+          platform: { type: "string", description: "e.g. Reddit r/vosfinances, Product Hunt, AlternativeTo, LinkedIn group X" },
+          where: { type: "string", description: "URL of the exact place to post" },
+          audience: { type: "string" },
+          title: { type: "string" },
+          body: { type: "string", description: "The complete text to paste, 120+ characters" },
+          link: { type: "string", description: "Your page URL" },
+          image: { type: "string", description: "e.g. ~/images/og-devis.png" },
+          rules: { type: "string", description: "What this venue allows and forbids (self-promotion days, flair, format)" },
+          value: { type: "string", description: "What readers gain from the post" },
+        },
+        required: ["action"],
+      },
+      execute: async (args, ctx) => {
+        if (args.action !== "draft") return describeKits(ctx.db.raw);
+        if (!ctx.config.moneyLab?.telegram) return "No owner channel (Telegram): kits cannot be delivered.";
+        const kit = draftKit(ctx.db.raw, args);
+        if (typeof kit === "string") return kit;
+        return `Kit ${kit.id} sent to the owner (${kit.platform}). It is posted when the owner answers /publie ${kit.id}; do not wait for it. ` +
+          `Visits from it will show as referrer kit-${kit.id} in your analytics. ${listKits(ctx.db.raw).filter((k) => k.status === "pending").length} kit(s) waiting.`;
       },
     },
     {
