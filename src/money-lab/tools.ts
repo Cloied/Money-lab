@@ -42,6 +42,7 @@ import { deleteDataset, formatRecords, listDatasets, readDataset, saveRecord, se
 import { decideIdeaWithOpus, decideStopWithOpus, isStop, stopDecisionBlocker } from "./decisions.js";
 import { addSite, checkSites, describeSites, removeSite } from "./monitor.js";
 import { checkDesign, designReview, firstImpression, formatDesignCheck } from "./design.js";
+import { repoScout, scaffoldSite, testSite, vendorCode } from "./workshop.js";
 
 /** Marker the Anthropic client turns into an image block (recent results only). */
 export const SCREENSHOT_MARKER = /\[\[image:([^\]\s]+\.(?:png|jpe?g))\]\]/g;
@@ -844,6 +845,178 @@ export function createMoneyLabTools(): AutomatonTool[] {
         } catch (err: any) {
           return `Harvest failed: ${String(err?.message ?? err).slice(0, 300)}`;
         }
+      },
+    },
+    {
+      name: "repo_scout",
+      description:
+        "Find GitHub repositories to reuse or learn from before writing code: searches by what the code must do, " +
+        "keeps maintained, starred projects, marks the licence (MIT, Apache, BSD, ISC: reusable; GPL, none: not), " +
+        "and reads the first READMEs through the free models. Free. Then vendor_code to copy one.",
+      category: "vm",
+      riskLevel: "safe",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "What the code must do, e.g. \"pdf merge browser javascript\"" },
+          language: { type: "string", description: "e.g. javascript, typescript, python" },
+          min_stars: { type: "integer", description: "Default 50" },
+          max_age_days: { type: "integer", description: "Last push at most this old; default 730" },
+          readmes: { type: "integer", description: "READMEs to read (0-5, default 3)" },
+          save_to: { type: "string", description: "Dataset name to keep the results" },
+        },
+        required: ["query"],
+      },
+      execute: async (args, ctx) => {
+        const home = process.env.HOME || "/root";
+        const summarize = async (readme: string, repo: string) => {
+          const result = await harvest(
+            { task: `Summarize this README for a developer who wants to reuse ${repo}: what it does, how to use it (install or copy), its size and dependencies, limits. 12 lines at most.`, text: readme },
+            { db: ctx.db.raw, home, router: ctx.inferenceRouter, chat: (msgs, opts) => ctx.inference.chat(msgs, opts), sessionId: ctx.db.getKV("session_id") || "default" },
+          );
+          recordFocusSpend(ctx.db.raw, result.costCents);
+          return result.text;
+        };
+        return repoScout({
+          query: String(args.query ?? ""),
+          language: typeof args.language === "string" ? args.language : undefined,
+          minStars: args.min_stars as number | undefined,
+          maxAgeDays: args.max_age_days as number | undefined,
+          readmes: args.readmes as number | undefined,
+          saveTo: typeof args.save_to === "string" && args.save_to ? args.save_to : undefined,
+        }, { home, summarize });
+      },
+    },
+    {
+      name: "vendor_code",
+      description:
+        "Copy a permissively licensed public GitHub repository, or only the paths you need, into ~/library/vendor/<name> " +
+        "with a NOTICE.md (source, commit, licence) and a line in ~/library/vendor/INDEX.md. Refuses GPL, unlicensed and " +
+        "huge repositories. Copies only: never installs or runs anything from it; read the code, then reuse it in your site.",
+      category: "vm",
+      riskLevel: "caution",
+      parameters: {
+        type: "object",
+        properties: {
+          repo: { type: "string", description: "owner/name" },
+          paths: { type: "array", items: { type: "string" }, description: "Files or directories to copy (default: all)" },
+          name: { type: "string", description: "Directory name under ~/library/vendor (default: the repository name)" },
+          ref: { type: "string", description: "Branch or tag (default: the default branch)" },
+        },
+        required: ["repo"],
+      },
+      execute: async (args, ctx) => {
+        if (ctx.identity.sandboxId) return "vendor_code is only available on a self-hosted server.";
+        return vendorCode({
+          repo: String(args.repo ?? ""), paths: looseList(args.paths),
+          name: typeof args.name === "string" ? args.name : undefined, ref: typeof args.ref === "string" ? args.ref : undefined,
+        }, { home: process.env.HOME || "/root" });
+      },
+    },
+    {
+      name: "scaffold_site",
+      description:
+        "Start a complete site in one call from the design kit: ~/sites/<name> with index.html (your title, description, " +
+        "H1 and lede set, theme linked), site.css, an about page, 404, robots.txt, sitemap.xml, the analytics snippet and a git " +
+        "repository; French or English. With publish: true and GitHub credentials, creates the repository and enables Pages. " +
+        "Then replace the placeholder texts, add favicon.png and og.png (render_image), run check_design, first_impression " +
+        "and test_site before design_review.",
+      category: "vm",
+      riskLevel: "caution",
+      parameters: {
+        type: "object",
+        properties: {
+          name: { type: "string", description: "lowercase-with-dashes; becomes the repository and URL path" },
+          template: { type: "string", enum: ["tool", "landing"] },
+          theme: { type: "string", enum: ["sober", "warm", "editorial", "playful", "technical", "retro"] },
+          lang: { type: "string", enum: ["fr", "en"] },
+          title: { type: "string", description: "Page title, under 60 characters" },
+          description: { type: "string", description: "Meta description, under 150 characters" },
+          h1: { type: "string" },
+          lede: { type: "string" },
+          brand: { type: "string" },
+          contact_email: { type: "string" },
+          publish: { type: "boolean", description: "Create the GitHub repository and enable Pages now" },
+        },
+        required: ["name", "title", "description"],
+      },
+      execute: async (args, ctx) => {
+        if (ctx.identity.sandboxId) return "scaffold_site is only available on a self-hosted server.";
+        return scaffoldSite({
+          name: String(args.name ?? ""), template: args.template as "tool" | "landing" | undefined, theme: typeof args.theme === "string" ? args.theme : undefined,
+          lang: args.lang as "fr" | "en" | undefined, title: String(args.title ?? ""), description: String(args.description ?? ""),
+          h1: typeof args.h1 === "string" ? args.h1 : undefined, lede: typeof args.lede === "string" ? args.lede : undefined,
+          brand: typeof args.brand === "string" ? args.brand : undefined, contactEmail: typeof args.contact_email === "string" ? args.contact_email : undefined,
+          publish: args.publish === true,
+        }, { home: process.env.HOME || "/root" });
+      },
+    },
+    {
+      name: "test_site",
+      description:
+        "Test a site like a visitor, for free: a fresh headless browser runs your scenario (goto, click, fill, select, press, " +
+        "expect_text, expect_visible, expect_hidden, expect_url, wait), then crawls the internal links. Reports failed steps " +
+        "with a screenshot, console and page errors, failed requests, broken links and images. Run it on localhost before " +
+        "publishing (python3 -m http.server in your site directory) and on the live URL after.",
+      category: "vm",
+      riskLevel: "safe",
+      parameters: {
+        type: "object",
+        properties: {
+          url: { type: "string" },
+          steps: {
+            type: "array",
+            description: "Scenario after the page loads, e.g. [{action:'fill', selector:'#champ-1', value:'12'}, {action:'click', selector:'button[type=submit]'}, {action:'expect_text', selector:'#resultat', value:'Résultat'}]",
+            items: { type: "object", properties: { action: { type: "string" }, selector: { type: "string" }, value: { type: "string" } }, required: ["action"] },
+          },
+          crawl: { type: "boolean", description: "Follow internal links (default true)" },
+          max_pages: { type: "integer", description: "Pages to crawl, default 20" },
+          mobile: { type: "boolean", description: "390px phone viewport" },
+        },
+        required: ["url"],
+      },
+      execute: async (args, ctx) => {
+        if (ctx.identity.sandboxId) return "test_site is only available on a self-hosted server.";
+        try {
+          return await testSite({
+            url: String(args.url ?? ""), steps: Array.isArray(args.steps) ? (args.steps as any[]) : undefined,
+            crawl: args.crawl !== false, maxPages: args.max_pages as number | undefined, mobile: args.mobile === true,
+          }, { home: process.env.HOME || "/root" });
+        } catch (err: any) {
+          return `test_site failed: ${String(err?.message ?? err).slice(0, 300)}`;
+        }
+      },
+    },
+    {
+      name: "code_review",
+      description:
+        "Have your code reviewed before you ship it: the free models (then Haiku if none answers) read the files and list " +
+        "bugs, security issues (injection, unsafe HTML, secrets), accessibility and performance problems, with the line and a " +
+        "fix each. Pass the files of one page or module at a time (up to 8).",
+      category: "vm",
+      riskLevel: "safe",
+      parameters: {
+        type: "object",
+        properties: {
+          files: { type: "array", items: { type: "string" }, description: "Paths in your home, e.g. ~/sites/devis/index.html" },
+          focus: { type: "string", description: "What to look at first (optional)" },
+        },
+        required: ["files"],
+      },
+      execute: async (args, ctx) => {
+        const files = (looseList(args.files) ?? []).slice(0, 8);
+        if (!files.length) return "files is required.";
+        const task = "Review this code as a senior web developer. List every real problem, most serious first, as " +
+          "\"file:line — problem — fix\": bugs and wrong results, security (injection, unsafe innerHTML, secrets in code, " +
+          "external scripts), accessibility (labels, contrast, keyboard, focus), mobile layout, performance (heavy assets, " +
+          "blocking scripts), wrong or placeholder text left in. Then 3 things done well. Do not rewrite the files." +
+          (typeof args.focus === "string" && args.focus ? ` Focus first on: ${args.focus}.` : "");
+        const result = await harvest({ task, files, fresh: true }, {
+          db: ctx.db.raw, home: process.env.HOME || "/root", router: ctx.inferenceRouter,
+          chat: (msgs, opts) => ctx.inference.chat(msgs, opts), sessionId: ctx.db.getKV("session_id") || "default",
+        });
+        recordFocusSpend(ctx.db.raw, result.costCents);
+        return result.text;
       },
     },
     {

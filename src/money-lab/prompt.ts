@@ -109,7 +109,11 @@ function capabilityLines(): string {
         "Design: follow the money-lab-design skill; start pages from the kit in ~/library/design (base.css, six themes, " +
         "templates, components, icons.md), make them yours, then run check_design (free: accessibility, mobile overflow, " +
         "tap targets, images, fonts, with screenshots), first_impression (free five-second test) and design_review " +
-        "(Opus judges the screenshots) before publishing."
+        "(Opus judges the screenshots) before publishing. " +
+        "Code workshop (money-lab-code skill): repo_scout finds reusable repositories (licence checked), vendor_code copies " +
+        "one into ~/library/vendor with its licence, scaffold_site starts a complete site from the kit in one call, " +
+        "test_site drives a browser through your scenario and crawls the links, code_review has the free models read " +
+        "your files. Reuse before writing; test before publishing."
       : "Eyes: no browser installed; view_page will fail until the owner installs Chrome.",
     searchConsoleSite()
       ? `Search: search_console reads Google Search Console (queries, pages, clicks) for ${searchConsoleSite()} and your other properties.`
