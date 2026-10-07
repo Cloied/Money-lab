@@ -26,6 +26,8 @@ import {
 import { approvalRequired, decidePost, describePosts, setApprovalMode } from "./social.js";
 import { withSecrets } from "./selfhosted.js";
 import { setInferenceCaps } from "./caps.js";
+import { decideKit, describeKits, formatKitForOwner, listKits } from "./kits.js";
+import { ownerDismissesIdea, ownerPicksIdea } from "./decisions.js";
 import path from "path";
 
 const KV_OFFSET = "money_lab.telegram_offset";
@@ -46,6 +48,12 @@ export const TELEGRAM_HELP = `Commandes Money Lab :
 /publier <id> — publier une publication proposée par le bot
 /rejeter <id> [raison] — refuser une publication
 /publications [auto|validation] — voir les publications, ou changer le mode
+/kits — kits de publication en attente (le bot prépare, tu colles)
+/kit <id> — revoir un kit en entier
+/publie <id> [lien] — kit publié par toi (le bot suit les visites)
+/passe <id> [raison] — kit non publié
+/choisis <id> — construire cette idée finaliste
+/ecarte <id> [raison] — écarter cette idée finaliste
 /plafond <jour $> [heure $] — changer le plafond de dépense IA (ex : /plafond 5 1.5) ; le bot redémarre
 /aide — cette liste
 Tout autre message est transmis au bot.`;
@@ -197,6 +205,36 @@ export class TelegramChannel {
             : "Mode validation : chaque publication attend ton /publier.";
         }
         return `Mode : ${approvalRequired(this.raw) ? "validation" : "automatique"}\n${describePosts(this.raw)}`;
+      }
+      case "/kits":
+        return describeKits(this.raw, { pendingOnly: true });
+      case "/kit": {
+        const kit = listKits(this.raw).find((k) => k.id === (args[0] ?? "").toLowerCase());
+        return kit ? formatKitForOwner(kit) : `Kit ${args[0] ?? ""} introuvable (/kits).`;
+      }
+      case "/publie":
+      case "/passe": {
+        const [id, ...note] = args;
+        if (!id) return `Usage : ${command} <id>${command === "/publie" ? " [lien du post]" : " [raison]"}`;
+        const reply = decideKit(this.raw, id, command === "/publie", note.join(" "));
+        if (/marqué publié|passé/.test(reply)) {
+          this.raw.prepare(
+            "INSERT INTO wake_events (source, reason, payload) VALUES ('money_lab_operator', ?, '{}')",
+          ).run(command === "/publie" ? `Kit ${id} publié par le propriétaire` : `Kit ${id} non publié`);
+        }
+        return reply;
+      }
+      case "/choisis":
+      case "/ecarte": {
+        const [id, ...note] = args;
+        if (!id) return `Usage : ${command} <id>${command === "/ecarte" ? " [raison]" : ""}`;
+        const reply = command === "/choisis" ? ownerPicksIdea(this.raw, id) : ownerDismissesIdea(this.raw, id, note.join(" "));
+        if (/choisie|écartée/.test(reply)) {
+          this.raw.prepare(
+            "INSERT INTO wake_events (source, reason, payload) VALUES ('money_lab_operator', ?, '{}')",
+          ).run(command === "/choisis" ? `Idée ${id} choisie par le propriétaire` : `Idée ${id} écartée par le propriétaire`);
+        }
+        return reply;
       }
       case "/plafond": {
         const daily = parseDollars(args[0]);

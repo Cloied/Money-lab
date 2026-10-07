@@ -12,7 +12,7 @@ import path from "path";
 import type { AutomatonConfig, AutomatonDatabase, ToolContext } from "../../types.js";
 import { createDatabase } from "../../state/database.js";
 import { applyMoneyLabProfile } from "../../money-lab/profile.js";
-import { addLedgerEntry, ensureMoneyLabSchema, getExperiment, getKV, pendingOwnerNotifications, upsertExperiment } from "../../money-lab/journal.js";
+import { addLedgerEntry, ensureMoneyLabSchema, getExperiment, getKV, pendingOwnerNotifications, setKV, upsertExperiment } from "../../money-lab/journal.js";
 import { createMoneyLabTools } from "../../money-lab/tools.js";
 import { executeTool } from "../../agent/tools.js";
 import { PolicyEngine } from "../../agent/policy-engine.js";
@@ -340,6 +340,11 @@ describe("Datasets", () => {
 
 // ─── Binding Opus decisions ─────────────────────────────────────
 
+
+/** The owner saw this finalist over a day ago and did not answer: Opus decides. */
+const ownerWindowPassed = (db: AutomatonDatabase, id: string) =>
+  setKV(db.raw, "money_lab.finalists", JSON.stringify({ [id]: { askedAt: new Date(Date.now() - 25 * 3_600_000).toISOString() } }));
+
 describe("Binding Opus decisions", () => {
   function setup(answer: () => { content: string; finishReason?: string }) {
     const db = openDb();
@@ -382,6 +387,11 @@ describe("Binding Opus decisions", () => {
     expect(routed.filter((r) => /investment committee/.test(r.messages[0].content))).toHaveLength(0);
     vi.setSystemTime(new Date("2026-10-07T15:00:00Z"));
     addLedgerEntry(db.raw, { kind: "owner_funding", amountCents: 2000, source: "operator", reference: "f" });
+    // First request: the owner is told and gets 24 h; Opus is not asked yet.
+    expect(await call("idea", { action: "decide", id: "a", decision: "approve", note: "x" })).toMatch(/owner has been told about this finalist/);
+    expect(routed.filter((r) => /investment committee/.test(r.messages[0].content))).toHaveLength(0);
+    expect(pendingOwnerNotifications(db.raw).some((n) => /🏁 Finaliste : Idée a \(a\)/.test(n.text))).toBe(true);
+    ownerWindowPassed(db, "a");
     const result = await call("idea", { action: "decide", id: "a", decision: "approve", note: "Meilleure demande du pipeline, 3 sources." });
     expect(result).toMatch(/Decision: APPROVE[\s\S]*binding[\s\S]*approved \(80\/100\)/);
     const request = routed.find((r) => /investment committee/.test(r.messages[0].content));
@@ -405,6 +415,7 @@ describe("Binding Opus decisions", () => {
     const { db, call, ready } = setup(() => ({ content }));
     await ready();
     vi.setSystemTime(new Date("2026-10-07T15:00:00Z"));
+    ownerWindowPassed(db, "a");
     expect(await call("idea", { action: "decide", id: "a", decision: "approve", note: "dossier complet" })).toMatch(/Not yet: get the missing evidence/);
     expect(getIdea(db.raw, "a")!.status).toBe("candidate");
     expect(await call("idea", { action: "decide", id: "a", decision: "approve", note: "encore" })).toMatch(/Nothing changed since Opus said NOT YET/);
