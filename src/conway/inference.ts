@@ -288,7 +288,8 @@ const ANTHROPIC_EFFORT_MODELS = new Set([
 ]);
 const WEB_SEARCH_MAX_USES = 5;
 const WEB_FETCH_MAX_USES = 5;
-const WEB_FETCH_MAX_TOKENS = 15_000;
+// A fetched page is read inside the paid turn: long pages go through harvest (free models) instead.
+const WEB_FETCH_MAX_TOKENS = 8_000;
 /** Web search is billed $10 per 1,000 searches. */
 const WEB_SEARCH_CENTS = 1;
 const MAX_PAUSE_CONTINUATIONS = 3;

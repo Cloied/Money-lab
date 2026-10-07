@@ -13,7 +13,7 @@
   status/summary, no-progress sleep, integration note, Conway checklist (features verified in docs/FEATURES.md).
 - Checks run (command, result, date):
   - likma project feature verify (types/money-lab/build): pass, 2026-10-03
-  - pnpm exec vitest run --exclude src/__tests__/context-hardening.test.ts: 1751/1751 pass (design toolkit), 2026-10-07
+  - pnpm exec vitest run --exclude src/__tests__/context-hardening.test.ts: 1754/1754 pass (lighter turns), 2026-10-07
   - node money-lab/e2e/harness.mjs (real process, strict fake Anthropic/Telegram/Stripe): PASS, 2026-10-06
   - node money-lab/e2e/chaos.mjs: PASS, 2026-10-07; likma project check (types/money-lab/build): PASS, 2026-10-07
     (upstream d8f8168 baseline: 1614/1614)
@@ -76,6 +76,10 @@
   ~/library/design, `money-lab-design` skill (method, free resources, checklist), `check_design`
   (axe-core + mechanical checks + screenshots), `first_impression` (free model), `design_review`
   (Opus with screenshots). Not yet measured live.
+- Live 2026-10-07 03:48 UTC: the agent used the design method (brief, og image, favicon, check_design 0
+  errors, first_impression) but each turn read about 80k tokens and the 1 $/hour cap stopped it after a
+  few turns. Older tool results are now shortened in the history, delegate goes to the free models
+  first, web_fetch pages are capped at 8k tokens. Not yet measured live (/sante shows the average).
 - Blockers and known regressions:
   - Upstream context-hardening.test.ts hangs on unmodified upstream; upstream CI masks it as a warning.
   - In-process limits are bypassable through exec; supervised run only.

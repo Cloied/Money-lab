@@ -61,6 +61,15 @@ export function truncateToolResult(result: string, maxSize: number = MAX_TOOL_RE
     `\n\n[TRUNCATED: ${result.length - maxSize} characters omitted]`;
 }
 
+/** Start and end of an older tool result, with what was left out. */
+export function shortenOldResult(result: string, keep: number): string {
+  if (result.length <= keep) return result;
+  const head = Math.floor(keep * 0.7);
+  const tail = keep - head;
+  return `${result.slice(0, head)}\n[... older result shortened: ${result.length - keep} of ${result.length} characters ` +
+    `left out; run it again or use recall if you need them ...]\n${result.slice(-tail)}`;
+}
+
 /**
  * Estimate total tokens for a single turn (input + thinking + tool calls/results).
  */
@@ -93,6 +102,15 @@ export function buildContextMessages(
     inference?: InferenceClient;
     /** Count identical calls (name + arguments) instead of tool names. */
     repeatByCall?: boolean;
+    /**
+     * Keep tool results whole only for the last N rendered turns; older ones
+     * are shortened to their start and end (Money Lab: the history was most
+     * of every request). The cut moves one turn at a time near the end of the
+     * history, so the cached prefix before it stays valid.
+     */
+    fullResultTurns?: number;
+    /** Characters kept from an older result (start and end). */
+    oldResultChars?: number;
   },
 ): ChatMessage[] {
   const budget = options?.budget ?? DEFAULT_TOKEN_BUDGET;
@@ -156,7 +174,10 @@ export function buildContextMessages(
   }
 
   // Add recent turns as conversation history
-  for (const turn of turnsToRender) {
+  const fullFrom = options?.fullResultTurns !== undefined
+    ? Math.max(0, turnsToRender.length - options.fullResultTurns)
+    : 0;
+  for (const [turnIndex, turn] of turnsToRender.entries()) {
     // The turn's input (if any) as a user message
     if (turn.input) {
       messages.push({
@@ -194,7 +215,9 @@ export function buildContextMessages(
           : tc.result;
         messages.push({
           role: "tool",
-          content: truncateToolResult(rawContent),
+          content: turnIndex < fullFrom
+            ? shortenOldResult(rawContent, options?.oldResultChars ?? 1200)
+            : truncateToolResult(rawContent),
           tool_call_id: tc.id,
         });
       }
