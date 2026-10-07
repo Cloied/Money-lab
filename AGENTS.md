@@ -72,7 +72,8 @@ Run the CLI as `likma project <action> --path .` (install: `pipx install --edita
 - Work: use `project setup|start|check` with the configured commands; never guess commands. Parallel agents
   work in `project worktree add NAME`. On failure read `project diagnostics` before rerunning; record
   hypotheses with `project attempt`. Search `project knowledge find` before repeating research.
-- Verify: `project feature verify ID --criterion-check N:CHECK`; inspect rendered UI for visual changes.
+- Verify: `project feature verify ID --criterion-check N:CHECK`; after merges or broad edits `project feature reverify`
+  runs each check once for all stale features. Inspect rendered UI for visual changes.
 - Finish: run `project audit`, update docs/STATUS.md, end an active run with `project runtime end --summary`
   (import measured usage first with `project runtime import-usage`). Propose reusable lessons with
   `project lesson propose`. Report outcome, evidence, affected paths and how to test; never report unrun
@@ -81,7 +82,7 @@ Run the CLI as `likma project <action> --path .` (install: `pipx install --edita
 - Load only skills relevant to the task: read `<likma checkout>/skills/<area>/<name>/SKILL.md` from the index
   below (installed copies are prefixed `likma-`; plugins namespace them as `likma:<name>`).
 
-### Skill index (profile bot, Likma 0.8.1)
+### Skill index (profile bot, Likma 0.9.0)
 - agents/autonomous-agents: building, auditing or running an unattended LLM agent with tools, shell, spend or an owner channel; produces…
 - agents/llm-evaluation: measuring an LLM feature, RAG or agent (eval sets, graders, judges, baselines, CI gates, drift); produces a v…
 - agents/mcp-servers: designing, building or reviewing a Model Context Protocol server or its tools (naming, schemas, pagination, e…

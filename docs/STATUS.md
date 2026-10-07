@@ -36,7 +36,7 @@
       one run of money-lab (pass, 64 s), build (pass), e2e (PASS, 181 s) and chaos (PASS, 71 s) re-verified the
       15 features made stale by the merge.
     - `likma project check --only types`: pass; `--only upstream`: 69 files, 1772/1772 pass (79 s).
-    - `likma project audit`: 0 failures; warning: AGENTS.md block predates Likma 0.9.0 (upgrade after that release merges).
+    - `likma project audit`: 0 failures; then `likma project upgrade` to Likma 0.9.0 (f30f038): audit 0 failures, 0 warnings.
   - Earlier: 1754/1754 upstream suite and E2E/chaos PASS on 2026-10-06/07 (before this branch).
 - Likma migration (2026-10-07): profile `bot`; checks e2e, chaos and upstream added (object form, 900 s);
   `start_disabled` replaces the empty start; setup `install`; `money-lab/e2e/run.mjs` builds before each
