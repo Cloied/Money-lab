@@ -64,8 +64,9 @@ in `~/library/design/notes.md` with the source and licence, so you never researc
 2. `first_impression` (free): if the five-second reader cannot say what the page does and for whom,
    rewrite the H1 and lede before touching anything else.
 3. `audit_page` (free): 90+ on performance, accessibility, best practices, SEO.
-4. `design_review` (Opus, a few cents): once per page before it goes live and after a redesign. Apply
-   the top fixes or record why not. Verdict FIX FIRST means it is not ready.
+4. `design_review` (free by default: a vision model reads both screenshots): as often as you iterate.
+   `design_review final: true` (Opus, a few cents): once per page before it goes live and after a
+   redesign. Apply the top fixes or record why not. Verdict FIX FIRST means it is not ready.
 5. `view_page` desktop, mobile and print (if people print or save as PDF). Then publish.
 Record the before/after screenshots and the review in `record_experiment` evidence. Save reusable
 pieces (a nice result card, a form pattern) in `~/library/` for the next product.

@@ -359,6 +359,30 @@
       "path": "src/money-lab/tools.ts",
       "purpose": "Money Lab tool definitions (record_experiment, view_page, idea, harvest, ...)",
       "edit_when": "A Money Lab tool is added or its arguments change"
+    },
+    {
+      "area": "Semantic recall",
+      "path": "src/money-lab/embeddings.ts",
+      "purpose": "Free embeddings cached in the state database; recall by meaning blended with words",
+      "edit_when": "How the bot searches its own memory changes"
+    },
+    {
+      "area": "IndexNow",
+      "path": "src/money-lab/indexnow.ts",
+      "purpose": "Key file per site and URL submission to Bing, Yandex and partners",
+      "edit_when": "How new pages are announced to search engines changes"
+    },
+    {
+      "area": "Free services (owner accounts)",
+      "path": "src/money-lab/services.ts",
+      "purpose": "Tavily search, Bing Webmaster, INSEE Sirene, API Adresse, Légifrance (PISTE), UptimeRobot, Resend e-mail; daily caps per service",
+      "edit_when": "A free service, its endpoint, cap or key name changes"
+    },
+    {
+      "area": "Cloudflare Pages deployment",
+      "path": "src/money-lab/deploy.ts",
+      "purpose": "deploy_site drives wrangler with the Pages token to publish ~/sites/<name>",
+      "edit_when": "The deployment flow, token scope or wrangler lookup changes"
     }
   ],
   "bot_guards": {

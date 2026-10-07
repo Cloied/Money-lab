@@ -22,7 +22,9 @@ import { describeSites } from "./monitor.js";
 import { describeMode } from "./modes.js";
 import { describeFunnel } from "./funnel.js";
 import { describeProbes } from "./probes.js";
-import { describeKitsForPrompt } from "./kits.js";
+import { describeKitsForPrompt, kitChannelsConfigured } from "./kits.js";
+import { configuredServices } from "./services.js";
+import { cloudflarePagesConfigured } from "./deploy.js";
 import { currentShortlist, pendingFinalists } from "./decisions.js";
 
 export const MONEY_LAB_GENESIS_PROMPT = `You operate Money Lab, a small economic experiment built on Automaton.
@@ -120,7 +122,11 @@ function capabilityLines(): string {
         "your files. Reuse before writing; test before publishing. " +
         "Distribution: the owner posts for you. publish_kit prepares one ready-to-paste publication per venue (directory, " +
         "subreddit, forum, professional group, newsletter) with the venue's rules and a tracked link; value for the reader " +
-        "first, never the same text twice, at most 3 a day. Read the venue's rules with harvest before drafting."
+        "first, never the same text twice, at most 3 a day. Read the venue's rules with harvest before drafting. " +
+        "Free pack: harvest and delegate read pages through a reader service (clean text, JavaScript pages included); " +
+        "recall searches by meaning when a free embedding model is configured; design_review is free by default (final: true " +
+        "for Opus before publishing); probe add tells Bing and partners about the page (IndexNow); free_services finds a " +
+        "free service or API for any need from the community lists."
       : "Eyes: no browser installed; view_page will fail until the owner installs Chrome.",
     searchConsoleSite()
       ? `Search: search_console reads Google Search Console (queries, pages, clicks) for ${searchConsoleSite()} and your other properties.`
@@ -140,7 +146,25 @@ function capabilityLines(): string {
     })(),
     "Research: the web_search and web_fetch tools search the web and read pages (about 1 cent per search plus " +
       "the tokens read). Keep durable notes in ~/research/ (sources with dates): your context window forgets.",
+    servicesLine(),
   ].join(" ") + " ";
+}
+
+/** Free services the owner has set up (step 5b), each with its tool; silent when none. */
+function servicesLine(): string {
+  const services = configuredServices();
+  const parts: string[] = [];
+  if (services.includes("tavily")) parts.push("free_search (Tavily) replaces the paid web search for research, 30 a day");
+  if (services.includes("bing")) parts.push("bing_webmaster reads what Bing shows for your sites and submits new URLs");
+  if (services.includes("sirene")) parts.push("france_data companies counts French businesses by trade and area (Sirene)");
+  if (services.includes("legifrance")) parts.push("france_data law searches French law (Légifrance)");
+  parts.push("france_data address geocodes French places (no account)");
+  if (services.includes("uptimerobot")) parts.push("monitor_site add also creates an external 5-minute check (UptimeRobot)");
+  if (services.includes("email")) parts.push("email_owner sends the owner long reports (3 a day)");
+  if (cloudflarePagesConfigured()) parts.push("deploy_site publishes a finished site to Cloudflare Pages (<name>.pages.dev)");
+  const channels = kitChannelsConfigured();
+  if (channels.length) parts.push(`publish_kit for ${channels.map((c) => (c === "devto" ? "dev.to" : "Mastodon")).join(" or ")} is posted by the runtime once the owner answers /publie (nothing to paste)`);
+  return `Owner accounts, free: ${parts.join("; ")}. Each has a daily cap under its free quota; the keys stay in the runtime.`;
 }
 
 function revenueLine(lab: MoneyLabConfig): string {

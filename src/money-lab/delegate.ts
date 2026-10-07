@@ -12,6 +12,7 @@ import fs from "fs";
 import path from "path";
 import type { ChatMessage, InferenceRequest, InferenceResult } from "../types.js";
 import { isRuntimePath } from "./guard.js";
+import { withSecrets } from "./selfhosted.js";
 
 export const DELEGATE_MODEL = "claude-haiku-4-5";
 const MAX_INPUT_CHARS = 400_000;
@@ -63,9 +64,41 @@ async function readCapped(resp: Response, limit: number): Promise<string> {
   return new TextDecoder().decode(Buffer.concat(chunks).subarray(0, limit));
 }
 
-async function fetchPage(url: string, fetchFn: typeof fetch): Promise<string> {
+/** Hosts the reader service cannot reach: the agent's own local servers. */
+const LOCAL_HOST = /^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|\[::1\])/;
+/** Jina Reader turns any page (JavaScript included) into clean text; 20 requests a minute without a key, more with a free key. */
+const READER_URL = "https://r.jina.ai/";
+const READER_TIMEOUT_MS = 30_000;
+
+async function readThroughJina(url: URL, fetchFn: typeof fetch, env: NodeJS.ProcessEnv): Promise<string | null> {
+  if (env.MONEY_LAB_READER === "direct" || LOCAL_HOST.test(url.hostname) || /\.(json|csv|xml|txt|md|js|css)$/i.test(url.pathname)) return null;
+  try {
+    const resp = await fetchFn(`${READER_URL}${url.toString()}`, {
+      signal: AbortSignal.timeout(READER_TIMEOUT_MS),
+      headers: {
+        accept: "text/plain",
+        "x-return-format": "markdown",
+        "user-agent": "MoneyLabBot/1.0",
+        ...(env.JINA_API_KEY ? { authorization: `Bearer ${env.JINA_API_KEY}` } : {}),
+      },
+    });
+    if (!resp.ok) {
+      await resp.body?.cancel().catch(() => undefined);
+      return null;
+    }
+    const text = (await readCapped(resp, MAX_PAGE_BYTES)).trim();
+    return text.length >= 40 ? text : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Reads a page: through the reader service first, then directly (HTML stripped to text). */
+export async function fetchPage(url: string, fetchFn: typeof fetch, env: NodeJS.ProcessEnv = withSecrets()): Promise<string> {
   const parsed = new URL(url);
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") throw new Error("only http(s) URLs");
+  const viaReader = await readThroughJina(parsed, fetchFn, env);
+  if (viaReader !== null) return viaReader;
   const resp = await fetchFn(parsed.toString(), {
     signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     headers: { "user-agent": "Mozilla/5.0 (compatible; MoneyLabBot/1.0)" },

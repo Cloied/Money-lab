@@ -63,7 +63,7 @@ La dernière ligne doit afficher `v22…`.
 ```sh
 ufw allow OpenSSH && ufw --force enable
 useradd --create-home --shell /bin/bash moneylab
-git clone https://github.com/Cloied/Money-lab /opt/money-lab
+git clone https://github.com/moneylab-djib/Money-lab /opt/money-lab
 chown -R moneylab:moneylab /opt/money-lab
 corepack enable pnpm
 cd /opt/money-lab
@@ -263,6 +263,56 @@ puisse faire avec, c'est modifier ses propres dépôts ou lire ses propres stati
 La recherche web (outils Anthropic) est active d'office : environ 1 centime par recherche, compté dans
 son budget.
 
+## Comptes gratuits qui augmentent le bot (facultatifs, un par un)
+
+Chaque compte ci-dessous est gratuit sans carte bancaire et ajoute une capacité précise. Crée-les à ton
+rythme, dans l'ordre qui t'arrange ; le bot découvre chaque clé au redémarrage et le journal affiche
+« Services gratuits configurés : … ». Toutes ces clés sont **invisibles pour le bot** : seul le programme
+s'en sert, avec un plafond d'appels par jour inférieur au quota gratuit. Pour chacune : crée la clé sur le
+site, ajoute la ligne dans `/etc/money-lab.env` (`nano /etc/money-lab.env`), puis `systemctl restart money-lab`.
+Ne colle jamais une clé dans un chat.
+
+1. **Tavily** — recherche web gratuite pour ses recherches (remplace la recherche payante d'Anthropic,
+   1 000 recherches par mois ; le bot s'en autorise 30 par jour). https://app.tavily.com → compte avec ton
+   e-mail → *API Keys* → *Create*. Variable `TAVILY_API_KEY` (commence par `tvly-`).
+2. **Bing Webmaster Tools** — ce que Bing (et donc DuckDuckGo, Ecosia, Copilot) montre de ses sites, et
+   l'envoi de nouvelles pages à indexer en quelques heures. https://www.bing.com/webmasters → connexion avec
+   un compte Microsoft → *Ajouter un site* (le plus simple : *Importer depuis Google Search Console*) →
+   roue dentée *Paramètres → Accès API → Générer une clé API*. Variable `BING_WEBMASTER_KEY`.
+3. **INSEE Sirene** — combien d'entreprises existent dans un métier et une zone (taille d'un marché local,
+   concurrence). https://portail-api.insee.fr → compte → *Mes applications → Créer une application* →
+   souscrire à l'API *Sirene* → copie la clé (*Clé d'intégration*). Variable `INSEE_API_KEY`.
+4. **Légifrance via PISTE** — vérifier ce qu'un produit ou une promesse doit respecter (codes, lois, décrets,
+   jurisprudence). https://piste.gouv.fr → compte → *Applications → Créer* → coche l'API *Légifrance* →
+   accepte ses conditions (quelques heures d'attente) → *Identifiants client* (production ou sandbox).
+   Variables `PISTE_CLIENT_ID` et `PISTE_CLIENT_SECRET` (et `PISTE_SANDBOX=1` si tu n'as que le bac à sable).
+5. **dev.to** — pour les articles « comment j'ai construit… » en anglais, publiés par le programme après ton
+   `/publie <id>` (rien à coller). https://dev.to → compte → *Settings → Extensions → DEV Community API Keys
+   → Generate*. Variable `DEVTO_API_KEY`.
+6. **Mastodon** — un compte à lui pour partager ses outils (francophone : https://piaille.fr ou
+   https://mamot.fr ; anglophone : https://mastodon.social). Crée le compte avec une adresse e-mail à toi,
+   puis *Préférences → Développement → Nouvelle application* : nom « Money Lab », coche uniquement
+   `write:statuses` → *Envoyer* → copie *Votre jeton d'accès*. Variables `MASTODON_INSTANCE=piaille.fr` et
+   `MASTODON_TOKEN`. Les kits pour Mastodon sont publiés par le programme après ton `/publie <id>`.
+7. **Resend** — il t'envoie par e-mail les rapports trop longs pour Telegram (3 par jour). https://resend.com
+   → compte → *API Keys → Create* (permission *Sending access*). Variables `RESEND_API_KEY` (commence par
+   `re_`) et `MONEY_LAB_OWNER_EMAIL=ton adresse` (sans domaine vérifié, Resend n'envoie qu'à l'adresse de ton
+   compte, ce qui est exactement ce qu'il faut).
+8. **UptimeRobot** — une surveillance externe de ses sites toutes les 5 minutes, en plus de la sienne
+   (50 moniteurs gratuits). https://uptimerobot.com → compte → *Integrations & API → Main API key → Create*.
+   Variable `UPTIMEROBOT_API_KEY`.
+9. **Cloudflare Pages** — un second hébergement gratuit (`<nom>.pages.dev`, bande passante illimitée,
+   500 déploiements par mois), déployé par le programme avec l'outil `deploy_site`. Sur
+   https://dash.cloudflare.com (le compte des IA gratuites convient) : *Profil → API Tokens → Create Token →
+   Custom token* : permission *Account → Cloudflare Pages → Edit*, uniquement ton compte → *Create*. Variable
+   `CLOUDFLARE_PAGES_TOKEN` (`CLOUDFLARE_ACCOUNT_ID` est déjà renseigné pour Workers AI). Sur le serveur, en
+   root, installe l'outil une fois : `npm install -g wrangler` (sinon le programme le télécharge à chaque
+   déploiement).
+
+Sans compte : `france_data address` (adresses et communes, API Adresse de l'État) marche d'office.
+Dans `/sante`, la ligne « Services gratuits (tes comptes) » montre ce qui est actif et combien d'appels
+ont été faits aujourd'hui.
+
 ## Tes interventions
 
 Pour gagner de l'argent, le bot te demandera (via `request_help`) : un nom de domaine (domaine
@@ -297,6 +347,8 @@ et donne les corrections ; quelques centimes). Le kit et les compétences se met
 **Trouver la bonne idée.** Le bot ne part plus d'une idée au hasard : `niche_scan` lui donne des catégories de besoins (métiers, démarches, moments de vie, obligations, données, tâches répétitives), il les développe en recherches concrètes avec les IA gratuites, puis mesure chaque niche avec des signaux comptés (suggestions Google, intention d'achat, audience, discussions, alternatives existantes) et une formule fixe ; les niches rejetées sont mémorisées avec la raison. Avant de construire un produit, il publie une **sonde** : une page utile faite en un jour, et Google Search Console dit après deux semaines si des gens la cherchent (`/sante` affiche les sondes en cours ; tu es prévenu sur Telegram quand une sonde réussit ou échoue). Les sondes exigent que Search Console soit configuré (point 5 ci-dessus).
 
 **Publier pour lui.** Le bot ne peut pas poster sur les annuaires, forums ou groupes : il te prépare des **kits de publication** complets (où poster exactement, le titre, le texte à coller, le lien suivi, l'image, les règles du lieu). Ils arrivent sur Telegram ; tu colles, tu publies en ton nom, puis `/publie <id> <lien>` (ou `/passe <id> [raison]`). `/kits` liste ceux en attente, `/kit <id>` en réaffiche un. Au plus 3 par jour. Avant de construire un produit, tu vois aussi chaque **idée finaliste** pendant 24 h : `/choisis <id>` pour la lancer, `/ecarte <id> [raison]` pour la refuser ; sans réponse, Opus décide.
+
+**Gratuit en plus (sans compte, ou presque).** Le bot lit les pages web via Jina Reader (texte propre, même sur les sites en JavaScript ; une clé gratuite sur https://jina.ai → *API Keys* dans `JINA_API_KEY` passe de 20 à 500 lectures par minute, facultatif). Sa mémoire (`recall`) cherche par sens grâce aux embeddings gratuits de Gemini, Mistral ou Cloudflare, déjà configurés avec tes clés. `design_review` passe d'abord par Gemini (gratuit) et ne va chez Opus qu'au moment de publier. Chaque sonde publiée est signalée à Bing et ses partenaires (IndexNow, gratuit, sans compte). `free_services` lui trouve un service ou une API gratuite pour un besoin donné. Pour des statistiques de visite en plus de GoatCounter : sur https://dash.cloudflare.com → *Analytics & Logs → Web Analytics → Add a site* (sans proxy), copie le `token` du snippet dans `CF_WEB_ANALYTICS_TOKEN` ; les nouveaux sites l'incluent.
 
 **Les décisions importantes sont prises par Claude Opus 5.5**, et le programme les applique : approuver
 une idée (elle devient une expérience) et arrêter une expérience active. Le bot prépare le dossier,

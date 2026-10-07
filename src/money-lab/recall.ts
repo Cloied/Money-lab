@@ -89,37 +89,47 @@ function scoreChunk(text: string, wanted: string[]): number {
   return matched === 0 ? 0 : score * (matched / wanted.length) ** 2;
 }
 
-export function recall(query: string, options: { home: string; db?: Database.Database; limit?: number }): RecallHit[] {
-  const wanted = terms(query);
-  if (wanted.length === 0) return [];
-  const hits: RecallHit[] = [];
+export interface RecallChunk {
+  source: string;
+  line: number;
+  text: string;
+}
+
+/** Every passage recall can see, in file order (newest files are not special: callers cache by content). */
+export function recallChunks(home: string, db?: Database.Database): RecallChunk[] {
+  const chunks: RecallChunk[] = [];
   const consider = (source: string, lines: string[]) => {
     for (let start = 0; start < lines.length; start += CHUNK_LINES / 2) {
       const text = lines.slice(start, start + CHUNK_LINES).join("\n").trim();
-      if (!text) continue;
-      const score = scoreChunk(text, wanted);
-      if (score > 0) hits.push({ source, line: start + 1, score, text });
+      if (text) chunks.push({ source, line: start + 1, text });
     }
   };
   let total = 0;
-  for (const file of recallFiles(options.home)) {
+  for (const file of recallFiles(home)) {
     try {
       const size = fs.statSync(file).size;
       const cap = file.endsWith(".jsonl") ? MAX_DATASET_FILE_BYTES : MAX_FILE_BYTES;
       if (size > cap || total + size > MAX_TOTAL_BYTES) continue;
       total += size;
-      consider(`~/${path.relative(options.home, file)}`, fs.readFileSync(file, "utf-8").split("\n"));
+      consider(`~/${path.relative(home, file)}`, fs.readFileSync(file, "utf-8").split("\n"));
     } catch {
       // unreadable file: skip
     }
   }
-  if (options.db) {
-    for (const exp of listExperiments(options.db)) {
-      consider(`experiment ${exp.id}`, JSON.stringify(exp, null, 1).split("\n"));
-    }
-    for (const idea of listIdeas(options.db)) {
-      consider(`idea ${idea.id} [${idea.status}]`, ideaDossier(idea).split("\n"));
-    }
+  if (db) {
+    for (const exp of listExperiments(db)) consider(`experiment ${exp.id}`, JSON.stringify(exp, null, 1).split("\n"));
+    for (const idea of listIdeas(db)) consider(`idea ${idea.id} [${idea.status}]`, ideaDossier(idea).split("\n"));
+  }
+  return chunks;
+}
+
+export function recall(query: string, options: { home: string; db?: Database.Database; limit?: number }): RecallHit[] {
+  const wanted = terms(query);
+  if (wanted.length === 0) return [];
+  const hits: RecallHit[] = [];
+  for (const chunk of recallChunks(options.home, options.db)) {
+    const score = scoreChunk(chunk.text, wanted);
+    if (score > 0) hits.push({ ...chunk, score });
   }
   hits.sort((a, b) => b.score - a.score);
   // One passage per overlapping window of the same source.

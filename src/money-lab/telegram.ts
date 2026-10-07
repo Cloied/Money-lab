@@ -50,7 +50,7 @@ export const TELEGRAM_HELP = `Commandes Money Lab :
 /publications [auto|validation] — voir les publications, ou changer le mode
 /kits — kits de publication en attente (le bot prépare, tu colles)
 /kit <id> — revoir un kit en entier
-/publie <id> [lien] — kit publié par toi (le bot suit les visites)
+/publie <id> [lien] — kit publié par toi (le bot suit les visites) ; sur dev.to ou Mastodon configurés, le programme publie lui-même
 /passe <id> [raison] — kit non publié
 /choisis <id> — construire cette idée finaliste
 /ecarte <id> [raison] — écarter cette idée finaliste
@@ -217,7 +217,7 @@ export class TelegramChannel {
         const [id, ...note] = args;
         if (!id) return `Usage : ${command} <id>${command === "/publie" ? " [lien du post]" : " [raison]"}`;
         const reply = decideKit(this.raw, id, command === "/publie", note.join(" "));
-        if (/marqué publié|passé/.test(reply)) {
+        if (/marqué publié|passé\b/.test(reply)) {
           this.raw.prepare(
             "INSERT INTO wake_events (source, reason, payload) VALUES ('money_lab_operator', ?, '{}')",
           ).run(command === "/publie" ? `Kit ${id} publié par le propriétaire` : `Kit ${id} non publié`);

@@ -124,7 +124,7 @@ describe("scaffold_site", () => {
       lede: "Pour les plombiers indépendants.", brand: "DevisPro", contactEmail: "contact@devispro.fr", theme: "warm",
     }, { home, kitDir: kit, run, env: { HOME: home, GITHUB_ORG: "MoneyLabOrg", GOATCOUNTER_SITE: "moneylab" }, now: new Date("2026-10-07T00:00:00Z") });
     expect(text).toMatch(/^Site ~\/sites\/devis-plombier created \(tool template, theme warm, fr\)/);
-    expect(text).toContain("Analytics snippet included.");
+    expect(text).toContain("Analytics snippet included (GoatCounter).");
     const dir = path.join(home, "sites", "devis-plombier");
     const html = fs.readFileSync(path.join(dir, "index.html"), "utf-8");
     expect(html).toContain('<html lang="fr">');

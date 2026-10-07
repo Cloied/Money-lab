@@ -19,7 +19,7 @@ export const SIGNAL_SOURCES = ["hackernews", "reddit", "google_suggest", "wikipe
 export type SignalSource = (typeof SIGNAL_SOURCES)[number];
 export const DEFAULT_SIGNAL_SOURCES: SignalSource[] = ["hackernews", "reddit", "google_suggest", "wikipedia"];
 
-const USER_AGENT = "MoneyLabBot/1.0 (market research; https://github.com/Cloied/Money-lab)";
+const USER_AGENT = "MoneyLabBot/1.0 (market research; https://github.com/moneylab-djib/Money-lab)";
 const TIMEOUT_MS = 15_000;
 const CACHE_TTL_MS = 86_400_000;
 const CACHE_MAX_FILES = 300;

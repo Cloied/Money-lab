@@ -21,7 +21,7 @@ import { saveRecord } from "./datasets.js";
 type FetchFn = typeof fetch;
 
 const STATE_KEY = "money_lab.niches";
-const USER_AGENT = "MoneyLabBot/1.0 (market research; https://github.com/Cloied/Money-lab)";
+const USER_AGENT = "MoneyLabBot/1.0 (market research; https://github.com/moneylab-djib/Money-lab)";
 const TIMEOUT_MS = 15_000;
 /** Niches per call: each one costs about six public requests. */
 export const MAX_NICHES_PER_SCAN = 25;

@@ -25,7 +25,8 @@ import { searchAnalytics, searchConsoleSite } from "./searchconsole.js";
 import { BUDGET_CATEGORIES, allocationSummary, isBudgetCategory, recordFocusSpend, setBudgetPlan, setFocus } from "./allocation.js";
 import { delegate } from "./delegate.js";
 import { JOB_TIMEOUT_MS, JOB_WAKE_MODES, MAX_EVERY_MINUTES, MIN_EVERY_MINUTES, describeJobs, jobLogFile, listJobs, removeJob, upsertJob } from "./jobs.js";
-import { formatRecall, recall } from "./recall.js";
+import { formatRecall } from "./recall.js";
+import { semanticRecall } from "./embeddings.js";
 import { auditPage } from "./audit.js";
 import { abSnippet, describeAbTests, finishAbTest, recordAbCounts, startAbTest } from "./abtest.js";
 import {
@@ -41,11 +42,16 @@ import { SIGNAL_SOURCES, type SignalSource, marketSignals } from "./signals.js";
 import { deleteDataset, formatRecords, listDatasets, readDataset, saveRecord, searchDatasets } from "./datasets.js";
 import { decideIdeaWithOpus, decideStopWithOpus, isStop, shortlistWithOpus, stopDecisionBlocker } from "./decisions.js";
 import { addSite, checkSites, describeSites, removeSite } from "./monitor.js";
-import { checkDesign, designReview, firstImpression, formatDesignCheck } from "./design.js";
+import { checkDesign, designReview, designReviewFree, firstImpression, formatDesignCheck } from "./design.js";
 import { repoScout, scaffoldSite, testSite, vendorCode } from "./workshop.js";
 import { MAX_NICHES_PER_SCAN, describeSeeds, listNiches, rejectNiche, scanNiches } from "./funnel.js";
-import { addProbe, checkProbes, formatProbe, listProbes, stopProbe } from "./probes.js";
-import { MAX_KITS_PER_DAY, MAX_PENDING_KITS, describeKits, draftKit, listKits } from "./kits.js";
+import { addProbeAndPing, checkProbes, formatProbe, listProbes, stopProbe } from "./probes.js";
+import { MAX_KITS_PER_DAY, MAX_PENDING_KITS, describeKits, draftKit, kitChannelsConfigured, listKits } from "./kits.js";
+import {
+  LEGIFRANCE_FONDS, bingQueryStats, bingSubmitUrls, emailOwner, geocode, legifranceSearch, serviceConfigured, sireneCount,
+  tavilySearch, uptimeRobotCreate, uptimeRobotStatus,
+} from "./services.js";
+import { cloudflarePagesConfigured, deploySite } from "./deploy.js";
 
 /** Marker the Anthropic client turns into an image block (recent results only). */
 export const SCREENSHOT_MARKER = /\[\[image:([^\]\s]+\.(?:png|jpe?g))\]\]/g;
@@ -347,6 +353,30 @@ export function createMoneyLabTools(): AutomatonTool[] {
       },
     },
     {
+      name: "email_owner",
+      description:
+        "E-mail the owner (their own address, through the owner's Resend account) a report too long for Telegram: " +
+        "a weekly review, a dossier, a full test report. Plain text, 3 a day at most; never include secrets. For short " +
+        "news use message_owner.",
+      category: "survival",
+      riskLevel: "safe",
+      parameters: {
+        type: "object",
+        properties: {
+          subject: { type: "string" },
+          text: { type: "string", description: "Plain text, in French" },
+        },
+        required: ["subject", "text"],
+      },
+      execute: async (args, ctx) => {
+        try {
+          return await emailOwner(String(args.subject ?? ""), String(args.text ?? ""), { db: ctx.db.raw });
+        } catch (err: any) {
+          return `E-mail error: ${String(err?.message ?? err).slice(0, 300)}`;
+        }
+      },
+    },
+    {
       name: "view_page",
       description:
         "Take a screenshot of a web page (yours or a competitor's) and look at it: layout, design, readability, " +
@@ -544,10 +574,11 @@ export function createMoneyLabTools(): AutomatonTool[] {
     {
       name: "design_review",
       description:
-        "Claude Opus reviews a page like a senior designer from its desktop and mobile screenshots, its text and " +
-        "the automatic checks: scores (hierarchy, typography, spacing, colour, consistency, originality, trust, " +
-        "clarity, mobile), the top fixes with exact changes, and a SHIP or FIX FIRST verdict. A few cents. Use it " +
-        "once per page before it goes live and after a redesign, after check_design is clean.",
+        "A senior-designer review of a page from its desktop and mobile screenshots, its text and the automatic " +
+        "checks: scores (hierarchy, typography, spacing, colour, consistency, originality, trust, clarity, mobile), the " +
+        "top fixes with exact changes, and a SHIP or FIX FIRST verdict. By default a free vision model (Gemini) reviews, " +
+        "so use it as often as you iterate; final: true sends it to Claude Opus (a few cents) once per page before it " +
+        "goes live, after check_design is clean.",
       category: "vm",
       riskLevel: "safe",
       parameters: {
@@ -555,6 +586,7 @@ export function createMoneyLabTools(): AutomatonTool[] {
         properties: {
           url: { type: "string", description: "http(s) URL" },
           context: { type: "string", description: "What the page must achieve, for whom, and the distinctive element you chose" },
+          final: { type: "boolean", description: "Opus review before publishing (default: free Gemini review)" },
         },
         required: ["url"],
       },
@@ -572,6 +604,10 @@ export function createMoneyLabTools(): AutomatonTool[] {
         if (url.protocol !== "http:" && url.protocol !== "https:") return "Only http(s) URLs.";
         const check = await checkDesign(url.toString(), { browser, home: process.env.HOME || "/root" });
         if (typeof check === "string") return check;
+        if (args.final !== true) {
+          const free = await designReviewFree(check, String(args.context ?? "").trim(), { db: ctx.db.raw, home: process.env.HOME || "/root" });
+          if (free) return `${free.text}\nScreenshots reviewed:\n[[image:${check.screenshots.desktop}]]\n[[image:${check.screenshots.mobile}]]\n(final: true for the Opus verdict before publishing)`;
+        }
         try {
           const result = await designReview(check, String(args.context ?? "").trim(), {
             router: ctx.inferenceRouter, chat: (msgs, opts) => ctx.inference.chat(msgs, opts),
@@ -729,7 +765,9 @@ export function createMoneyLabTools(): AutomatonTool[] {
         "post, the title, the full text in the venue's language, your page link (it gets ?ref=kit-<id> so visits are " +
         "attributed), an optional image, the venue's rules (read them first with harvest) and what readers gain. The owner " +
         "receives it on Telegram and answers /publie or /passe; you are woken. Value first, never the same text twice, " +
-        `at most ${MAX_KITS_PER_DAY} a day and ${MAX_PENDING_KITS} waiting. Actions: draft, list.`,
+        `at most ${MAX_KITS_PER_DAY} a day and ${MAX_PENDING_KITS} waiting. When the owner configured dev.to or Mastodon, a kit ` +
+        "for that platform (name it so) is posted by the runtime itself on /publie: markdown body and up to 4 tags for " +
+        "dev.to, 500 characters for Mastodon. Actions: draft, list.",
       category: "survival",
       riskLevel: "caution",
       parameters: {
@@ -745,16 +783,92 @@ export function createMoneyLabTools(): AutomatonTool[] {
           image: { type: "string", description: "e.g. ~/images/og-devis.png" },
           rules: { type: "string", description: "What this venue allows and forbids (self-promotion days, flair, format)" },
           value: { type: "string", description: "What readers gain from the post" },
+          tags: { type: "array", items: { type: "string" }, description: "dev.to tags (4 max), e.g. [\"webdev\", \"opensource\"]" },
         },
         required: ["action"],
       },
       execute: async (args, ctx) => {
-        if (args.action !== "draft") return describeKits(ctx.db.raw);
+        if (args.action !== "draft") {
+          const channels = kitChannelsConfigured();
+          return describeKits(ctx.db.raw) + (channels.length ? `\nPosted by the runtime on /publie: ${channels.join(", ")}.` : "");
+        }
         if (!ctx.config.moneyLab?.telegram) return "No owner channel (Telegram): kits cannot be delivered.";
-        const kit = draftKit(ctx.db.raw, args);
+        const kit = draftKit(ctx.db.raw, { ...args, tags: looseList(args.tags) });
         if (typeof kit === "string") return kit;
-        return `Kit ${kit.id} sent to the owner (${kit.platform}). It is posted when the owner answers /publie ${kit.id}; do not wait for it. ` +
+        return `Kit ${kit.id} sent to the owner (${kit.platform}${kit.channel ? `, posted by the runtime once approved` : ""}). It is posted when the owner answers /publie ${kit.id}; do not wait for it. ` +
           `Visits from it will show as referrer kit-${kit.id} in your analytics. ${listKits(ctx.db.raw).filter((k) => k.status === "pending").length} kit(s) waiting.`;
+      },
+    },
+    {
+      name: "free_services",
+      description:
+        "Find a free service or API for a need (hosting, database, e-mail, forms, maps, data, monitoring, payments, " +
+        "search...) from the community lists free-for-dev and public-apis, read through the free models: name, URL, " +
+        "free tier limits, catches. find saves what it finds in the free-services dataset; search looks there first " +
+        "(free, instant). Check the provider's own pricing page before relying on a limit.",
+      category: "vm",
+      riskLevel: "safe",
+      parameters: {
+        type: "object",
+        properties: {
+          action: { type: "string", enum: ["find", "search"] },
+          need: { type: "string", description: "e.g. \"transactional email with a free tier\", \"French company data API\"" },
+        },
+        required: ["action", "need"],
+      },
+      execute: async (args, ctx) => {
+        const need = String(args.need ?? "").trim();
+        if (!need) return "need is required.";
+        const home = process.env.HOME || "/root";
+        if (args.action === "search") {
+          const found = searchDatasets(home, need, 12).filter((r) => r.dataset === "free-services");
+          return found.length ? formatRecords(found) : "Nothing saved yet about this: use find.";
+        }
+        const result = await harvest({
+          task: `From these community lists of free developer services and public APIs, list every service that offers a free tier useful for: ${need}. ` +
+            "For each: name, URL, what the free tier includes (limits, whether a card is required), and one catch. Prefer services with a permanent free plan over trials. 15 at most, best first.",
+          urls: [
+            "https://raw.githubusercontent.com/ripienaar/free-for-dev/master/README.md",
+            "https://raw.githubusercontent.com/public-apis/public-apis/master/README.md",
+          ],
+          saveTo: "free-services",
+        }, {
+          db: ctx.db.raw, home, router: ctx.inferenceRouter, chat: (msgs, opts) => ctx.inference.chat(msgs, opts),
+          sessionId: ctx.db.getKV("session_id") || "default",
+        });
+        recordFocusSpend(ctx.db.raw, result.costCents);
+        return result.text;
+      },
+    },
+    {
+      name: "free_search",
+      description:
+        "Search the web for free through the owner's Tavily account (1,000 searches a month, 30 a day here): a short " +
+        "answer plus sources with extracts, built for research. Prefer it to the paid web search; use depth advanced " +
+        "only for hard questions (costs double), include_domains to stay on chosen sites, days for recent news.",
+      category: "survival",
+      riskLevel: "safe",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string" },
+          max_results: { type: "integer", description: "1-10, default 6" },
+          depth: { type: "string", enum: ["basic", "advanced"] },
+          include_domains: { type: "array", items: { type: "string" }, description: "e.g. [\"service-public.fr\"]" },
+          days: { type: "integer", description: "Only news from the last N days" },
+        },
+        required: ["query"],
+      },
+      execute: async (args, ctx) => {
+        try {
+          return await tavilySearch({
+            query: String(args.query ?? ""), maxResults: Number(args.max_results) || undefined,
+            depth: args.depth === "advanced" ? "advanced" : "basic", includeDomains: looseList(args.include_domains),
+            days: Number(args.days) || undefined,
+          }, { db: ctx.db.raw });
+        } catch (err: any) {
+          return `Search error: ${String(err?.message ?? err).slice(0, 300)}`;
+        }
       },
     },
     {
@@ -782,6 +896,34 @@ export function createMoneyLabTools(): AutomatonTool[] {
           return await searchAnalytics({ site, dimension, days });
         } catch (err: any) {
           return `Search Console error: ${String(err?.message ?? err).slice(0, 300)}`;
+        }
+      },
+    },
+    {
+      name: "bing_webmaster",
+      description:
+        "Bing Webmaster Tools (owner's key): which queries and pages Bing shows for your site (queries, pages), or " +
+        "submit new URLs so Bing indexes them within hours (submit, up to 50). Bing feeds DuckDuckGo, Ecosia and " +
+        "Copilot, so this is a second measurement next to Search Console.",
+      category: "survival",
+      riskLevel: "safe",
+      parameters: {
+        type: "object",
+        properties: {
+          action: { type: "string", enum: ["queries", "pages", "submit"] },
+          site: { type: "string", description: "The verified site, e.g. https://brand.fr/" },
+          urls: { type: "array", items: { type: "string" }, description: "For submit" },
+        },
+        required: ["action", "site"],
+      },
+      execute: async (args, ctx) => {
+        const site = String(args.site ?? "").trim();
+        if (!/^https?:\/\//.test(site)) return "site must be the verified http(s) site URL.";
+        try {
+          if (args.action === "submit") return await bingSubmitUrls(site, looseList(args.urls) ?? [], { db: ctx.db.raw });
+          return await bingQueryStats(site, { db: ctx.db.raw, dimension: args.action === "pages" ? "page" : "query" });
+        } catch (err: any) {
+          return `Bing Webmaster error: ${String(err?.message ?? err).slice(0, 300)}`;
         }
       },
     },
@@ -1043,6 +1185,36 @@ export function createMoneyLabTools(): AutomatonTool[] {
       },
     },
     {
+      name: "deploy_site",
+      description:
+        "Publish a finished static site to Cloudflare Pages for free (https://<name>.pages.dev, unlimited bandwidth, " +
+        "500 deployments a month) with the owner's token: the project is created if needed and ~/sites/<name> (or dir) " +
+        "is uploaded. Only after check_design, test_site and design_review; redeploy the same name to update it. " +
+        "GitHub Pages through scaffold_site publish stays available; use one host per site.",
+      category: "vm",
+      riskLevel: "caution",
+      parameters: {
+        type: "object",
+        properties: {
+          name: { type: "string", description: "Project name, lowercase letters, digits and dashes" },
+          dir: { type: "string", description: "Default ~/sites/<name>" },
+        },
+        required: ["name"],
+      },
+      execute: async (args, ctx) => {
+        if (ctx.identity.sandboxId) return "deploy_site is only available on a self-hosted server.";
+        if (!cloudflarePagesConfigured()) return "Cloudflare Pages is not configured: publish with scaffold_site (GitHub Pages) or ask the owner with request_help (guide, Cloudflare Pages).";
+        const today = new Date().toISOString().slice(0, 10);
+        const key = `money_lab.deploys.${today}`;
+        const count = Number(ctx.db.getKV(key) ?? "0");
+        if (count >= 10) return "At most 10 deployments a day: test locally with test_site first.";
+        ctx.db.setKV(key, String(count + 1));
+        const result = await deploySite({ name: String(args.name ?? ""), dir: args.dir ? String(args.dir) : undefined }, { home: process.env.HOME || "/root" });
+        if (/^Deployed /.test(result)) queueOwnerNotification(ctx.db.raw, `🚀 Site déployé sur Cloudflare Pages : ${result.split("\n")[1] ?? ""}`);
+        return result;
+      },
+    },
+    {
       name: "code_review",
       description:
         "Have your code reviewed before you ship it: the free models (then Haiku if none answers) read the files and list " +
@@ -1143,7 +1315,7 @@ export function createMoneyLabTools(): AutomatonTool[] {
       execute: async (args, ctx) => {
         switch (args.action) {
           case "add":
-            return addProbe(ctx.db.raw, {
+            return addProbeAndPing(ctx.db.raw, {
               id: String(args.id ?? ""), url: String(args.url ?? ""), queries: looseList(args.queries) ?? [],
               ideaId: typeof args.idea_id === "string" && args.idea_id ? args.idea_id : undefined,
               windowDays: args.window_days as number | undefined, minImpressions: args.min_impressions as number | undefined,
@@ -1195,6 +1367,49 @@ export function createMoneyLabTools(): AutomatonTool[] {
           });
         } catch (err: any) {
           return `market_signals failed: ${String(err?.message ?? err).slice(0, 300)}`;
+        }
+      },
+    },
+    {
+      name: "france_data",
+      description:
+        "Official French data, free: companies counts how many active businesses exist for a trade (NAF code, e.g. " +
+        "43.22A plumbers, 56.10A restaurants, 69.10Z lawyers; 2 digits for a division) in a postcode prefix or " +
+        "department, with a sample of names (INSEE Sirene, owner's key): the size of a local market and its competition. " +
+        "address geocodes a place or lists towns (API Adresse, no key). law searches Légifrance (codes, laws, decrees, " +
+        "case law; owner's PISTE account) to check what a product or claim must respect. Cite the numbers with their date.",
+      category: "survival",
+      riskLevel: "safe",
+      parameters: {
+        type: "object",
+        properties: {
+          action: { type: "string", enum: ["companies", "address", "law"] },
+          naf: { type: "string", description: "companies: NAF/APE code" },
+          postcode: { type: "string", description: "companies: full or prefix, e.g. 75 or 33000" },
+          department: { type: "string", description: "companies: e.g. 69, 2A, 974" },
+          keyword: { type: "string", description: "companies: word in the business name" },
+          query: { type: "string", description: "address or law: what to look up" },
+          fond: { type: "string", enum: [...LEGIFRANCE_FONDS], description: "law: default ALL" },
+        },
+        required: ["action"],
+      },
+      execute: async (args, ctx) => {
+        try {
+          switch (args.action) {
+            case "companies":
+              return await sireneCount({
+                naf: args.naf ? String(args.naf) : undefined, postcode: args.postcode ? String(args.postcode) : undefined,
+                department: args.department ? String(args.department) : undefined, keyword: args.keyword ? String(args.keyword) : undefined,
+              }, { db: ctx.db.raw });
+            case "address":
+              return await geocode(String(args.query ?? ""), { db: ctx.db.raw });
+            case "law":
+              return await legifranceSearch(String(args.query ?? ""), { db: ctx.db.raw, fond: args.fond ? String(args.fond) : undefined });
+            default:
+              return "action: companies, address or law.";
+          }
+        } catch (err: any) {
+          return `France data error: ${String(err?.message ?? err).slice(0, 300)}`;
         }
       },
     },
@@ -1265,7 +1480,8 @@ export function createMoneyLabTools(): AutomatonTool[] {
       description:
         "Watch your sites for free: the runtime checks every monitored URL every 30 minutes (active experiments' " +
         "artifact URLs are watched automatically), tells the owner and wakes you if one goes down (two failed " +
-        "checks in a row), and tells you when it is back. Actions: add, remove, list, check (all now).",
+        "checks in a row), and tells you when it is back. With the owner's UptimeRobot account, add also creates an " +
+        "external check every 5 minutes. Actions: add, remove, list, check (all now).",
       category: "vm",
       riskLevel: "safe",
       parameters: {
@@ -1281,17 +1497,21 @@ export function createMoneyLabTools(): AutomatonTool[] {
           case "add": {
             const added = addSite(ctx.db.raw, String(args.url ?? ""));
             if (!/^Monitoring/.test(added)) return added;
+            const external = await uptimeRobotCreate(added.replace(/^Monitoring (\S+) .*$/, "$1"), { db: ctx.db.raw });
             const report = await checkSites(ctx.db.raw);
-            return `${added}\nFirst check:\n${report.join("\n")}`;
+            return `${added}${external ? ` ${external}` : ""}\nFirst check:\n${report.join("\n")}`;
           }
           case "remove":
             return removeSite(ctx.db.raw, String(args.url ?? ""));
           case "check": {
             const report = await checkSites(ctx.db.raw);
-            return report.length ? report.join("\n") : "No site to check: add one, or set an active experiment's artifact_ref to its URL.";
+            const external = await uptimeRobotStatus({ db: ctx.db.raw });
+            return (report.length ? report.join("\n") : "No site to check: add one, or set an active experiment's artifact_ref to its URL.") + (external ? `\n${external}` : "");
           }
-          default:
-            return `Monitored sites: ${describeSites(ctx.db.raw)}.`;
+          default: {
+            const external = await uptimeRobotStatus({ db: ctx.db.raw });
+            return `Monitored sites: ${describeSites(ctx.db.raw)}.${external ? `\n${external}` : ""}`;
+          }
         }
       },
     },
@@ -1344,9 +1564,9 @@ export function createMoneyLabTools(): AutomatonTool[] {
     {
       name: "recall",
       description:
-        "Search your own memory for free: your notes (~/research, ~/notes), library (~/library), datasets " +
-        "(~/datasets), skills, LESSONS.md, WORKLOG.md, your ideas and the experiment journal. Use it before " +
-        "researching something again.",
+        "Search your own memory for free, by words and by meaning (free embedding model): your notes (~/research, " +
+        "~/notes), library (~/library), datasets (~/datasets), skills, LESSONS.md, WORKLOG.md, your ideas and the " +
+        "experiment journal. Use it before researching something again.",
       category: "memory",
       riskLevel: "safe",
       parameters: {
@@ -1360,7 +1580,11 @@ export function createMoneyLabTools(): AutomatonTool[] {
       execute: async (args, ctx) => {
         const query = String(args.query ?? "");
         const limit = Math.min(20, Math.max(1, Number.isInteger(args.limit) ? (args.limit as number) : 8));
-        return formatRecall(query, recall(query, { home: process.env.HOME || "/root", db: ctx.db.raw, limit }));
+        const result = await semanticRecall(query, { home: process.env.HOME || "/root", db: ctx.db.raw, limit });
+        const note = result.mode === "semantic"
+          ? `\n[recall: meaning and words, ${result.provider}, ${result.cached} passages indexed${result.embedded ? `, ${result.embedded} new` : ""}]`
+          : "\n[recall: words only; a free embedding model (Gemini, Mistral, Cloudflare) would add search by meaning]";
+        return formatRecall(query, result.hits) + note;
       },
     },
     {

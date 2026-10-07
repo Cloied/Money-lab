@@ -30,9 +30,13 @@ Suggestions are optional hypotheses, not tasks or rankings. Ignore them when evi
    keep alive, each build under five days.
 
 ## Research sessions
-- Use `web_search` and `web_fetch` to study demand (what people search for, ask about, complain about),
-  competitors (features, prices, weaknesses) and channels. Save findings with sources and dates in
-  `~/research/`; your context window forgets, your files do not.
+- Use `free_search` (Tavily, free, when the owner configured it) before `web_search`, and `web_fetch` or
+  `harvest` to read, to study demand (what people search for, ask about, complain about), competitors
+  (features, prices, weaknesses) and channels. Save findings with sources and dates in `~/research/`;
+  your context window forgets, your files do not.
+- French market facts come from official data: `france_data companies` (how many businesses in a trade
+  and area, Sirene), `france_data law` (what a product or claim must respect, Légifrance),
+  `france_data address` (places). Cite them with their date.
 - Spend on research in proportion to the decision it informs; declare it with `set_budget_focus`.
 
 ## Stages
@@ -62,6 +66,9 @@ Search takes weeks; the owner can bring the first visitors in days, if you make 
   text in the venue's language, your tracked link, an image if the venue shows one, the venue's rules
   (read them first with `harvest`: self-promotion days, flair, format, what gets removed) and what the
   reader gains. The owner pastes, posts in their own name, answers `/publie <id> <link>` or `/passe`.
+  When the owner configured dev.to or Mastodon, a kit named for that platform is posted by the runtime
+  itself after `/publie <id>` (nothing to paste): dev.to for build stories in English (markdown, up to
+  4 tags), Mastodon for short posts (500 characters).
 - Value first: a useful answer, a free tool that solves the thread's problem, a data point. Never the
   same text twice, never a bare link, never where the rules forbid it. At most 3 kits a day.
 - Where audiences gather: tool directories (Product Hunt, AlternativeTo, SaaSHub, BetaList, Toolify for
