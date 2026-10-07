@@ -79,7 +79,12 @@
 - Live 2026-10-07 03:48 UTC: the agent used the design method (brief, og image, favicon, check_design 0
   errors, first_impression) but each turn read about 80k tokens and the 1 $/hour cap stopped it after a
   few turns. Older tool results are now shortened in the history, delegate goes to the free models
-  first, web_fetch pages are capped at 8k tokens. Not yet measured live (/sante shows the average).
+  first, web_fetch pages are capped at 8k tokens. That change moved the shortened part every turn and
+  broke prompt caching (cost rose); fixed 2026-10-07: shortened results stay fixed until the window
+  moves every 10 turns (test checks each request is a prefix of the next). Owner can change the
+  inference caps from Telegram with /plafond (writes automaton.json, restarts). Not yet measured live.
+- Likma Dev System 0.7.0 (main 902f3e9) now drives the checks: project check passed, features re-verified
+  with fingerprint v2 evidence, code map regenerated.
 - Blockers and known regressions:
   - Upstream context-hardening.test.ts hangs on unmodified upstream; upstream CI masks it as a warning.
   - In-process limits are bypassable through exec; supervised run only.

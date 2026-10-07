@@ -70,6 +70,13 @@ export function shortenOldResult(result: string, keep: number): string {
     `left out; run it again or use recall if you need them ...]\n${result.slice(-tail)}`;
 }
 
+function shortenTurn(turn: AgentTurn, keep: number): AgentTurn {
+  return {
+    ...turn,
+    toolCalls: turn.toolCalls.map((tc) => ({ ...tc, result: shortenOldResult(tc.result ?? "", keep) })),
+  };
+}
+
 /**
  * Estimate total tokens for a single turn (input + thinking + tool calls/results).
  */
@@ -103,12 +110,12 @@ export function buildContextMessages(
     /** Count identical calls (name + arguments) instead of tool names. */
     repeatByCall?: boolean;
     /**
-     * Keep tool results whole only for the last N rendered turns; older ones
-     * are shortened to their start and end (Money Lab: the history was most
-     * of every request). The cut moves one turn at a time near the end of the
-     * history, so the cached prefix before it stays valid.
+     * Turns whose tool results are shortened to their start and end (Money
+     * Lab: old tool output was most of every request). The caller keeps this
+     * set fixed for several turns: a history that changes before its end
+     * cannot be read from the prompt cache.
      */
-    fullResultTurns?: number;
+    shortResultTurnIds?: Set<string>;
     /** Characters kept from an older result (start and end). */
     oldResultChars?: number;
   },
@@ -119,10 +126,12 @@ export function buildContextMessages(
     { role: "system", content: systemPrompt },
   ];
 
-  // Calculate token estimates for all turns
+  // Calculate token estimates for all turns (shortened results count as shortened).
+  const shortIds = options?.shortResultTurnIds;
+  const oldChars = options?.oldResultChars ?? 1200;
   const turnTokens = recentTurns.map((turn) => ({
     turn,
-    tokens: estimateTurnTokens(turn),
+    tokens: estimateTurnTokens(shortIds?.has(turn.id) ? shortenTurn(turn, oldChars) : turn),
   }));
 
   const totalTurnTokens = turnTokens.reduce((sum, t) => sum + t.tokens, 0);
@@ -174,10 +183,7 @@ export function buildContextMessages(
   }
 
   // Add recent turns as conversation history
-  const fullFrom = options?.fullResultTurns !== undefined
-    ? Math.max(0, turnsToRender.length - options.fullResultTurns)
-    : 0;
-  for (const [turnIndex, turn] of turnsToRender.entries()) {
+  for (const turn of turnsToRender) {
     // The turn's input (if any) as a user message
     if (turn.input) {
       messages.push({
@@ -215,8 +221,8 @@ export function buildContextMessages(
           : tc.result;
         messages.push({
           role: "tool",
-          content: turnIndex < fullFrom
-            ? shortenOldResult(rawContent, options?.oldResultChars ?? 1200)
+          content: shortIds?.has(turn.id)
+            ? shortenOldResult(rawContent, oldChars)
             : truncateToolResult(rawContent),
           tool_call_id: tc.id,
         });

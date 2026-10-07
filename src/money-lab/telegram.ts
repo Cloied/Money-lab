@@ -25,6 +25,8 @@ import {
 
 import { approvalRequired, decidePost, describePosts, setApprovalMode } from "./social.js";
 import { withSecrets } from "./selfhosted.js";
+import { setInferenceCaps } from "./caps.js";
+import path from "path";
 
 const KV_OFFSET = "money_lab.telegram_offset";
 const KV_SUMMARY_DAY = "money_lab.telegram_summary_day";
@@ -44,6 +46,7 @@ export const TELEGRAM_HELP = `Commandes Money Lab :
 /publier <id> — publier une publication proposée par le bot
 /rejeter <id> [raison] — refuser une publication
 /publications [auto|validation] — voir les publications, ou changer le mode
+/plafond <jour $> [heure $] — changer le plafond de dépense IA (ex : /plafond 5 1.5) ; le bot redémarre
 /aide — cette liste
 Tout autre message est transmis au bot.`;
 
@@ -76,6 +79,12 @@ export class TelegramChannel {
     private readonly config: AutomatonConfig,
     private readonly fetchFn: FetchFn = fetch,
   ) {}
+
+  /** automaton.json (same location as getConfigPath, resolved when used); /plafond writes the new caps there. */
+  configPath: () => string = () => path.join(process.env.HOME || "/root", ".automaton", "automaton.json");
+  /** Called after the replies are sent when a command needs a restart (systemd restarts the service). */
+  restart: () => void = () => process.kill(process.pid, "SIGTERM");
+  private restartPending = false;
 
   private get raw(): Database.Database {
     return this.db.raw;
@@ -189,6 +198,23 @@ export class TelegramChannel {
         }
         return `Mode : ${approvalRequired(this.raw) ? "validation" : "automatique"}\n${describePosts(this.raw)}`;
       }
+      case "/plafond": {
+        const daily = parseDollars(args[0]);
+        const hourly = args[1] === undefined ? undefined : parseDollars(args[1]);
+        if (daily === null || hourly === null) {
+          return "Usage : /plafond <montant par jour en $> [montant par heure en $] — ex : /plafond 5 ou /plafond 5 1.5";
+        }
+        try {
+          const { before, after } = setInferenceCaps(this.configPath(), daily, hourly);
+          const usd = (c: number | null) => (c === null ? "aucun" : `${(c / 100).toFixed(2)} $`);
+          this.restartPending = true;
+          return `Plafond IA changé.\nPar jour : ${usd(before.dailyCents)} → ${usd(after.dailyCents)}\n`
+            + `Par heure : ${usd(before.hourlyCents)} → ${usd(after.hourlyCents)}\n`
+            + "Le bot redémarre pour l'appliquer (environ 30 secondes).";
+        } catch (err: any) {
+          return `Plafond inchangé : ${String(err?.message ?? err).replace(/^Profil moneyLab invalide : /, "")}`;
+        }
+      }
       default:
         return `Commande inconnue.\n\n${TELEGRAM_HELP}`;
     }
@@ -215,6 +241,11 @@ export class TelegramChannel {
         // it (an owner who sees no answer to /fonds would send it again).
         queueOwnerNotification(this.raw, reply ?? "Message transmis au bot.");
       }
+    }
+    if (this.restartPending) {
+      this.restartPending = false;
+      this.restart();
+      return;
     }
 
     // Daily health report once per UTC day, after 07:00 UTC (09:00 in Paris
