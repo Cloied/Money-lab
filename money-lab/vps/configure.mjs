@@ -81,10 +81,13 @@ const config = {
 };
 fs.writeFileSync(file, JSON.stringify(config, null, 2), { mode: 0o600 });
 
-const skillSrc = path.join(here, "..", "skills", "money-lab-strategy");
-const skillDst = path.join(dir, "skills", "money-lab-strategy");
-fs.mkdirSync(skillDst, { recursive: true });
-fs.copyFileSync(path.join(skillSrc, "SKILL.md"), path.join(skillDst, "SKILL.md"));
+// Bundled skills; the runtime also refreshes them (and the design kit) at every start.
+for (const name of ["money-lab-strategy", "money-lab-design"]) {
+  const skillSrc = path.join(here, "..", "skills", name);
+  const skillDst = path.join(dir, "skills", name);
+  fs.mkdirSync(skillDst, { recursive: true });
+  fs.copyFileSync(path.join(skillSrc, "SKILL.md"), path.join(skillDst, "SKILL.md"));
+}
 
 console.log(`Configuration Money Lab écrite : ${file}`);
 console.log(`  Modèle : ${lab.inference.model} — budget inférence : ${lab.inference.dailyCents === null ? "aucune limite" : `${(lab.inference.dailyCents / 100).toFixed(2)} $/jour`}`);

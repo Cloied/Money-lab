@@ -13,9 +13,9 @@
   status/summary, no-progress sleep, integration note, Conway checklist (features verified in docs/FEATURES.md).
 - Checks run (command, result, date):
   - likma project feature verify (types/money-lab/build): pass, 2026-10-03
-  - pnpm exec vitest run --exclude src/__tests__/context-hardening.test.ts: 1744/1744 pass (free models, Opus decisions), 2026-10-06
+  - pnpm exec vitest run --exclude src/__tests__/context-hardening.test.ts: 1751/1751 pass (design toolkit), 2026-10-07
   - node money-lab/e2e/harness.mjs (real process, strict fake Anthropic/Telegram/Stripe): PASS, 2026-10-06
-  - node money-lab/e2e/chaos.mjs: PASS, 2026-10-06; likma project check (types/money-lab/build): PASS, 2026-10-06
+  - node money-lab/e2e/chaos.mjs: PASS, 2026-10-07; likma project check (types/money-lab/build): PASS, 2026-10-07
     (upstream d8f8168 baseline: 1614/1614)
 - First supervised run (owner-approved, 2026-10-04, OVH VPS, $15 funding): Telegram works; the agent
   spent about $0.52 in 30 s re-checking a falsely "exposed" port until the hourly cap slept it; the owner
@@ -72,6 +72,10 @@
   decisions for idea approval and for stopping an active experiment; market_signals (free public
   sources); datasets in ~/datasets; site monitoring every 30 min. Owner to create the free API keys.
   Not yet measured live.
+- Owner request 2026-10-07 (design): design kit (base CSS, six themes, templates) installed into
+  ~/library/design, `money-lab-design` skill (method, free resources, checklist), `check_design`
+  (axe-core + mechanical checks + screenshots), `first_impression` (free model), `design_review`
+  (Opus with screenshots). Not yet measured live.
 - Blockers and known regressions:
   - Upstream context-hardening.test.ts hangs on unmodified upstream; upstream CI masks it as a warning.
   - In-process limits are bypassable through exec; supervised run only.

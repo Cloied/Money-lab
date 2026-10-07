@@ -174,6 +174,30 @@
       "path": "src/money-lab/health.ts",
       "purpose": "Daily Telegram health report (/sante) from local state",
       "edit_when": "What the owner sees each morning changes"
+    },
+    {
+      "area": "Design checks",
+      "path": "src/money-lab/design.ts",
+      "purpose": "check_design (axe-core and mechanical checks with screenshots), Opus design review, first-impression test",
+      "edit_when": "Design checks, the review rubric or screenshot handling change"
+    },
+    {
+      "area": "Bundled assets",
+      "path": "src/money-lab/assets.ts",
+      "purpose": "Copies bundled skills and the design kit into the agent's home at start",
+      "edit_when": "What ships with the runtime or how it is refreshed changes"
+    },
+    {
+      "area": "Design kit",
+      "path": "money-lab/design-kit/base.css",
+      "purpose": "CSS foundation, themes, templates and resource notes the agent starts pages from",
+      "edit_when": "The kit's defaults, themes or templates change"
+    },
+    {
+      "area": "Design skill",
+      "path": "money-lab/skills/money-lab-design/SKILL.md",
+      "purpose": "The agent's design method, free resources and publishing checklist",
+      "edit_when": "The design method or the resource list changes"
     }
   ]
 }

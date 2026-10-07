@@ -1,0 +1,24 @@
+/* Theme: playful — bright, rounded (kids, hobbies, games) */
+@import url("https://fonts.googleapis.com/css2?family=Nunito:wght@500;800;900&display=swap");
+:root {
+  --font-body: "Nunito", system-ui, sans-serif;
+  --font-heading: "Nunito", system-ui, sans-serif;
+  --bg: #fffdf5;
+  --bg-elevated: #ffffff;
+  --text: #22263a;
+  --text-muted: #5f6680;
+  --border: #ebe6d6;
+  --accent: #6a3fd6;
+  --accent-contrast: #ffffff;
+  --accent-soft: #efe8ff;
+  --success: #1aa37a;
+  --radius: 1rem;
+  --radius-lg: 1.5rem;
+  --shadow-1: 0 2px 0 var(--border);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --bg: #171527; --bg-elevated: #211e36; --text: #f1eefc; --text-muted: #aaa6c4; --border: #332f4d; --accent: #b79bff; --accent-contrast: #171527; --accent-soft: #2d2450; }
+}
+h1, h2, h3 { font-weight: 900; }
+.button { border-radius: 999px; font-weight: 800; }
+.card { border-width: 2px; }

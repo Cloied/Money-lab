@@ -1,0 +1,24 @@
+/* Theme: editorial — magazine, serious (guides, comparisons, long content) */
+@import url("https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;800&family=Lora:ital,wght@0,400;0,600;1,400&display=swap");
+:root {
+  --font-body: "Lora", Georgia, serif;
+  --font-heading: "Playfair Display", Georgia, serif;
+  --bg: #ffffff;
+  --bg-elevated: #f7f5f0;
+  --text: #141414;
+  --text-muted: #5c5c5c;
+  --border: #dcd8cf;
+  --accent: #8a1c1c;
+  --accent-contrast: #ffffff;
+  --accent-soft: #f5e6e6;
+  --radius: 0.15rem;
+  --radius-lg: 0.3rem;
+  --measure: 62ch;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --bg: #121110; --bg-elevated: #1c1a17; --text: #efece6; --text-muted: #a9a49b; --border: #2f2c27; --accent: #e07b7b; --accent-contrast: #121110; --accent-soft: #3a1f1f; }
+}
+body { line-height: 1.7; }
+h1 { font-weight: 800; }
+h2 { border-top: 1px solid var(--border); padding-top: var(--space-5); }
+.lede::first-letter { font-size: 1.1em; }

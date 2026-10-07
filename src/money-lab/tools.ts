@@ -41,6 +41,7 @@ import { SIGNAL_SOURCES, type SignalSource, marketSignals } from "./signals.js";
 import { deleteDataset, formatRecords, listDatasets, readDataset, saveRecord, searchDatasets } from "./datasets.js";
 import { decideIdeaWithOpus, decideStopWithOpus, isStop, stopDecisionBlocker } from "./decisions.js";
 import { addSite, checkSites, describeSites, removeSite } from "./monitor.js";
+import { checkDesign, designReview, firstImpression, formatDesignCheck } from "./design.js";
 
 /** Marker the Anthropic client turns into an image block (recent results only). */
 export const SCREENSHOT_MARKER = /\[\[image:([^\]\s]+\.(?:png|jpe?g))\]\]/g;
@@ -454,6 +455,113 @@ export function createMoneyLabTools(): AutomatonTool[] {
           browser,
           home: process.env.HOME || "/root",
         });
+      },
+    },
+    {
+      name: "check_design",
+      description:
+        "Free design and quality check of a page in your server's Chrome, desktop and mobile: accessibility " +
+        "violations with axe-core (contrast, labels, landmarks), horizontal overflow on phones, tap targets under " +
+        "40px, images without alt or too heavy, font count, missing title/description/viewport/favicon/og:image, " +
+        "heading structure, console errors, page weight. Returns the findings and both screenshots. Run it on " +
+        "every page before publishing, fix the errors, then first_impression and design_review.",
+      category: "vm",
+      riskLevel: "safe",
+      parameters: {
+        type: "object",
+        properties: { url: { type: "string", description: "http(s) URL, yours or a competitor's" } },
+        required: ["url"],
+      },
+      execute: async (args, ctx) => {
+        if (ctx.identity.sandboxId) return "check_design is only available on a self-hosted server.";
+        const browser = findBrowser();
+        if (!browser) return "No headless browser on this server. Ask the owner (request_help) to install Google Chrome.";
+        let url: URL;
+        try {
+          url = new URL(String(args.url));
+        } catch {
+          return "Invalid URL.";
+        }
+        if (url.protocol !== "http:" && url.protocol !== "https:") return "Only http(s) URLs can be checked.";
+        const check = await checkDesign(url.toString(), { browser, home: process.env.HOME || "/root" });
+        return typeof check === "string" ? check : formatDesignCheck(check);
+      },
+    },
+    {
+      name: "first_impression",
+      description:
+        "The five-second test, free: a reader sees only what your page shows before scrolling and says what the " +
+        "site does, for whom, what they would click and what confuses them. If they cannot answer, rewrite your " +
+        "headline and lede before anything else.",
+      category: "vm",
+      riskLevel: "safe",
+      parameters: {
+        type: "object",
+        properties: { url: { type: "string", description: "http(s) URL" } },
+        required: ["url"],
+      },
+      execute: async (args, ctx) => {
+        if (ctx.identity.sandboxId) return "first_impression is only available on a self-hosted server.";
+        const browser = findBrowser();
+        if (!browser) return "No headless browser on this server. Ask the owner (request_help) to install Google Chrome.";
+        let url: URL;
+        try {
+          url = new URL(String(args.url));
+        } catch {
+          return "Invalid URL.";
+        }
+        if (url.protocol !== "http:" && url.protocol !== "https:") return "Only http(s) URLs.";
+        const check = await checkDesign(url.toString(), { browser, home: process.env.HOME || "/root" });
+        if (typeof check === "string") return check;
+        const result = await firstImpression(check, {
+          db: ctx.db.raw, home: process.env.HOME || "/root", router: ctx.inferenceRouter,
+          chat: (msgs, opts) => ctx.inference.chat(msgs, opts), sessionId: ctx.db.getKV("session_id") || "default",
+        });
+        recordFocusSpend(ctx.db.raw, result.costCents);
+        return result.text;
+      },
+    },
+    {
+      name: "design_review",
+      description:
+        "Claude Opus reviews a page like a senior designer from its desktop and mobile screenshots, its text and " +
+        "the automatic checks: scores (hierarchy, typography, spacing, colour, consistency, originality, trust, " +
+        "clarity, mobile), the top fixes with exact changes, and a SHIP or FIX FIRST verdict. A few cents. Use it " +
+        "once per page before it goes live and after a redesign, after check_design is clean.",
+      category: "vm",
+      riskLevel: "safe",
+      parameters: {
+        type: "object",
+        properties: {
+          url: { type: "string", description: "http(s) URL" },
+          context: { type: "string", description: "What the page must achieve, for whom, and the distinctive element you chose" },
+        },
+        required: ["url"],
+      },
+      execute: async (args, ctx) => {
+        if (ctx.identity.sandboxId) return "design_review is only available on a self-hosted server.";
+        if (!ctx.inferenceRouter) return "design_review is not available in this runtime.";
+        const browser = findBrowser();
+        if (!browser) return "No headless browser on this server. Ask the owner (request_help) to install Google Chrome.";
+        let url: URL;
+        try {
+          url = new URL(String(args.url));
+        } catch {
+          return "Invalid URL.";
+        }
+        if (url.protocol !== "http:" && url.protocol !== "https:") return "Only http(s) URLs.";
+        const check = await checkDesign(url.toString(), { browser, home: process.env.HOME || "/root" });
+        if (typeof check === "string") return check;
+        try {
+          const result = await designReview(check, String(args.context ?? "").trim(), {
+            router: ctx.inferenceRouter, chat: (msgs, opts) => ctx.inference.chat(msgs, opts),
+            sessionId: ctx.db.getKV("session_id") || "default",
+          });
+          recordFocusSpend(ctx.db.raw, result.costCents);
+          return `${result.text}\nScreenshots reviewed:\n[[image:${check.screenshots.desktop}]]\n[[image:${check.screenshots.mobile}]]`;
+        } catch (err: any) {
+          return `Design review failed: ${String(err?.message ?? err).slice(0, 300)}`;
+        }
       },
     },
     {

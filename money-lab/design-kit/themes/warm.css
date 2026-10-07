@@ -1,0 +1,21 @@
+/* Theme: warm — friendly, human (local services, crafts, food) */
+@import url("https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,800&family=Source+Sans+3:wght@400;600&display=swap");
+:root {
+  --font-body: "Source Sans 3", system-ui, sans-serif;
+  --font-heading: "Fraunces", Georgia, serif;
+  --bg: #fdf8f2;
+  --bg-elevated: #fffdf9;
+  --text: #2b2320;
+  --text-muted: #6d605a;
+  --border: #ebe1d6;
+  --accent: #c2501d;
+  --accent-contrast: #ffffff;
+  --accent-soft: #fbe8dc;
+  --radius: 0.75rem;
+  --radius-lg: 1.25rem;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --bg: #1b1512; --bg-elevated: #251d19; --text: #f3ebe4; --text-muted: #b5a79c; --border: #3a2f29; --accent: #f0875a; --accent-contrast: #1b1512; --accent-soft: #3d251a; }
+}
+h1, h2, h3 { font-weight: 800; letter-spacing: 0; }
+.button { border-radius: 999px; }

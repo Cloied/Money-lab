@@ -1,0 +1,26 @@
+/* Theme: retro — bold, 70s print (brands that want to stand out) */
+@import url("https://fonts.googleapis.com/css2?family=Archivo+Black&family=Archivo:wght@400;600&display=swap");
+:root {
+  --font-body: "Archivo", system-ui, sans-serif;
+  --font-heading: "Archivo Black", Impact, sans-serif;
+  --bg: #f4efe6;
+  --bg-elevated: #fff9ef;
+  --text: #1e1a16;
+  --text-muted: #5d554c;
+  --border: #1e1a16;
+  --accent: #e4572e;
+  --accent-contrast: #1e1a16;
+  --accent-soft: #fbe2d5;
+  --success: #2a7f4f;
+  --radius: 0;
+  --radius-lg: 0;
+  --shadow-1: 4px 4px 0 var(--border);
+  --shadow-2: 6px 6px 0 var(--border);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --bg: #1b1713; --bg-elevated: #26201a; --text: #f6efe3; --text-muted: #b7ab9b; --border: #f6efe3; --accent: #ff7a4d; --accent-soft: #4a2a1d; }
+}
+h1, h2, h3 { text-transform: uppercase; letter-spacing: 0.01em; line-height: 1; }
+.button { border: 2px solid var(--border); box-shadow: var(--shadow-1); }
+.button:hover { transform: translate(-2px, -2px); box-shadow: var(--shadow-2); }
+.card { border: 2px solid var(--border); }

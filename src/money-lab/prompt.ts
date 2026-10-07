@@ -101,7 +101,11 @@ function capabilityLines(): string {
     cap.browser
       ? "Eyes: view_page shows you a screenshot of any page (desktop, mobile, or print for the PDF a visitor gets). " +
         "Hands in a browser: browse drives a real headless browser on your server (click, fill, read) to test your " +
-        "sites like a user; its profile has none of the owner's accounts."
+        "sites like a user; its profile has none of the owner's accounts. " +
+        "Design: follow the money-lab-design skill; start pages from the kit in ~/library/design (base.css, six themes, " +
+        "templates, components, icons.md), make them yours, then run check_design (free: accessibility, mobile overflow, " +
+        "tap targets, images, fonts, with screenshots), first_impression (free five-second test) and design_review " +
+        "(Opus judges the screenshots) before publishing."
       : "Eyes: no browser installed; view_page will fail until the owner installs Chrome.",
     searchConsoleSite()
       ? `Search: search_console reads Google Search Console (queries, pages, clicks) for ${searchConsoleSite()} and your other properties.`

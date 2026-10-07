@@ -1,0 +1,22 @@
+/* Theme: technical — dense, monospaced accents (developer tools, data) */
+@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600;700&family=IBM+Plex+Mono:wght@400;600&display=swap");
+:root {
+  --font-body: "IBM Plex Sans", system-ui, sans-serif;
+  --font-heading: "IBM Plex Sans", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+  --bg: #0b0f14;
+  --bg-elevated: #121821;
+  --text: #e6edf3;
+  --text-muted: #8b98a8;
+  --border: #1f2a37;
+  --accent: #2dd4bf;
+  --accent-contrast: #061012;
+  --accent-soft: #0f2a2a;
+  --radius: 0.25rem;
+  --radius-lg: 0.5rem;
+  color-scheme: dark;
+}
+:root[data-theme="light"] { --bg: #f7f9fb; --bg-elevated: #ffffff; --text: #0f172a; --text-muted: #526070; --border: #dde3ea; --accent: #0f766e; --accent-contrast: #ffffff; --accent-soft: #d9f3ef; color-scheme: light; }
+h1, h2 { letter-spacing: -0.02em; }
+.badge, .nav a, th { font-family: var(--font-mono); text-transform: none; letter-spacing: 0; }
+.hero h1::before { content: "> "; color: var(--accent); font-family: var(--font-mono); }
