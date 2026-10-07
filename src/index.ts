@@ -580,6 +580,13 @@ async function run(): Promise<void> {
         canWake: () => db.getAgentState() !== "dead" && !String(db.getKV("sleep_reason") ?? "").startsWith("plafond"),
       });
     });
+    const { checkProbes } = await import("./money-lab/probes.js");
+    every(24 * 3_600_000, "Sondes", async () => {
+      await checkProbes(db.raw, {
+        wake: (reason) => insertWakeEvent(db.raw, "money_lab_probe", reason),
+        canWake: () => db.getAgentState() !== "dead" && !String(db.getKV("sleep_reason") ?? "").startsWith("plafond"),
+      });
+    });
     const { configuredFreeProviders, probeLocalModel } = await import("./money-lab/freeai.js");
     await probeLocalModel().catch(() => undefined);
     const free = configuredFreeProviders();

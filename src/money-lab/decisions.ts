@@ -19,6 +19,7 @@ import { type Experiment, getKV, listExperiments, setKV } from "./journal.js";
 import { approvalBlockers, decideIdea, getIdea, ideaDossier, rankedIdeas } from "./ideas.js";
 import { REVIEW_MODEL } from "./review.js";
 import { survivalBalance } from "./selfhosted.js";
+import { probeEvidenceFor } from "./probes.js";
 
 export const DECISION_MODEL = REVIEW_MODEL;
 const DECISIONS_KEY = "money_lab.decisions";
@@ -146,6 +147,7 @@ function ideaDecisionDossier(db: Database.Database, id: string, agentCase: strin
     `The agent's answer to the critiques: ${idea.response || "none"}`,
     previous.length ? `Your previous decisions on this idea:\n${previous.join("\n")}` : "",
     `The agent's case for approval now: ${agentCase}`,
+    probeEvidenceFor(db, id, now) || "No probe was run for this idea: demand rests on the evidence above, not on Search Console measurements.",
     `Other ideas in the pipeline:\n${pipeline.join("\n") || "- none scored"}`,
     `Active experiments: ${active.length ? active.map((e) => `${e.id} [${e.status}] ${e.hypothesis.slice(0, 100)}`).join("; ") : "none"}.`,
     runway(db, lab, now),

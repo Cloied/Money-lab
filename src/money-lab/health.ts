@@ -23,6 +23,7 @@ import { configuredFreeProviders, freeAiKeyProblems, freeAiUsageToday } from "./
 import { currentMode, modeBudget, modeLabelFr } from "./modes.js";
 import { recentDecisions } from "./decisions.js";
 import { siteStates } from "./monitor.js";
+import { listProbes } from "./probes.js";
 
 const EVENTS_KEY = "money_lab.health_events";
 const MAX_EVENTS = 200;
@@ -264,6 +265,19 @@ export function buildHealthReport(
     for (const site of down) {
       if (nowMs - Date.parse(site.since) > 3_600_000) problems.push(`le site ${site.url} est hors ligne depuis plus d'1 h`);
       else watch.push(`le site ${site.url} vient de tomber`);
+    }
+  }
+
+  // ── Probes ──
+  const probes = listProbes(db);
+  if (probes.length) {
+    const live = probes.filter((p) => p.status === "live");
+    const passed = probes.filter((p) => p.status === "passed").length;
+    const failed = probes.filter((p) => p.status === "failed").length;
+    lines.push("", "Sondes (pages test mesurées par Google) :");
+    lines.push(`  ${live.length} en cours, ${passed} réussie(s), ${failed} échouée(s)`);
+    for (const p of live.slice(0, 6)) {
+      lines.push(`  ${p.id} : jour ${Math.floor((nowMs - Date.parse(p.createdAt)) / 86_400_000)}/${p.windowDays}, ${p.impressions} impressions, ${p.clicks} clics (seuil ${p.minImpressions})`);
     }
   }
 
