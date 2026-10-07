@@ -356,9 +356,9 @@
         "note": "src/money-lab/design.ts, assets.ts, money-lab/design-kit, money-lab/skills/money-lab-design; tests in money-lab-design.test.ts"
       },
       "verification": {
-        "at": "2026-10-07T06:00:59.960770+00:00",
+        "at": "2026-10-07T20:27:46.860620+00:00",
         "fingerprint_version": 2,
-        "fingerprint": "3d017acc31013ac2fdeb56745a04bdec5e6e132871b69e10983318aa96bf2e3a",
+        "fingerprint": "037e00d2e089aa542b708b041690a73718a5236c76f9846b7c3a118bdea46875",
         "scope": [
           "src/money-lab/design.ts",
           "src/money-lab/assets.ts",
@@ -372,22 +372,22 @@
           "4": "build"
         },
         "checks_hash": "61c0e52fc040bf896600e620dc5276589ef09d101c9ab012435010fa6df51c64",
-        "report": ".likma/checks/757f67af58264e6385a84cdd7f0bb807.json",
+        "report": ".likma/checks/eeb8df13dba14708a32a1b4f3f3b62fc.json",
         "contract": "8fe77003d50521f85fdf8b26234642da19cac41b95368ae3961a68f6130c3907",
         "results": [
           {
             "name": "money-lab",
             "result": "passed",
             "exit_code": 0,
-            "seconds": 96.636,
-            "output_bytes": 41038,
-            "output_sha256": "de493bac22335e2e7404951510a95479c8d88c20e66a3732bbed9cb789b44533"
+            "seconds": 74.962,
+            "output_bytes": 41223,
+            "output_sha256": "f5755fe1a49e331e4bb3758d0eea9f97981325f0aeabc6cd767cfc995d9e23bd"
           },
           {
             "name": "build",
             "result": "passed",
             "exit_code": 0,
-            "seconds": 15.021,
+            "seconds": 10.684,
             "output_bytes": 156,
             "output_sha256": "7e6d54040be02fede8fd2b5500a1780c605826a46c84e1c93c5f7750d7c779b6"
           }
@@ -413,9 +413,9 @@
         "note": "src/agent/loop.ts moneyLabHistoryWindow, src/agent/context.ts shortResultTurnIds, src/money-lab/caps.ts, /plafond in telegram.ts; tests in money-lab-harvest.test.ts and money-lab-vps.test.ts"
       },
       "verification": {
-        "at": "2026-10-07T18:30:09.233956+00:00",
+        "at": "2026-10-07T20:29:08.000427+00:00",
         "fingerprint_version": 2,
-        "fingerprint": "f16a3e4e3abde9510a7920131d07285cc0f04ab0788b0c1228b48d1fddf5ee29",
+        "fingerprint": "c6e569b30646e36fa4bcb146614d3105fedc74c2163be5de5b7e982437ac1a99",
         "scope": [
           "src/agent/context.ts",
           "src/agent/loop.ts",
@@ -426,16 +426,16 @@
           "2": "money-lab"
         },
         "checks_hash": "02dbbb9668ac32079d8b239263f07b8bfd1d9cae63af4973067076656505e0a2",
-        "report": ".likma/checks/04ece00c5411419caf83e6c485cd26a9.json",
+        "report": ".likma/checks/ae40987bd20e436a91c543e6c0e6943a.json",
         "contract": "53ce44daeb870ac793413510a50254df3b0503041fa2e3238b217f63cc3820ae",
         "results": [
           {
             "name": "money-lab",
             "result": "passed",
             "exit_code": 0,
-            "seconds": 76.048,
-            "output_bytes": 41036,
-            "output_sha256": "f21c31ad8ad08606e4c90aa5a93e529b7dfddb14116cded9811fbe7f7ec33712"
+            "seconds": 80.869,
+            "output_bytes": 41225,
+            "output_sha256": "42c1d360bb302a5745ec204e3dbcd4edf0d9a429fefdf26d88845cf1324b8cf4"
           }
         ]
       },
@@ -453,7 +453,7 @@
         "Sleep is capped by mode: 3 h with few ideas, 6 h while building or researching, 24 h in observation",
         "Nine free providers rotate within declared daily quotas with per-provider model listings"
       ],
-      "status": "verified",
+      "status": "built",
       "paths": [
         "src/money-lab/modes.ts",
         "src/money-lab/freeai.ts",
@@ -464,34 +464,51 @@
       "implementation": {
         "at": "2026-10-07T18:13:37.482884+00:00",
         "note": "src/money-lab/modes.ts, freeai.ts providers mistral/nvidia/sambanova/github/cloudflare, loop.ts modeBudgetBlock, tools.ts sleep caps, prompt.ts mission; tests in money-lab-harvest.test.ts and money-lab-vps.test.ts"
+      }
+    },
+    {
+      "id": "code-workshop",
+      "title": "Code workshop: reuse, scaffold, test, review",
+      "criteria": [
+        "repo_scout ranks permissively licensed repositories first and reads their READMEs",
+        "vendor_code copies only permissive repositories, without credentials or symbolic links, with a NOTICE",
+        "scaffold_site produces a complete French or English site from the kit with a git repository",
+        "test_site reports failed steps with screenshots, broken links, images and console errors"
+      ],
+      "status": "verified",
+      "paths": [
+        "src/money-lab/workshop.ts",
+        "money-lab/skills/money-lab-code/**"
+      ],
+      "implementation": {
+        "at": "2026-10-07T20:16:06.087207+00:00",
+        "note": "src/money-lab/workshop.ts; tools in tools.ts; skill money-lab/skills/money-lab-code; tests money-lab-workshop.test.ts"
       },
       "verification": {
-        "at": "2026-10-07T18:22:58.465774+00:00",
+        "at": "2026-10-07T20:26:20.963456+00:00",
         "fingerprint_version": 2,
-        "fingerprint": "0fecf373caa9f52b93abc87a9ff6fc23c1819e0c7d3e7fcd21847275977915fc",
+        "fingerprint": "6ac4a2b56786dbf9fa64485578e45d2475d1f0747694ad2affaeaa82ed0e4f44",
         "scope": [
-          "src/money-lab/modes.ts",
-          "src/money-lab/freeai.ts",
-          "src/agent/loop.ts",
-          "src/agent/tools.ts",
-          "src/money-lab/prompt.ts"
+          "src/money-lab/workshop.ts",
+          "money-lab/skills/money-lab-code/**"
         ],
         "criterion_checks": {
           "1": "money-lab",
           "2": "money-lab",
-          "3": "money-lab"
+          "3": "money-lab",
+          "4": "money-lab"
         },
         "checks_hash": "02dbbb9668ac32079d8b239263f07b8bfd1d9cae63af4973067076656505e0a2",
-        "report": ".likma/checks/d7d31babe9574feab8ace640310b763a.json",
-        "contract": "6eb9ed523a7eedc9c2cb43787592bc7a542daac0ea24ca2580b24b902e47277d",
+        "report": ".likma/checks/05c10cb73a09415aaa015477f67c19c4.json",
+        "contract": "b3264225f0dd55fff443ddddefdd37ca141670705fa547e9b7c9156af8cfeae4",
         "results": [
           {
             "name": "money-lab",
             "result": "passed",
             "exit_code": 0,
-            "seconds": 74.543,
-            "output_bytes": 40921,
-            "output_sha256": "a839422facdfa1614c544c2524bc8e6753c2071126c86bc23e6f649a0c7354c2"
+            "seconds": 78.59,
+            "output_bytes": 41223,
+            "output_sha256": "2ffb63aec0efaa34ae45f7c1c6b1d4f91f3eda200350f18859b03f66b0fbb84e"
           }
         ]
       }

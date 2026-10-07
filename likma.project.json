@@ -176,6 +176,18 @@
       "edit_when": "What the owner sees each morning changes"
     },
     {
+      "area": "Code workshop",
+      "path": "src/money-lab/workshop.ts",
+      "purpose": "repo_scout, vendor_code (licence-checked copies), scaffold_site from the kit, test_site browser scenarios and crawl",
+      "edit_when": "How the bot finds, reuses, scaffolds or tests code changes"
+    },
+    {
+      "area": "Code skill",
+      "path": "money-lab/skills/money-lab-code/SKILL.md",
+      "purpose": "Reuse-scaffold-build-test-review method and the catalogue of permissively licensed libraries",
+      "edit_when": "The coding method or the library catalogue changes"
+    },
+    {
       "area": "Work modes",
       "path": "src/money-lab/modes.ts",
       "purpose": "Discovery, build and observe modes derived from the journal; discovery budget caps and sleep limits",
