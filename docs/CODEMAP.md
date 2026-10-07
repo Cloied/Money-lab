@@ -26,6 +26,7 @@
 | Datasets | src/money-lab/datasets.ts | The agent's collected data in ~/datasets/*.jsonl | Dataset storage, limits or search change |
 | Site monitoring | src/money-lab/monitor.ts | 30-minute uptime checks of the agent's sites with owner alerts and wakes | Monitoring rules, alerts or wake limits change |
 | Health report | src/money-lab/health.ts | Daily Telegram health report (/sante) from local state | What the owner sees each morning changes |
+| Work modes | src/money-lab/modes.ts | Discovery, build and observe modes derived from the journal; discovery budget caps and sleep limits | How the bot's spending follows its activity changes |
 | Inference caps | src/money-lab/caps.ts | /plafond on Telegram: writes the daily and hourly inference caps, then restarts | The owner changes the spending caps |
 | Design checks | src/money-lab/design.ts | check_design (axe-core and mechanical checks with screenshots), Opus design review, first-impression test | Design checks, the review rubric or screenshot handling change |
 | Bundled assets | src/money-lab/assets.ts | Copies bundled skills and the design kit into the agent's home at start | What ships with the runtime or how it is refreshed changes |

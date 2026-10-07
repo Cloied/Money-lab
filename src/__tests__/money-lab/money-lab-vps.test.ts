@@ -513,7 +513,7 @@ describe("Self-hosted profile validation", () => {
 // ─── Fixes from the end-to-end audit (2026-10-05) ───────────────
 
 describe("End-to-end audit fixes", () => {
-  it("reads the owner's Telegram message on the wake turn, as the owner's, then sleeps 15 minutes", async () => {
+  it("reads the owner's Telegram message on the wake turn, as the owner's, then sleeps (an hour outside build mode)", async () => {
     const db = openDb();
     const config = vpsConfig();
     addLedgerEntry(db.raw, { kind: "owner_funding", amountCents: 1000, source: "operator", reference: "f" });
@@ -536,7 +536,8 @@ describe("End-to-end audit fixes", () => {
     expect(last).toContain("Wake-up reason: Message du propriétaire");
     expect(db.getKV(MONEY_LAB_WAKE_REASON_KEY)).toBeUndefined();
     const sleepUntil = new Date(db.getKV("sleep_until")!).getTime();
-    expect(sleepUntil - before).toBeGreaterThan(14 * 60_000);
+    expect(sleepUntil - before).toBeGreaterThan(59 * 60_000);
+    expect(sleepUntil - before).toBeLessThanOrEqual(61 * 60_000);
     db.close();
   });
 
@@ -809,7 +810,7 @@ describe("Autonomy capabilities", () => {
     db.close();
   });
 
-  it("caps sleep at 6 h and runs a weekly review that reads the agent's lessons", async () => {
+  it("caps sleep by work mode and runs a weekly review that reads the agent's lessons", async () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), "money-lab-review-"));
     tmpDirs.push(home);
     fs.writeFileSync(path.join(home, "LESSONS.md"), "- Reddit filtre les comptes neufs.");
@@ -826,9 +827,15 @@ describe("Autonomy capabilities", () => {
       const scores = Object.fromEntries(CRITERIA.map((c) => [c, { score: 5, why: "fait vérifié et sourcé" }]));
       for (const id of ["a", "b", "c", "d", "e"]) upsertIdea(db.raw, { id, title: id, problem: "p", scores });
       expect(journalFingerprint(db.raw)).not.toBe(fingerprint);
+      // Pipeline scored, nothing being built: observation, a day at most.
       const s = await executeTool("sleep", { duration_seconds: 604800, reason: "attente" }, tools, toolCtx(db), engine, turnCtx(db));
-      expect(s.result).toMatch(/capped at 6 h/);
-      expect(new Date(db.getKV("sleep_until")!).getTime() - Date.now()).toBeLessThanOrEqual(6 * 3600 * 1000);
+      expect(s.result).toMatch(/capped at 24 h: mode observe/);
+      expect(new Date(db.getKV("sleep_until")!).getTime() - Date.now()).toBeLessThanOrEqual(24 * 3600 * 1000);
+      // A build in progress: a work session at least every 6 hours.
+      upsertExperiment(db.raw, { id: "exp-build", hypothesis: "h", status: "building" } as any);
+      const b = await executeTool("sleep", { duration_seconds: 604800, reason: "attente" }, tools, toolCtx(db), engine, turnCtx(db));
+      expect(b.result).toMatch(/capped at 6 h: mode build/);
+      db.raw.prepare("UPDATE money_lab_experiments SET status = 'finished' WHERE id = 'exp-build'").run();
 
       addLedgerEntry(db.raw, { kind: "owner_funding", amountCents: 1000, source: "operator", reference: "f" });
       db.setKV(REVIEW_KEY, new Date(Date.now() - 8 * 24 * 3600 * 1000).toISOString());

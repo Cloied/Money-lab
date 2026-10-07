@@ -72,6 +72,7 @@ import { createMoneyLabTools } from "../money-lab/tools.js";
 import { paidCallBlockReason } from "../money-lab/guard.js";
 import { recordHealthEvent } from "../money-lab/health.js";
 import { REVIEW_INSTRUCTIONS, REVIEW_MODEL, REVIEW_MODEL_TURNS, ensureReviewClock, isReviewDue, markReviewed } from "../money-lab/review.js";
+import { currentMode, modeBudgetBlock } from "../money-lab/modes.js";
 import { recordFocusSpend } from "../money-lab/allocation.js";
 import { MONEY_LAB_WAKE_REASON_KEY, OWNER_TELEGRAM_SENDER, ensureMoneyLabSchema, pause as pauseMoneyLab, queueOwnerNotification } from "../money-lab/journal.js";
 
@@ -80,6 +81,10 @@ const MAX_TOOL_CALLS_PER_TURN = 10;
 const MAX_CONSECUTIVE_ERRORS = 5;
 const MAX_REPETITIVE_TURNS = 3;
 const MONEY_LAB_IDLE_SLEEP_MS = 15 * 60_000;
+/** Outside build mode a wake is mostly waiting: fewer paid wakes. */
+const MONEY_LAB_IDLE_SLEEP_SLOW_MS = 60 * 60_000;
+/** Paid-turn estimate used for the mode caps before the router's own check (about one Sonnet turn). */
+const MONEY_LAB_TURN_ESTIMATE_CENTS = 8;
 const MONEY_LAB_WINDOW = 20;
 const MONEY_LAB_WINDOW_STEP = 10;
 const MONEY_LAB_STORED_RESULT_CHARS = 20_000;
@@ -766,6 +771,23 @@ export async function runAgentLoop(
       log(config, `[THINK] Routing inference (tier: ${survivalTier}, model: ${inference.getDefaultModel()})...`);
 
       const inferenceTools = toolsToInferenceFormat(tools);
+
+      // Money Lab: the work mode's cap (discovery is nearly free) is checked
+      // before the paid call; a review wake and a turn carrying the owner's
+      // message are never blocked by it (the owner's caps still apply).
+      const ownerWaiting = claimedMessages.some((m) => m.fromAddress === OWNER_TELEGRAM_SENDER && m.id.startsWith("tg_"));
+      const modeBlock = moneyLab && !reviewPending && !ownerWaiting
+        ? modeBudgetBlock(db.raw, moneyLab, MONEY_LAB_TURN_ESTIMATE_CENTS) : null;
+      if (modeBlock) {
+        releaseInboxClaims(db.raw, claimedMessages.map((m) => m.id));
+        log(config, `[MONEY LAB] ${modeBlock.reason}. Sleeping until ${modeBlock.until.toISOString()}.`);
+        db.setKV("sleep_until", modeBlock.until.toISOString());
+        db.setKV("sleep_reason", modeBlock.reason);
+        db.setAgentState("sleeping");
+        onStateChange?.("sleeping");
+        running = false;
+        break;
+      }
       const routerResult = await inferenceRouter.route(
         {
           messages: messages,
@@ -1107,10 +1129,9 @@ export async function runAgentLoop(
         log(config, "[IDLE] No pending inputs. Entering brief sleep.");
         // Money Lab: each wake is a paid call; owner messages and help
         // answers wake the agent earlier anyway.
-        db.setKV(
-          "sleep_until",
-          new Date(Date.now() + (moneyLab ? MONEY_LAB_IDLE_SLEEP_MS : 60_000)).toISOString(),
-        );
+        const idleMs = !moneyLab ? 60_000
+          : currentMode(db.raw) === "build" ? MONEY_LAB_IDLE_SLEEP_MS : MONEY_LAB_IDLE_SLEEP_SLOW_MS;
+        db.setKV("sleep_until", new Date(Date.now() + idleMs).toISOString());
         db.setAgentState("sleeping");
         onStateChange?.("sleeping");
         running = false;

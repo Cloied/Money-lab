@@ -20,6 +20,7 @@ import { listPosts } from "./social.js";
 import { redactSecrets, survivalBalance } from "./selfhosted.js";
 import { inferenceGetDailyCost } from "../state/database.js";
 import { configuredFreeProviders, freeAiKeyProblems, freeAiUsageToday } from "./freeai.js";
+import { currentMode, modeBudget, modeLabelFr } from "./modes.js";
 import { recentDecisions } from "./decisions.js";
 import { siteStates } from "./monitor.js";
 
@@ -196,6 +197,10 @@ export function buildHealthReport(
   const spentYesterday = inferenceGetDailyCost(db, yesterday);
   const cap = lab.inference.dailyCents;
   lines.push("", "Argent :");
+  const mode = currentMode(db, now);
+  const caps = modeBudget(mode, lab);
+  lines.push(`  Mode : ${modeLabelFr(mode)} — plafond ${caps.dailyCents === null ? "aucun" : usd(caps.dailyCents)} par jour` +
+    `${caps.hourlyCents !== null ? `, ${usd(caps.hourlyCents)} par heure` : ""}`);
   lines.push(`  IA aujourd'hui (depuis minuit UTC) : ${usd(spentToday)}${cap !== null ? ` / ${usd(cap)}` : ""}`);
   lines.push(`  IA hier : ${usd(spentYesterday)}`);
   // A call is allowed while the estimate fits, so the real cost can pass the

@@ -176,6 +176,12 @@
       "edit_when": "What the owner sees each morning changes"
     },
     {
+      "area": "Work modes",
+      "path": "src/money-lab/modes.ts",
+      "purpose": "Discovery, build and observe modes derived from the journal; discovery budget caps and sleep limits",
+      "edit_when": "How the bot's spending follows its activity changes"
+    },
+    {
       "area": "Inference caps",
       "path": "src/money-lab/caps.ts",
       "purpose": "/plafond on Telegram: writes the daily and hourly inference caps, then restarts",

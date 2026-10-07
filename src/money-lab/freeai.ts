@@ -4,11 +4,14 @@
  * Collecting and extracting information (reading pages, pulling prices and
  * competitors out of them, sorting reviews) does not need the best model.
  * The owner can give the runtime free model access: online free tiers
- * (Groq, Google Gemini, OpenRouter's free models), with keys the agent
- * never sees, and a local model served by Ollama on the server. The runtime
- * tries them in order, rests the ones that fail or hit their limits, and
- * falls back to Claude Haiku (paid, through the budgeted router) only when
- * none answers.
+ * (Groq, Google Gemini, Mistral's Experiment plan, NVIDIA NIM, SambaNova,
+ * GitHub Models, Cloudflare Workers AI, OpenRouter's free models), with keys
+ * the agent never sees, and a local model served by Ollama on the server.
+ * Each provider declares its free daily quota; the runtime counts requests
+ * per UTC day and skips a provider before its quota is used, spaces requests
+ * where a tier caps requests per second, tries providers in order, rests the
+ * ones that fail or hit a limit, and falls back to Claude Haiku (paid,
+ * through the budgeted router) only when none answers.
  *
  * Free services may keep what they read: the runtime masks anything that
  * looks like a key first, and the agent is told to send public material only.
@@ -25,7 +28,8 @@ import { redactSecrets, withSecrets } from "./selfhosted.js";
 import { type DelegateRouter, gatherDocuments, runDelegate } from "./delegate.js";
 import { saveRecord } from "./datasets.js";
 
-export type FreeProviderId = "groq" | "gemini" | "openrouter" | "ollama";
+export type FreeProviderId =
+  | "groq" | "gemini" | "mistral" | "nvidia" | "sambanova" | "github" | "cloudflare" | "openrouter" | "ollama";
 
 interface ProviderSpec {
   id: FreeProviderId;
@@ -33,6 +37,16 @@ interface ProviderSpec {
   keyEnv: string | null;
   modelEnv: string;
   baseUrl: (env: NodeJS.ProcessEnv) => string;
+  /** Other variables the provider needs (an account id); unset means not configured. */
+  requiresEnv?: string[];
+  /** Requests the free tier allows per UTC day; the runtime stops a little before. */
+  dailyRequests: number;
+  /** Minimum spacing between two requests (a free tier allowing 1 request per second). */
+  minIntervalMs?: number;
+  /** Lists the models when the OpenAI-style /models endpoint does not exist. */
+  listModels?: (base: string, key: string, fetchFn: FetchFn) => Promise<string[]>;
+  /** Extra request headers. */
+  headers?: Record<string, string>;
   /** Input characters per request, under the free tier's per-minute token limit. */
   maxInputChars: number;
   /** Output tokens per request (thinking models spend part of them before answering). */
@@ -56,6 +70,7 @@ const PROVIDERS: ProviderSpec[] = [
     timeoutMs: 60_000,
     prefer: [/llama-3\.3-70b/, /gpt-oss-120b/, /llama-4-maverick/, /kimi-k2/, /llama-4-scout/, /qwen3-32b/, /70b/],
     usable: (id) => !/whisper|tts|guard|embed|playai|distil|compound|orpheus|safeguard/i.test(id),
+    dailyRequests: 900,
   },
   {
     id: "gemini",
@@ -68,6 +83,90 @@ const PROVIDERS: ProviderSpec[] = [
     timeoutMs: 120_000,
     prefer: [/^gemini-[\d.]+-flash$/, /^gemini-[\d.]+-flash-lite$/, /^gemini-[\d.]+-flash/, /flash/],
     usable: (id) => /^gemini-/.test(id) && !/image|tts|live|audio|embedding|aqa|imagen|veo|robotics|computer-use|native/i.test(id),
+    dailyRequests: 240,
+  },
+  {
+    id: "mistral",
+    label: "Mistral (plan Experiment)",
+    keyEnv: "MISTRAL_API_KEY",
+    modelEnv: "MISTRAL_MODEL",
+    baseUrl: () => "https://api.mistral.ai/v1",
+    maxInputChars: 100_000,
+    maxTokens: 3000,
+    timeoutMs: 120_000,
+    prefer: [/^mistral-small-latest$/, /^mistral-small/, /^magistral-small/, /^open-mistral-nemo/, /^ministral-8b/, /^ministral/, /^pixtral-12b/],
+    usable: (id) => !/embed|moderation|ocr|codestral-mamba|large|medium|voxtral|transcribe|devstral|saba/i.test(id),
+    // 1 request per second, 1 billion tokens per month on the free plan.
+    dailyRequests: 5000,
+    minIntervalMs: 1100,
+  },
+  {
+    id: "nvidia",
+    label: "NVIDIA NIM",
+    keyEnv: "NVIDIA_API_KEY",
+    modelEnv: "NVIDIA_MODEL",
+    baseUrl: () => "https://integrate.api.nvidia.com/v1",
+    maxInputChars: 60_000,
+    maxTokens: 2500,
+    timeoutMs: 120_000,
+    prefer: [/^meta\/llama-3\.3-70b-instruct$/, /nemotron-super/, /^qwen\/qwen2\.5-coder-32b/, /^meta\/llama-3\.1-70b/, /^mistralai\/mistral-small/, /70b/],
+    usable: (id) => !/embed|rerank|vila|neva|vision|guard|whisper|parakeet|tts|fastpitch|diffusion|safety|retriever|ocr|paddle/i.test(id),
+    dailyRequests: 1500,
+  },
+  {
+    id: "sambanova",
+    label: "SambaNova Cloud",
+    keyEnv: "SAMBANOVA_API_KEY",
+    modelEnv: "SAMBANOVA_MODEL",
+    baseUrl: () => "https://api.sambanova.ai/v1",
+    maxInputChars: 40_000,
+    maxTokens: 2000,
+    timeoutMs: 90_000,
+    prefer: [/^Meta-Llama-3\.3-70B-Instruct$/, /^DeepSeek-V3/, /^Qwen3-32B/, /Llama-3\.3-70B/, /70B/],
+    usable: (id) => !/vision|whisper|guard|embed|r1/i.test(id),
+    dailyRequests: 300,
+  },
+  {
+    id: "github",
+    label: "GitHub Models",
+    keyEnv: "GITHUB_MODELS_TOKEN",
+    modelEnv: "GITHUB_MODEL",
+    baseUrl: () => "https://models.github.ai/inference",
+    // Requests are capped at 8,000 input tokens on the free tier.
+    maxInputChars: 24_000,
+    maxTokens: 2000,
+    timeoutMs: 90_000,
+    prefer: [/^openai\/gpt-4o-mini$/, /^openai\/gpt-4\.1-mini$/, /^meta\/Llama-3\.3-70B-Instruct$/, /^mistral-ai\/Codestral/, /gpt-4o-mini/, /Llama-3\.3/],
+    usable: (id) => !/embed|o1|o3|o4|deepseek-r1|grok|phi-4-reasoning|vision|whisper|dall/i.test(id),
+    dailyRequests: 140,
+    listModels: async (_base, key, fetchFn) => {
+      const data = await fetchJson(fetchFn, "https://models.github.ai/catalog/models", {
+        headers: { authorization: `Bearer ${key}`, accept: "application/vnd.github+json" },
+      }, 20_000);
+      return (Array.isArray(data) ? data : []).map((m: any) => String(m?.id ?? "")).filter(Boolean);
+    },
+  },
+  {
+    id: "cloudflare",
+    label: "Cloudflare Workers AI",
+    keyEnv: "CLOUDFLARE_AI_TOKEN",
+    modelEnv: "CLOUDFLARE_AI_MODEL",
+    requiresEnv: ["CLOUDFLARE_ACCOUNT_ID"],
+    baseUrl: (env) => `https://api.cloudflare.com/client/v4/accounts/${env.CLOUDFLARE_ACCOUNT_ID ?? ""}/ai/v1`,
+    maxInputChars: 24_000,
+    maxTokens: 1500,
+    timeoutMs: 90_000,
+    prefer: [/llama-3\.3-70b/, /qwen2\.5-coder-32b/, /llama-3\.1-8b-instruct-fast/, /mistral-small/],
+    usable: (id) => id.startsWith("@cf/") && !/embed|bge|whisper|m2m100|resnet|stable-diffusion|flux|melotts|uform|llamaguard|detr/i.test(id),
+    // 10,000 free neurons per day: about 100-200 answers.
+    dailyRequests: 120,
+    // The OpenAI-style endpoint has no model listing; these are the current free text models.
+    listModels: async () => [
+      "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+      "@cf/qwen/qwen2.5-coder-32b-instruct",
+      "@cf/meta/llama-3.1-8b-instruct-fast",
+      "@cf/mistralai/mistral-small-3.1-24b-instruct",
+    ],
   },
   {
     id: "openrouter",
@@ -80,6 +179,7 @@ const PROVIDERS: ProviderSpec[] = [
     timeoutMs: 120_000,
     prefer: [/llama-3\.3-70b.*:free$/, /deepseek-chat.*:free$/, /deepseek.*:free$/, /qwen.*:free$/, /gemini.*:free$/, /mistral.*:free$/],
     usable: (id) => id.endsWith(":free") && !/vision|image|audio/i.test(id),
+    dailyRequests: 45,
   },
   {
     id: "ollama",
@@ -92,10 +192,13 @@ const PROVIDERS: ProviderSpec[] = [
     timeoutMs: 180_000,
     prefer: [],
     usable: (id) => !/embed|bge|nomic|minilm|snowflake|mxbai/i.test(id),
+    dailyRequests: Number.MAX_SAFE_INTEGER,
   },
 ];
 
-const DEFAULT_ORDER: FreeProviderId[] = ["groq", "gemini", "openrouter", "ollama"];
+/** Fast and generous first; the small daily quotas (GitHub, Cloudflare, OpenRouter) are kept for the end of the day. */
+const DEFAULT_ORDER: FreeProviderId[] = ["groq", "gemini", "mistral", "nvidia", "sambanova", "github", "cloudflare", "openrouter", "ollama"];
+export const FREE_PROVIDER_IDS: readonly FreeProviderId[] = DEFAULT_ORDER;
 const STATE_KEY = "money_lab.freeai";
 const MAX_CHUNKS = 6;
 const MAX_URLS = 8;
@@ -294,7 +397,16 @@ async function readyProviders(db: Database.Database, env: NodeJS.ProcessEnv, fet
     if (spec.keyEnv) {
       key = env[spec.keyEnv]?.trim() || null;
       if (!key) continue;
+      if (spec.requiresEnv?.some((name) => !env[name]?.trim())) {
+        resting.push(`${spec.id} not configured: ${spec.requiresEnv.filter((name) => !env[name]?.trim()).join(", ")} missing`);
+        continue;
+      }
     } else if (!(await ollamaModels(base, fetchFn, now))) {
+      continue;
+    }
+    const used = state.usage[new Date(now).toISOString().slice(0, 10)]?.[spec.id]?.calls ?? 0;
+    if (used >= spec.dailyRequests) {
+      resting.push(`${spec.id} daily free quota used (${used} requests)`);
       continue;
     }
     const cooldown = state.providers[spec.id]?.cooldownUntil ?? 0;
@@ -309,7 +421,9 @@ async function readyProviders(db: Database.Database, env: NodeJS.ProcessEnv, fet
 
 /** Names of the configured free providers, for the prompt and /statut (no network for online ones). */
 export function configuredFreeProviders(env: NodeJS.ProcessEnv = withSecrets()): string[] {
-  const names = PROVIDERS.filter((p) => p.keyEnv && env[p.keyEnv]?.trim()).map((p) => p.id as string);
+  const names = PROVIDERS
+    .filter((p) => p.keyEnv && env[p.keyEnv]?.trim() && !(p.requiresEnv ?? []).some((name) => !env[name]?.trim()))
+    .map((p) => p.id as string);
   const local = [...ollamaProbe.values()].some((p) => p.ok && p.models.length > 0) || !!env.OLLAMA_MODEL;
   return local ? [...names, "ollama"] : names;
 }
@@ -343,6 +457,8 @@ async function resolveModel(db: Database.Database, ready: Ready, env: NodeJS.Pro
   let ids: string[];
   if (spec.id === "ollama") {
     ids = (await ollamaModels(ready.base, fetchFn, now)) ?? [];
+  } else if (spec.listModels) {
+    ids = await spec.listModels(ready.base, ready.key ?? "", fetchFn);
   } else {
     const data = await fetchJson(fetchFn, `${ready.base}/models`, { headers: { authorization: `Bearer ${ready.key}` } }, 20_000);
     ids = (Array.isArray(data?.data) ? data.data : []).map((m: any) => String(m?.id ?? "")).filter(Boolean);
@@ -358,14 +474,23 @@ async function resolveModel(db: Database.Database, ready: Ready, env: NodeJS.Pro
   return model;
 }
 
+/** Last request time per provider, for free tiers that cap requests per second. */
+const lastRequestAt = new Map<FreeProviderId, number>();
+
 async function chatOnce(
   ready: Ready,
   model: string,
   messages: Array<{ role: string; content: string }>,
   maxTokens: number,
   fetchFn: FetchFn,
+  sleep: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms)),
 ): Promise<string> {
   const { spec } = ready;
+  if (spec.minIntervalMs) {
+    const wait = (lastRequestAt.get(spec.id) ?? 0) + spec.minIntervalMs - Date.now();
+    if (wait > 0) await sleep(wait);
+    lastRequestAt.set(spec.id, Date.now());
+  }
   let content: string;
   if (spec.id === "ollama") {
     const data = await fetchJson(fetchFn, `${ready.base}/api/chat`, {
@@ -381,6 +506,7 @@ async function chatOnce(
         "content-type": "application/json",
         authorization: `Bearer ${ready.key}`,
         ...(spec.id === "openrouter" ? { "x-title": "Money Lab" } : {}),
+        ...(spec.headers ?? {}),
       },
       body: JSON.stringify({ model, messages, max_tokens: maxTokens, temperature: 0.2 }),
     }, spec.timeoutMs);
@@ -400,12 +526,12 @@ async function chat(
   sleep: (ms: number) => Promise<void>,
 ): Promise<string> {
   try {
-    return await chatOnce(ready, model, messages, maxTokens, fetchFn);
+    return await chatOnce(ready, model, messages, maxTokens, fetchFn, sleep);
   } catch (err) {
     // A short per-minute limit is worth waiting for once.
     if (err instanceof ProviderError && err.kind === "rate" && err.retryAfterMs > 0 && err.retryAfterMs <= 20_000) {
       await sleep(err.retryAfterMs + 500);
-      return chatOnce(ready, model, messages, maxTokens, fetchFn);
+      return chatOnce(ready, model, messages, maxTokens, fetchFn, sleep);
     }
     throw err;
   }
