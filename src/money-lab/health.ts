@@ -209,11 +209,17 @@ export function buildHealthReport(
     lines.push(`  Solde : ${usd(s.balanceCents)}${s.daysLeft !== null ? ` — environ ${Math.floor(s.daysLeft)} jours au rythme actuel (${usd(s.burnPerDayCents)}/jour)` : ""}`);
     if (s.daysLeft !== null && s.daysLeft < 3 && s.balanceCents >= 0) watch.push("moins de 3 jours de fonds");
   }
-  // Average context per paid turn today: the history is most of the cost of each turn.
-  const avgInput = count(db,
-    "SELECT COALESCE(CAST(AVG(input_tokens) AS INTEGER), 0) AS n FROM inference_costs WHERE task_type = 'agent_turn' AND created_at >= ?",
-    `${today} 00:00:00`);
-  if (avgInput > 0) lines.push(`  Taille moyenne d'un tour aujourd'hui : ${Math.round(avgInput / 1000)} k tokens lus`);
+  // Last paid turns: tokens read include the prompt cache, so the cost per
+  // turn and how often the cache was used show whether caching works.
+  const lastTurns = db.prepare(
+    "SELECT input_tokens AS input, cost_cents AS cost, cache_hit AS hit FROM inference_costs WHERE task_type = 'agent_turn' ORDER BY created_at DESC LIMIT 10",
+  ).all() as { input: number; cost: number; hit: number }[];
+  if (lastTurns.length) {
+    const avg = (f: (t: { input: number; cost: number; hit: number }) => number) => lastTurns.reduce((n, t) => n + f(t), 0) / lastTurns.length;
+    const hits = lastTurns.filter((t) => t.hit).length;
+    lines.push(`  ${lastTurns.length} derniers tours : ${Math.round(avg((t) => t.input) / 1000)} k tokens lus, ` +
+      `${usd(Math.round(avg((t) => t.cost)))} par tour, cache utilisé ${hits}/${lastTurns.length}`);
+  }
   const free = freeAiUsageToday(db, now);
   const freeConfigured = configuredFreeProviders();
   lines.push(`  IA gratuites aujourd'hui : ${free.calls ? free.text : freeConfigured.length ? "pas encore utilisées" : "aucune configurée"}` +

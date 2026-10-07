@@ -587,9 +587,10 @@ describe("Lighter turns", () => {
   it("shows the average turn size in the health report", () => {
     const db = openDb();
     db.raw.prepare("INSERT INTO inference_costs (id, session_id, model, provider, input_tokens, cost_cents, tier, task_type, created_at) VALUES ('a', 's', 'm', 'anthropic', 40000, 3, 'normal', 'agent_turn', '2026-10-07 05:00:00')").run();
+    db.raw.prepare("UPDATE inference_costs SET cache_hit = 1 WHERE id = 'a'").run();
     db.raw.prepare("INSERT INTO inference_costs (id, session_id, model, provider, input_tokens, cost_cents, tier, task_type, created_at) VALUES ('b', 's', 'm', 'anthropic', 20000, 2, 'normal', 'agent_turn', '2026-10-07 06:00:00')").run();
     const report = buildHealthReport(db.raw, vpsConfig().moneyLab!, { now: new Date("2026-10-07T08:00:00Z"), home: tmp("h-") });
-    expect(report.text).toContain("Taille moyenne d'un tour aujourd'hui : 30 k tokens lus");
+    expect(report.text).toContain("2 derniers tours : 30 k tokens lus, 0.03 $ par tour, cache utilisé 1/2");
     db.close();
   });
 });

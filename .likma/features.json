@@ -18,11 +18,12 @@
         "note": "Implemented in src/money-lab and narrow upstream patches; see money-lab/INTEGRATION.md"
       },
       "verification": {
-        "at": "2026-10-07T04:42:21.296428+00:00",
+        "at": "2026-10-07T05:48:47.604381+00:00",
         "fingerprint_version": 2,
-        "fingerprint": "688e1aa547e70cb35e381f39454e104c965ed3aaf2e7da548d73b7505d9dffa3",
+        "fingerprint": "4d413144fda55754acfa4a6c85e1a4ee3d36be9ce0fc606fafcebc373c90ef90",
         "scope": [
-          "."
+          "src/money-lab/profile.ts",
+          "src/money-lab/guard.ts"
         ],
         "criterion_checks": {
           "1": "money-lab",
@@ -32,27 +33,31 @@
           "5": "build"
         },
         "checks_hash": "61c0e52fc040bf896600e620dc5276589ef09d101c9ab012435010fa6df51c64",
-        "report": ".likma/checks/a138aaa76b704edba63a8c0c4979dbcd.json",
-        "contract": "f364cee6bd76118f163ff1547606a776627c73f468a239fe44bd6219aa8d5e97",
+        "report": ".likma/checks/c40ec64439cc4ced8cd38038eee7a771.json",
+        "contract": "98066bff6fde891e4b249cfda0c24c6b2939e6b9bb7ed88aa3cb55267f4e272e",
         "results": [
           {
             "name": "money-lab",
             "result": "passed",
             "exit_code": 0,
-            "seconds": 104.842,
-            "output_bytes": 41040,
-            "output_sha256": "4c081a991d9f3369804c8e054d156bda6141145d1f08ea763227d4849ceb4420"
+            "seconds": 97.287,
+            "output_bytes": 41038,
+            "output_sha256": "b1b4893405f3e7b37556b13b1c635c54840ed1b9c3c6df3e80e29b472b2c67aa"
           },
           {
             "name": "build",
             "result": "passed",
             "exit_code": 0,
-            "seconds": 12.891,
+            "seconds": 13.762,
             "output_bytes": 156,
             "output_sha256": "7e6d54040be02fede8fd2b5500a1780c605826a46c84e1c93c5f7750d7c779b6"
           }
         ]
-      }
+      },
+      "paths": [
+        "src/money-lab/profile.ts",
+        "src/money-lab/guard.ts"
+      ]
     },
     {
       "id": "experiment-help-journal",
@@ -69,11 +74,11 @@
         "note": "Implemented in src/money-lab (journal, cli, status, cycle); see money-lab/INTEGRATION.md"
       },
       "verification": {
-        "at": "2026-10-07T04:44:03.076250+00:00",
+        "at": "2026-10-07T05:50:26.454863+00:00",
         "fingerprint_version": 2,
-        "fingerprint": "688e1aa547e70cb35e381f39454e104c965ed3aaf2e7da548d73b7505d9dffa3",
+        "fingerprint": "6379e84142417fa8ba134f564f1812ada2dbe6374130353f7eef4b14023aa240",
         "scope": [
-          "."
+          "src/money-lab/journal.ts"
         ],
         "criterion_checks": {
           "1": "money-lab",
@@ -82,19 +87,22 @@
           "4": "money-lab"
         },
         "checks_hash": "02dbbb9668ac32079d8b239263f07b8bfd1d9cae63af4973067076656505e0a2",
-        "report": ".likma/checks/ee0d6139683d488c918b4fb73b94f9a2.json",
-        "contract": "74b1b035818e3762c4779f434e16103b64041e924108faf235ef13769602fd72",
+        "report": ".likma/checks/1d54d43f7e724003a37999ba27940b00.json",
+        "contract": "9887c24a893b0056956960f0a45d59df8caf0b1f140477503fabf475c350a59c",
         "results": [
           {
             "name": "money-lab",
             "result": "passed",
             "exit_code": 0,
-            "seconds": 101.562,
-            "output_bytes": 41038,
-            "output_sha256": "6be8b824820ce5fd6a3e4c8bfa111f9da12adf1f7f1ae013fb5b5096f58bbfbe"
+            "seconds": 98.6,
+            "output_bytes": 41037,
+            "output_sha256": "635ff8b36d83654f4f8cfccb61916928e61e0d9c8a2ef9a436ccefbdeafbc3e3"
           }
         ]
-      }
+      },
+      "paths": [
+        "src/money-lab/journal.ts"
+      ]
     },
     {
       "id": "operator-cli",
@@ -109,30 +117,35 @@
         "note": "Implemented in src/money-lab (journal, cli, status, cycle); see money-lab/INTEGRATION.md"
       },
       "verification": {
-        "at": "2026-10-07T04:45:36.928537+00:00",
+        "at": "2026-10-07T05:52:18.593484+00:00",
         "fingerprint_version": 2,
-        "fingerprint": "688e1aa547e70cb35e381f39454e104c965ed3aaf2e7da548d73b7505d9dffa3",
+        "fingerprint": "077d960266ebb675ea26b51093d9a84d57a3b93f6fd38d8920a294479ca5ca95",
         "scope": [
-          "."
+          "src/money-lab/cli.ts",
+          "src/money-lab/status.ts"
         ],
         "criterion_checks": {
           "1": "money-lab",
           "2": "money-lab"
         },
         "checks_hash": "02dbbb9668ac32079d8b239263f07b8bfd1d9cae63af4973067076656505e0a2",
-        "report": ".likma/checks/e3d480f218e94c4ab6b508c5631e5172.json",
-        "contract": "0f3d9fd67d99a11bdc204eb778a998f88c08fcabb679d79b8856799c691384d4",
+        "report": ".likma/checks/d9d019f961704afb9ee020ec4f637d6b.json",
+        "contract": "0c7b97e362a487312f3ed0a0f65046f6b4e41feed58e8ac882e23d8764754ae2",
         "results": [
           {
             "name": "money-lab",
             "result": "passed",
             "exit_code": 0,
-            "seconds": 93.644,
-            "output_bytes": 41038,
-            "output_sha256": "724f8b215be7ff0957f07729a79c5d8ff666c2ac7432007d0abe8c8363a31f92"
+            "seconds": 111.848,
+            "output_bytes": 41040,
+            "output_sha256": "0313e962962bb56d8e36d5ed3cff5dbad5139fdfb93f836c28b3d8db180030f2"
           }
         ]
-      }
+      },
+      "paths": [
+        "src/money-lab/cli.ts",
+        "src/money-lab/status.ts"
+      ]
     },
     {
       "id": "self-hosted-survival",
@@ -149,11 +162,12 @@
         "note": "Implemented in src/money-lab (selfhosted, telegram, stripe) and src/conway/inference.ts"
       },
       "verification": {
-        "at": "2026-10-07T04:47:12.436391+00:00",
+        "at": "2026-10-07T05:53:54.104492+00:00",
         "fingerprint_version": 2,
-        "fingerprint": "688e1aa547e70cb35e381f39454e104c965ed3aaf2e7da548d73b7505d9dffa3",
+        "fingerprint": "1a666e9f4b11cbbc4b0ffcfa4ddbdf65d18fb68ce73f2db1631d568dfb2bca82",
         "scope": [
-          "."
+          "src/money-lab/selfhosted.ts",
+          "src/money-lab/cycle.ts"
         ],
         "criterion_checks": {
           "1": "money-lab",
@@ -162,19 +176,23 @@
           "4": "money-lab"
         },
         "checks_hash": "02dbbb9668ac32079d8b239263f07b8bfd1d9cae63af4973067076656505e0a2",
-        "report": ".likma/checks/b123654a0860481a87c5ca2a0c0ea186.json",
-        "contract": "5476b3b9e2ddcb3405a1a5a88f8cfadac0c5c283f8d2917f61b5ff1e6f12cdb9",
+        "report": ".likma/checks/b2ebdd4e25bd48dca5be24a7edd46a53.json",
+        "contract": "0a4bfc64636d4d23b7c1e9d49f0dd5870e6c256725e3379d5e94b05d86a02f99",
         "results": [
           {
             "name": "money-lab",
             "result": "passed",
             "exit_code": 0,
-            "seconds": 95.271,
-            "output_bytes": 41038,
-            "output_sha256": "4ea1c74b8a6b344c7256e51007a732f455e0e50ba7e16043cd5460f107375971"
+            "seconds": 95.187,
+            "output_bytes": 41037,
+            "output_sha256": "63c10910d62024c4a017d946310819be28b1c6fb51b9f5cf211228f500c40a47"
           }
         ]
-      }
+      },
+      "paths": [
+        "src/money-lab/selfhosted.ts",
+        "src/money-lab/cycle.ts"
+      ]
     },
     {
       "id": "telegram-owner-channel",
@@ -190,11 +208,12 @@
         "note": "Implemented in src/money-lab (selfhosted, telegram, stripe) and src/conway/inference.ts"
       },
       "verification": {
-        "at": "2026-10-07T04:49:02.391697+00:00",
+        "at": "2026-10-07T05:55:36.189607+00:00",
         "fingerprint_version": 2,
-        "fingerprint": "688e1aa547e70cb35e381f39454e104c965ed3aaf2e7da548d73b7505d9dffa3",
+        "fingerprint": "b5e1a730651ec7f6b647513ced430df5515927dcc6ec384a7f761fccde317565",
         "scope": [
-          "."
+          "src/money-lab/telegram.ts",
+          "src/money-lab/health.ts"
         ],
         "criterion_checks": {
           "1": "money-lab",
@@ -202,19 +221,23 @@
           "3": "money-lab"
         },
         "checks_hash": "02dbbb9668ac32079d8b239263f07b8bfd1d9cae63af4973067076656505e0a2",
-        "report": ".likma/checks/2a48f606aa7747339bd120c687d13241.json",
-        "contract": "58f857b84e23384b0458b446cedb5490b05d7e71dc83466e138aed6c0d80f330",
+        "report": ".likma/checks/b0d3712688e149c2937fb36008203167.json",
+        "contract": "0097c6004219c6d7b3fd415e06fddabc5422160c54134edbc5328ade61f72cfa",
         "results": [
           {
             "name": "money-lab",
             "result": "passed",
             "exit_code": 0,
-            "seconds": 109.718,
-            "output_bytes": 41040,
-            "output_sha256": "2d0a305593ee953256be7b612514895da0494fbfb6f31f57eb667d20a88e9c06"
+            "seconds": 101.854,
+            "output_bytes": 41038,
+            "output_sha256": "2140386b335285ebdc023035933e57d634f1e09df4722d828a8ba3894bc3e7fd"
           }
         ]
-      }
+      },
+      "paths": [
+        "src/money-lab/telegram.ts",
+        "src/money-lab/health.ts"
+      ]
     },
     {
       "id": "stripe-revenue",
@@ -229,30 +252,33 @@
         "note": "Implemented in src/money-lab (selfhosted, telegram, stripe) and src/conway/inference.ts"
       },
       "verification": {
-        "at": "2026-10-07T04:50:48.798374+00:00",
+        "at": "2026-10-07T05:57:12.477856+00:00",
         "fingerprint_version": 2,
-        "fingerprint": "688e1aa547e70cb35e381f39454e104c965ed3aaf2e7da548d73b7505d9dffa3",
+        "fingerprint": "d95ba1db4e7b7275eddfe8f4cfab4d142b501c2f3d4f5d708a0f6c7eb193a13f",
         "scope": [
-          "."
+          "src/money-lab/stripe.ts"
         ],
         "criterion_checks": {
           "1": "money-lab",
           "2": "money-lab"
         },
         "checks_hash": "02dbbb9668ac32079d8b239263f07b8bfd1d9cae63af4973067076656505e0a2",
-        "report": ".likma/checks/802d46c8ff1846d7b014d53fc974f693.json",
-        "contract": "4b64f47d3201cd3b432c6d13f953cad9285529c7df61f433f985762799aa8d16",
+        "report": ".likma/checks/64707794b78541008386150598f5139b.json",
+        "contract": "2dd516c46fe1da0bc6039273b859207b4b8cef65374ac8216a806262bedffe21",
         "results": [
           {
             "name": "money-lab",
             "result": "passed",
             "exit_code": 0,
-            "seconds": 106.155,
-            "output_bytes": 41040,
-            "output_sha256": "bf776a70b9fad1ba97536eb241444351b1f003ff5641c112ff3697035d550ff8"
+            "seconds": 96.042,
+            "output_bytes": 41038,
+            "output_sha256": "db9c37fbca62489a424b35157352500854e7eb483dd5634cb84e78abb374351a"
           }
         ]
-      }
+      },
+      "paths": [
+        "src/money-lab/stripe.ts"
+      ]
     },
     {
       "id": "free-harvest-opus-decisions",
@@ -269,11 +295,15 @@
         "note": "src/money-lab/freeai.ts, decisions.ts, signals.ts, datasets.ts, monitor.ts; tests in src/__tests__/money-lab/money-lab-harvest.test.ts"
       },
       "verification": {
-        "at": "2026-10-07T04:52:53.091989+00:00",
+        "at": "2026-10-07T05:59:08.061636+00:00",
         "fingerprint_version": 2,
-        "fingerprint": "688e1aa547e70cb35e381f39454e104c965ed3aaf2e7da548d73b7505d9dffa3",
+        "fingerprint": "01f06afc2a637c5c0584f1be028c09b0dd918a0a62895e8ecd7fa1eb61fc3194",
         "scope": [
-          "."
+          "src/money-lab/freeai.ts",
+          "src/money-lab/decisions.ts",
+          "src/money-lab/signals.ts",
+          "src/money-lab/datasets.ts",
+          "src/money-lab/monitor.ts"
         ],
         "criterion_checks": {
           "1": "money-lab",
@@ -282,27 +312,34 @@
           "4": "build"
         },
         "checks_hash": "61c0e52fc040bf896600e620dc5276589ef09d101c9ab012435010fa6df51c64",
-        "report": ".likma/checks/0ffc300a0ffc47c396cab16759521922.json",
-        "contract": "bb12052b9a3286dd13ef176be6e6b7db561009616255dc4495574993251d00d9",
+        "report": ".likma/checks/eacae2e98d8142488cb806a4cb1b5860.json",
+        "contract": "67b4bc1c1edc60cc6844e219161815eeaaf4f65174293435050bd92aba82ca71",
         "results": [
           {
             "name": "money-lab",
             "result": "passed",
             "exit_code": 0,
-            "seconds": 110.467,
-            "output_bytes": 41040,
-            "output_sha256": "4cec3313e96fcde7ed6b0ab21f1932ed92a7f7c45464c7549578da5a7d862455"
+            "seconds": 100.828,
+            "output_bytes": 41038,
+            "output_sha256": "c209b5965614a7f82d4075e89b8f9de8e10acf6e732aca5d4056cba0e7daee7d"
           },
           {
             "name": "build",
             "result": "passed",
             "exit_code": 0,
-            "seconds": 13.603,
+            "seconds": 14.514,
             "output_bytes": 156,
             "output_sha256": "7e6d54040be02fede8fd2b5500a1780c605826a46c84e1c93c5f7750d7c779b6"
           }
         ]
-      }
+      },
+      "paths": [
+        "src/money-lab/freeai.ts",
+        "src/money-lab/decisions.ts",
+        "src/money-lab/signals.ts",
+        "src/money-lab/datasets.ts",
+        "src/money-lab/monitor.ts"
+      ]
     },
     {
       "id": "design-toolkit",
@@ -319,11 +356,14 @@
         "note": "src/money-lab/design.ts, assets.ts, money-lab/design-kit, money-lab/skills/money-lab-design; tests in money-lab-design.test.ts"
       },
       "verification": {
-        "at": "2026-10-07T04:54:43.922758+00:00",
+        "at": "2026-10-07T06:00:59.960770+00:00",
         "fingerprint_version": 2,
-        "fingerprint": "688e1aa547e70cb35e381f39454e104c965ed3aaf2e7da548d73b7505d9dffa3",
+        "fingerprint": "3d017acc31013ac2fdeb56745a04bdec5e6e132871b69e10983318aa96bf2e3a",
         "scope": [
-          "."
+          "src/money-lab/design.ts",
+          "src/money-lab/assets.ts",
+          "money-lab/design-kit/**",
+          "money-lab/skills/**"
         ],
         "criterion_checks": {
           "1": "money-lab",
@@ -332,27 +372,33 @@
           "4": "build"
         },
         "checks_hash": "61c0e52fc040bf896600e620dc5276589ef09d101c9ab012435010fa6df51c64",
-        "report": ".likma/checks/a803940d29814c4f8bdc3b7fc0d0f904.json",
-        "contract": "628b7efc68bb54a7a368121f289c6131a6c855dc67f8de1762e6e824da201311",
+        "report": ".likma/checks/757f67af58264e6385a84cdd7f0bb807.json",
+        "contract": "8fe77003d50521f85fdf8b26234642da19cac41b95368ae3961a68f6130c3907",
         "results": [
           {
             "name": "money-lab",
             "result": "passed",
             "exit_code": 0,
-            "seconds": 96.874,
-            "output_bytes": 41037,
-            "output_sha256": "1186553ec908486f7bac278c1b4ccfad6af71d3807098123bc4d6d2ebaf70cf0"
+            "seconds": 96.636,
+            "output_bytes": 41038,
+            "output_sha256": "de493bac22335e2e7404951510a95479c8d88c20e66a3732bbed9cb789b44533"
           },
           {
             "name": "build",
             "result": "passed",
             "exit_code": 0,
-            "seconds": 13.751,
+            "seconds": 15.021,
             "output_bytes": 156,
             "output_sha256": "7e6d54040be02fede8fd2b5500a1780c605826a46c84e1c93c5f7750d7c779b6"
           }
         ]
-      }
+      },
+      "paths": [
+        "src/money-lab/design.ts",
+        "src/money-lab/assets.ts",
+        "money-lab/design-kit/**",
+        "money-lab/skills/**"
+      ]
     },
     {
       "id": "cache-stable-history-and-caps",
@@ -367,30 +413,37 @@
         "note": "src/agent/loop.ts moneyLabHistoryWindow, src/agent/context.ts shortResultTurnIds, src/money-lab/caps.ts, /plafond in telegram.ts; tests in money-lab-harvest.test.ts and money-lab-vps.test.ts"
       },
       "verification": {
-        "at": "2026-10-07T04:40:09.651496+00:00",
+        "at": "2026-10-07T06:02:51.340944+00:00",
         "fingerprint_version": 2,
-        "fingerprint": "688e1aa547e70cb35e381f39454e104c965ed3aaf2e7da548d73b7505d9dffa3",
+        "fingerprint": "d3a4a8cc32e5c5a66f21b517b74f45bf14c447280b7cad3e7e9c856cd1cbd0c2",
         "scope": [
-          "."
+          "src/agent/context.ts",
+          "src/agent/loop.ts",
+          "src/money-lab/caps.ts"
         ],
         "criterion_checks": {
           "1": "money-lab",
           "2": "money-lab"
         },
         "checks_hash": "02dbbb9668ac32079d8b239263f07b8bfd1d9cae63af4973067076656505e0a2",
-        "report": ".likma/checks/bb2ac3775b4e4a7baa583369e909a94f.json",
-        "contract": "c996beaa5fa9d9d8c889d87592dd82305db5b57af21be7a97281e307c014a00a",
+        "report": ".likma/checks/4fddcf8ea4664620ad4a87b2bfa37b74.json",
+        "contract": "53ce44daeb870ac793413510a50254df3b0503041fa2e3238b217f63cc3820ae",
         "results": [
           {
             "name": "money-lab",
             "result": "passed",
             "exit_code": 0,
-            "seconds": 98.498,
-            "output_bytes": 41037,
-            "output_sha256": "7b707c1b0c5fc1f350d066505bb31f6782494c5477b73c0c610735188be02c05"
+            "seconds": 111.153,
+            "output_bytes": 41040,
+            "output_sha256": "d426f0207a94a2b4fbb3f1d2025d40e6a133016437699448208a9f17eb2020e0"
           }
         ]
-      }
+      },
+      "paths": [
+        "src/agent/context.ts",
+        "src/agent/loop.ts",
+        "src/money-lab/caps.ts"
+      ]
     }
   ]
 }

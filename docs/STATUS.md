@@ -83,6 +83,9 @@
   broke prompt caching (cost rose); fixed 2026-10-07: shortened results stay fixed until the window
   moves every 10 turns (test checks each request is a prefix of the next). Owner can change the
   inference caps from Telegram with /plafond (writes automaton.json, restarts). Not yet measured live.
+- First live report after the cache fix (07:39 Paris) still read 85k tokens per turn, but that average
+  counted cached tokens and turns before the update. /sante now shows the last 10 turns: tokens read,
+  cost per turn and cache use.
 - Likma Dev System 0.7.0 (main 902f3e9) now drives the checks: project check passed, features re-verified
   with fingerprint v2 evidence, code map regenerated.
 - Blockers and known regressions:
