@@ -292,6 +292,8 @@ passer `check_design` (accessibilité, mobile, images, polices, avec captures), 
 et donne les corrections ; quelques centimes). Le kit et les compétences se mettent à jour tout seuls
 à chaque redémarrage.
 
+**Code.** Le bot a aussi un atelier de code (compétence `money-lab-code`) : `repo_scout` cherche sur GitHub des dépôts réutilisables (licence vérifiée : MIT, Apache, BSD, ISC ; jamais de GPL ni de code sans licence), `vendor_code` en copie un dans `~/library/vendor` avec sa licence et sa provenance (il ne l'exécute jamais), `scaffold_site` crée un site complet à partir du kit en un appel (français ou anglais), `test_site` fait parcourir le site par un vrai navigateur (scénario, liens cassés, erreurs) et `code_review` fait relire son code par les IA gratuites. Un catalogue de bibliothèques éprouvées (PDF, images, tableurs, QR codes, graphiques…) est fourni dans la compétence.
+
 **Les décisions importantes sont prises par Claude Opus 5.5**, et le programme les applique : approuver
 une idée (elle devient une expérience) et arrêter une expérience active. Le bot prépare le dossier,
 Opus tranche (environ 5 centimes par décision, compté dans le budget). Le rapport de santé indique les

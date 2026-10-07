@@ -1089,6 +1089,27 @@
           }
         ]
       }
+    },
+    {
+      "id": "code-workshop",
+      "title": "Code workshop: reuse, scaffold, test, review",
+      "criteria": [
+        "repo_scout ranks permissively licensed repositories first and reads their READMEs",
+        "vendor_code copies only permissive repositories, without credentials or symbolic links, with a NOTICE",
+        "scaffold_site produces a complete French or English site from the kit with a git repository",
+        "test_site reports failed steps with screenshots, broken links, images and console errors"
+      ],
+      "paths": [
+        "src/money-lab/workshop.ts",
+        "money-lab/skills/money-lab-code/**",
+        "src/money-lab/tools.ts",
+        "src/__tests__/money-lab/money-lab-workshop.test.ts"
+      ],
+      "status": "built",
+      "implementation": {
+        "at": "2026-10-07T20:16:06.087207+00:00",
+        "note": "src/money-lab/workshop.ts; tools in tools.ts; skill money-lab/skills/money-lab-code; tests money-lab-workshop.test.ts (merged from main 8d0b2de)"
+      }
     }
   ]
 }
