@@ -26,6 +26,7 @@
 | Datasets | src/money-lab/datasets.ts | The agent's collected data in ~/datasets/*.jsonl | Dataset storage, limits or search change |
 | Site monitoring | src/money-lab/monitor.ts | 30-minute uptime checks of the agent's sites with owner alerts and wakes | Monitoring rules, alerts or wake limits change |
 | Health report | src/money-lab/health.ts | Daily Telegram health report (/sante) from local state | What the owner sees each morning changes |
+| Publication kits | src/money-lab/kits.ts | Ready-to-paste publications the owner posts, with tracked links and Telegram confirmation | How the bot reaches people through the owner changes |
 | Niche funnel | src/money-lab/funnel.ts | Seed universe, niche_scan signals and formula score, rejected-niche memory | How niches are found, scored or remembered changes |
 | Probes | src/money-lab/probes.ts | Probe pages measured by Search Console with a decision window; feeds ideas and wakes the agent | How demand is measured before building changes |
 | Code workshop | src/money-lab/workshop.ts | repo_scout, vendor_code (licence-checked copies), scaffold_site from the kit, test_site browser scenarios and crawl | How the bot finds, reuses, scaffolds or tests code changes |

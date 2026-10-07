@@ -1,6 +1,6 @@
 # Working status
 - Updated: 2026-10-07
-- Branch / commit: claude/affectionate-bohr-nyhhv3 (from main 5937f48; main 8d0b2de code workshop and 2405b06 niche funnel merged in), on upstream Automaton d8f816881fd24b6f5e3d616e59edec387a447667 (0.2.1)
+- Branch / commit: claude/affectionate-bohr-nyhhv3 (from main 5937f48; main 8d0b2de code workshop, 2405b06 niche funnel and 5919534 publication kits merged in), on upstream Automaton d8f816881fd24b6f5e3d616e59edec387a447667 (0.2.1)
 - Current goal: self-hosted VPS runtime (Claude Sonnet 5.5, Telegram, Stripe, survival goal); development only, no launch.
 - Accepted decisions:
   - Thin extension under src/money-lab/ plus narrow upstream patches; inert without a moneyLab block.
@@ -10,7 +10,7 @@
   - Owner decision 2026-10-04: Conway Cloud closed; run self-hosted on a VPS; Claude Sonnet 5.5; Stripe revenue sync; survival as the bot's ultimate goal.
   - No start command configured: starting runs the agent and requires owner approval.
 - Completed behaviour: profile, spend guards, experiment/help journal, operator ledger, pause/resume,
-  status/summary, no-progress sleep, integration note, Conway checklist; 22 of 23 features verified on
+  status/summary, no-progress sleep, integration note, Conway checklist; 23 of 24 features verified on
   2026-10-07 (docs/FEATURES.md), privilege-drop built without a test.
 - Checks run (command, result, date):
   - 2026-10-07, migration to Likma 0.8.1 (Node 22.22.0, pnpm 10.28.1 via corepack), no network or payment:
@@ -37,6 +37,11 @@
       15 features made stale by the merge.
     - `likma project check --only types`: pass; `--only upstream`: 69 files, 1772/1772 pass (79 s).
     - `likma project audit`: 0 failures; then `likma project upgrade` to Likma 0.9.0 (f30f038): audit 0 failures, 0 warnings.
+  - 2026-10-07, after merging main 5919534 (publication kits, PR #33) with the merge driver (no conflicts;
+    publish-kits-decisions kept, scope extended to money-lab-kits.test.ts):
+    - `likma project feature reverify` (Likma 0.9.0, report .likma/checks/910f19686f074f17b269e78bc9d04a39.json): one run of
+      money-lab (160/160), build, e2e (PASS, 182 s) and chaos (PASS, 71 s) re-verified all 23 stale features.
+    - `likma project check --only types`: pass; `--only upstream`: 1776/1776 pass.
   - Earlier: 1754/1754 upstream suite and E2E/chaos PASS on 2026-10-06/07 (before this branch).
 - Likma migration (2026-10-07): profile `bot`; checks e2e, chaos and upstream added (object form, 900 s);
   `start_disabled` replaces the empty start; setup `install`; `money-lab/e2e/run.mjs` builds before each
