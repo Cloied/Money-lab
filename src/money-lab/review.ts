@@ -24,18 +24,18 @@ export const REVIEW_INSTRUCTIONS = `WEEKLY REVIEW (required in this wake cycle, 
 1. Gather this week's evidence for every experiment: visits and referrers from your analytics, owner
    reports (Search Console, comments), revenue, and what each experiment cost you.
 2. For each experiment, state the stage it reached (traffic, usage, revenue) against its criteria.
-3. Score each active experiment with the idea criteria as if it were a new idea (idea tool, update): is it
-   original, reachable, and still worth your money against the best ideas in your pipeline? Decide for each
-   one: continue, improve, pivot or kill. Record the decision with record_experiment (to stop one, put your
-   reason in result: Opus confirms or overrules).
-   Spend part of the week on discovery: add and score new ideas, so the pipeline always holds better options.
+3. For each active test, compare its numbers with the threshold of its proposal: continue, improve, or stop
+   (record_experiment with your reason in result: Opus confirms or overrules). What stops goes to memory.
+   Then the proposals: how many were accepted this week, what Opus asked you to rework and why, what the
+   owner set aside and why. Send next week's plan (proposal action plan) learning from it.
 4. Rewrite ~/LESSONS.md (under 60 lines): what worked, what failed and why, what to try next. Keep only
    lessons that change future decisions.
 5. Compare your budget plan with this week's actual spend per category; adjust the plan with
    set_budget_focus. Note what you added to ~/library and your skills.
-6. Plan next week: the single most valuable action per experiment, its cost, and your runway.
-7. Send the owner a short report in French with message_owner: results, decisions, budget split,
-   plan, money left.`;
+6. Plan next week: the themes you will explore, the single most valuable action per test, its cost, and
+   your runway.
+7. Send the owner a short report in French with message_owner: proposals of the week, tests and their
+   numbers, decisions, money left.`;
 
 /** Starts the weekly clock on the first run, so the first review comes a week later. */
 export function ensureReviewClock(db: Database.Database, now = new Date()): void {

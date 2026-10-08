@@ -222,6 +222,36 @@ export function decideIdea(
     : `Idea "${id}" rejected. The reason stays in your pipeline so you do not reconsider it blindly.`;
 }
 
+/**
+ * The owner (or Opus in their place) chose a proposal: its idea is approved
+ * directly, so record_experiment can launch the test. The proposal dossier,
+ * already reviewed by Opus, replaces the old scoring gates.
+ */
+export function approveIdeaForProposal(
+  db: Database.Database,
+  p: { slug: string; title: string; problem: string; audience: string; revenue: string; channels: string; evidence: string[]; competitors: string[]; killCriteria: string; solution: string },
+  note: string,
+  now = new Date(),
+): Idea {
+  const ideas = listIdeas(db);
+  let idea = ideas.find((i) => i.id === p.slug);
+  if (!idea) {
+    idea = {
+      id: p.slug, title: "", problem: "", audience: "", solution: "", revenueModel: "", channels: "", serverEdge: "",
+      evidence: [], competitors: [], risks: [], killCriteria: "", scores: {}, total: null, status: "candidate",
+      critiques: [], response: "", decisionNote: "", experimentId: null, createdAt: now.toISOString(), updatedAt: now.toISOString(),
+    };
+    ideas.push(idea);
+  }
+  Object.assign(idea, {
+    title: p.title, problem: p.problem, audience: p.audience, solution: p.solution, revenueModel: p.revenue, channels: p.channels,
+    evidence: [...new Set([...idea.evidence, ...p.evidence])], competitors: [...new Set([...idea.competitors, ...p.competitors])],
+    killCriteria: p.killCriteria, status: "approved", decisionNote: note.slice(0, 400), updatedAt: now.toISOString(),
+  });
+  save(db, ideas);
+  return idea;
+}
+
 export function recordCritique(db: Database.Database, id: string, critique: Idea["critiques"][number]): void {
   const ideas = listIdeas(db);
   const idea = ideas.find((i) => i.id === id);

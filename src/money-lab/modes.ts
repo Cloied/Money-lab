@@ -13,12 +13,18 @@
  *   may sleep up to 24 h and free checks (scheduled jobs, site monitor, the
  *   owner) wake it earlier.
  * The agent cannot change the mode directly: it changes by recording work.
+ *
+ * Owner meeting (2026-10-08): the bot's job is to find and propose
+ * testable, profitable ideas. Observation (sleep up to 24 h) is allowed only
+ * once the week's quota of accepted proposals is met; until then it stays in
+ * discovery, with sleeps of at most 3 h. A proposal the owner chose (or that
+ * waits for its publication) means building.
  */
 
 import type Database from "better-sqlite3";
 import type { MoneyLabConfig } from "./profile.js";
 import { listExperiments } from "./journal.js";
-import { discoveryIncomplete } from "./ideas.js";
+import { listProposals, quotaMet } from "./proposals.js";
 import { inferenceGetDailyCost, inferenceGetHourlyCost } from "../state/database.js";
 
 export type WorkMode = "discovery" | "build" | "observe";
@@ -59,7 +65,8 @@ export function currentMode(db: Database.Database, now = new Date()): WorkMode {
   const building = listExperiments(db).some((e) =>
     e.status === "building" && now.getTime() - Date.parse(e.updatedAt) < BUILD_STALE_MS);
   if (building) return "build";
-  return discoveryIncomplete(db) ? "discovery" : "observe";
+  if (listProposals(db).some((p) => p.status === "chosen" || p.status === "publish_pending")) return "build";
+  return quotaMet(db, now) ? "observe" : "discovery";
 }
 
 export function modeBudget(mode: WorkMode, lab: MoneyLabConfig, env: NodeJS.ProcessEnv = process.env): ModeBudget {
@@ -70,7 +77,7 @@ export function modeBudget(mode: WorkMode, lab: MoneyLabConfig, env: NodeJS.Proc
 
 /** Longest sleep the agent may ask for in this mode. */
 export function maxSleepSeconds(db: Database.Database, mode: WorkMode): number {
-  if (mode !== "build" && discoveryIncomplete(db)) return DISCOVERY_INCOMPLETE_SLEEP_SECONDS;
+  if (mode === "discovery") return DISCOVERY_INCOMPLETE_SLEEP_SECONDS;
   return MODE_SLEEP_SECONDS[mode];
 }
 
@@ -113,9 +120,9 @@ export function modeBudgetBlock(
 }
 
 const MODE_LABELS: Record<WorkMode, string> = {
-  discovery: "DISCOVERY: research runs on the free models (harvest, market_signals, delegate); your own paid turns are capped",
-  build: "BUILD: an experiment is being built; the owner's caps apply; keep each build under 5 days",
-  observe: "OBSERVE: nothing to build and the pipeline is scored; sleep up to 24 h, free checks wake you; keep researching cheaply",
+  discovery: "DISCOVERY: the week's proposals are not all accepted yet; research runs on the free tools (frictions, free_search, harvest, market_signals); your own paid turns are capped; sleep at most 3 h",
+  build: "BUILD: the owner chose a proposal; build its smallest test; the owner's caps apply; keep each build under 5 days",
+  observe: "OBSERVE: this week's quota of proposals is met; sleep up to 24 h, free checks wake you; prepare next week's research cheaply",
 };
 
 /** One line for the prompt: mode, caps, spent today. */
@@ -125,7 +132,7 @@ export function describeMode(db: Database.Database, lab: MoneyLabConfig, env: No
   const spent = inferenceGetDailyCost(db, now.toISOString().slice(0, 10));
   const usd = (c: number | null) => (c === null ? "no cap" : `$${(c / 100).toFixed(2)}`);
   return `Mode ${MODE_LABELS[mode]}. Caps: ${usd(budget.dailyCents)} per UTC day, ${usd(budget.hourlyCents)} per hour; ` +
-    `spent today $${(spent / 100).toFixed(2)}. Build mode starts when an experiment has status building (through an approved idea).`;
+    `spent today $${(spent / 100).toFixed(2)}. Build mode starts when the owner chooses one of your proposals.`;
 }
 
 /** French label for the owner's reports. */

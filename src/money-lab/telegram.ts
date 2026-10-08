@@ -28,35 +28,51 @@ import { withSecrets } from "./selfhosted.js";
 import { setInferenceCaps } from "./caps.js";
 import { decideKit, describeKits, formatKitForOwner, listKits } from "./kits.js";
 import { ownerDismissesIdea, ownerPicksIdea } from "./decisions.js";
+import {
+  dailyReport, describeMemoryFr, describeProposalsFr, describeTestsFr, getProposal, ownerGo, ownerNo, ownerStop, proposalDossier,
+} from "./proposals.js";
 import path from "path";
 
 const KV_OFFSET = "money_lab.telegram_offset";
-const KV_SUMMARY_DAY = "money_lab.telegram_summary_day";
+const KV_REPORT_DAY = "money_lab.telegram_report_day";
+/** The evening report goes out after 19:00 UTC (21:00 in Paris in summer). */
+const REPORT_HOUR_UTC = 19;
 const MAX_MESSAGE = 3900;
 
-export const TELEGRAM_HELP = `Commandes Money Lab :
-/statut — état complet (budget, expériences, demandes, finances)
-/sante — rapport de santé (envoyé aussi chaque matin)
-/resume — résumé détaillé
-/pause [raison] — mettre le bot en pause
-/reprendre — relancer le bot
-/aides — demandes d'aide ouvertes
-/ok <id> [note] — demande faite (le bot vérifiera)
-/non <id> [raison] — demande refusée
-/fonds <montant $> [réf] — ajouter des fonds (ex : /fonds 21.50)
-/revenu <montant $> <réf> — revenu hors Stripe, confirmé par toi
-/publier <id> — publier une publication proposée par le bot
-/rejeter <id> [raison] — refuser une publication
-/publications [auto|validation] — voir les publications, ou changer le mode
-/kits — kits de publication en attente (le bot prépare, tu colles)
-/kit <id> — revoir un kit en entier
-/publie <id> [lien] — kit publié par toi (le bot suit les visites) ; sur dev.to ou Mastodon configurés, le programme publie lui-même
-/passe <id> [raison] — kit non publié
-/choisis <id> — construire cette idée finaliste
-/ecarte <id> [raison] — écarter cette idée finaliste
-/plafond <jour $> [heure $] — changer le plafond de dépense IA (ex : /plafond 5 1.5) ; le bot redémarre
-/aide — cette liste
+export const TELEGRAM_HELP = `Money Lab — ce que tu peux faire
+Le bot cherche des idées rentables à tester et te les propose. Tu choisis.
+
+📋 Ses propositions
+/idees — les propositions en attente
+/idee <n> — lire une proposition en entier
+/go <n> — la tester (ou accepter sa mise en ligne)
+/non <n> raison — l'écarter (il retient pourquoi)
+/memoire — les idées écartées et pourquoi
+
+🧪 Les tests
+/tests — les tests en cours
+/stop <n> raison — arrêter un test, sans discussion
+
+📍 Suivi
+/point — où il en est, en 7 lignes
+/sante — le rapport détaillé
+
+⚙️ Contrôle
+/pause [raison] · /reprendre
+/plafond <jour $> [heure $] — plafond de dépense IA
+/fonds <montant $> — ajouter des fonds
+
+Autres commandes : /aide plus
 Tout autre message est transmis au bot.`;
+
+export const TELEGRAM_HELP_MORE = `Commandes avancées :
+/statut — état complet (budget, expériences, finances)
+/resume — résumé détaillé
+/aides — demandes d'aide ouvertes · /ok <id> [note] · /non <id> [raison]
+/revenu <montant $> <réf> — revenu hors Stripe, confirmé par toi
+/kits · /kit <id> · /publie <id> [lien] · /passe <id> [raison] — kits de publication
+/publier <id> · /rejeter <id> [raison] · /publications [auto|validation] — publications Bluesky
+/aide — l'aide courte`;
 
 type FetchFn = typeof fetch;
 
@@ -153,7 +169,33 @@ export class TelegramChannel {
       case "/start":
       case "/aide":
       case "/help":
-        return TELEGRAM_HELP;
+        return /^(plus|\+)$/i.test(args[0] ?? "") ? TELEGRAM_HELP_MORE : TELEGRAM_HELP;
+      case "/idees":
+      case "/idées":
+      case "/propositions":
+        return describeProposalsFr(this.raw);
+      case "/idee":
+      case "/idée": {
+        const n = Number(args[0]);
+        const p = Number.isInteger(n) ? getProposal(this.raw, n) : undefined;
+        return p ? proposalDossier(p) : `Usage : /idee <numéro> (voir /idees).`;
+      }
+      case "/go": {
+        const n = Number(args[0]);
+        return Number.isInteger(n) && n > 0 ? ownerGo(this.raw, n) : "Usage : /go <numéro> (voir /idees).";
+      }
+      case "/memoire":
+      case "/mémoire":
+        return describeMemoryFr(this.raw);
+      case "/tests":
+        return describeTestsFr(this.raw);
+      case "/stop": {
+        const n = Number(args[0]);
+        if (!Number.isInteger(n) || n <= 0) return `Usage : /stop <numéro> raison\n\n${describeTestsFr(this.raw)}`;
+        return ownerStop(this.raw, n, args.slice(1).join(" "));
+      }
+      case "/point":
+        return this.config.moneyLab ? dailyReport(this.raw, this.config.moneyLab, new Date(), "point") : "Profil Money Lab absent.";
       case "/statut":
       case "/status":
         return formatStatus(this.raw, this.config);
@@ -172,6 +214,8 @@ export class TelegramChannel {
       case "/ok":
       case "/non": {
         const [id, ...note] = args;
+        // A number is a proposal (/non 4 raison); anything else is a help request id.
+        if (command === "/non" && /^\d+$/.test(id ?? "")) return ownerNo(this.raw, Number(id), note.join(" "));
         if (!id) return `Usage : ${command} <id> [note]`;
         const fallback = command === "/ok" ? "fait par le propriétaire" : "refusé par le propriétaire";
         return run([command === "/ok" ? "help-resolve" : "help-reject", id, ...(note.length ? note : [fallback])]);
@@ -286,13 +330,14 @@ export class TelegramChannel {
       return;
     }
 
-    // Daily health report once per UTC day, after 07:00 UTC (09:00 in Paris
-    // in summer). Queued in the outbox: a Telegram outage delays it, never
-    // loses it. The full summary stays available with /resume.
+    // Owner meeting (2026-10-08): one short evening report a day (done,
+    // learned, next, the week, what waits for the owner, money) instead of
+    // the long morning report, which stays available with /sante. Queued in
+    // the outbox: a Telegram outage delays it, never loses it.
     const day = now.toISOString().slice(0, 10);
-    if (now.getUTCHours() >= 7 && getKV(this.raw, KV_SUMMARY_DAY) !== day && this.config.moneyLab) {
-      setKV(this.raw, KV_SUMMARY_DAY, day);
-      queueOwnerNotification(this.raw, buildHealthReport(this.raw, this.config.moneyLab, { now }).text);
+    if (now.getUTCHours() >= REPORT_HOUR_UTC && getKV(this.raw, KV_REPORT_DAY) !== day && this.config.moneyLab) {
+      setKV(this.raw, KV_REPORT_DAY, day);
+      queueOwnerNotification(this.raw, dailyReport(this.raw, this.config.moneyLab, now, "soir"));
     }
 
     for (const item of pendingOwnerNotifications(this.raw)) {

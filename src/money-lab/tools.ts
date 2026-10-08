@@ -54,6 +54,12 @@ import {
 import { cloudflarePagesConfigured, deploySite } from "./deploy.js";
 import { deployWorker, describeWorkers } from "./workers.js";
 import { cfAnalyticsConfigured, webAnalytics } from "./cfanalytics.js";
+import {
+  MAX_REVIEWS_PER_DAY, WEEKLY_QUOTA, addMemory, closeProposalForExperiment, decideForOwner, describeProposalsForPrompt, getProposal, linkExperiment,
+  listProposals, markProgress, opusAsker, proposalDossier, publishBlocker, recordReviewCheck, recordTestCheck,
+  requestPublication, submitPlan, submitProposal,
+} from "./proposals.js";
+import { scanFrictions } from "./frictions.js";
 
 /** Marker the Anthropic client turns into an image block (recent results only). */
 export const SCREENSHOT_MARKER = /\[\[image:([^\]\s]+\.(?:png|jpe?g))\]\]/g;
@@ -87,6 +93,115 @@ function looseList(value: unknown): string[] | undefined {
 
 export function createMoneyLabTools(): AutomatonTool[] {
   return [
+    {
+      name: "proposal",
+      description:
+        "Your job: find profitable ideas that can be tested cheaply and propose them; the owner chooses on Telegram. " +
+        "plan (once a week, first): 3-6 themes where you will look for frustrations and why; Opus checks it. " +
+        "submit: one complete dossier, in French (the owner reads it): slug, title, frustration (who suffers, what, how often), " +
+        "audience, evidence (3+ sources, each with URL, date and what it shows: people living the problem, not market articles), " +
+        "competitors (2+, each with its weakness), angle (why people would switch), why_this (compared with the other options " +
+        "you considered, with facts), revenue (who pays, price, model, reasoned monthly estimate), acquisition (2-3 precise " +
+        "places where these people already are, with search volume or audience size and the first message), prospects " +
+        "(communities and profile types, never named private people), test (smallest test, numeric threshold, deadline), " +
+        "killers (numbers that would kill it), what_changed (only if close to an idea already set aside). The runtime checks " +
+        `completeness and your memory of rejected ideas; then Opus answers ACCEPT (numbered and sent to the owner), REWORK (the ` +
+        `fixes) or DROP (kept in memory). ${WEEKLY_QUOTA} accepted a week are expected; at most ${MAX_REVIEWS_PER_DAY} reviews a day. ` +
+        "list, show (n). decide (n): after 48 h without the owner's answer, Opus decides in their place. publish_request " +
+        "(n, name, preview_url): ask the owner to publish a chosen proposal, after a passing test_site and design_review " +
+        "final on the local preview; deploy only after their /go.",
+      category: "survival",
+      riskLevel: "caution",
+      parameters: {
+        type: "object",
+        properties: {
+          action: { type: "string", enum: ["plan", "submit", "list", "show", "decide", "publish_request"] },
+          themes: { type: "array", items: { type: "string" }, description: "plan: 3-6 themes" },
+          why: { type: "string", description: "plan: why these themes" },
+          slug: { type: "string" }, title: { type: "string" }, frustration: { type: "string" }, audience: { type: "string" },
+          evidence: { type: "array", items: { type: "string" } }, competitors: { type: "array", items: { type: "string" } },
+          angle: { type: "string" }, why_this: { type: "string" }, revenue: { type: "string" },
+          acquisition: { type: "array", items: { type: "string" } }, prospects: { type: "string" }, test: { type: "string" },
+          killers: { type: "string" }, what_changed: { type: "string" },
+          n: { type: "integer", description: "Proposal number" },
+          name: { type: "string", description: "publish_request: neutral public name (no money lab, bot, test, demo)" },
+          preview_url: { type: "string", description: "publish_request: the local URL you tested, e.g. http://localhost:8080/" },
+        },
+        required: ["action"],
+      },
+      execute: async (args, ctx) => {
+        const opus = () => {
+          if (!ctx.inferenceRouter) throw new Error("Opus is not available in this runtime.");
+          return opusAsker({ router: ctx.inferenceRouter, chat: (msgs, opts) => ctx.inference.chat(msgs, opts), sessionId: ctx.db.getKV("session_id") || "default" });
+        };
+        const n = Number(args.n);
+        try {
+          switch (args.action) {
+            case "plan": {
+              const r = await submitPlan(ctx.db.raw, args, opus());
+              recordFocusSpend(ctx.db.raw, r.costCents);
+              return r.text;
+            }
+            case "submit": {
+              const r = await submitProposal(ctx.db.raw, args, opus());
+              recordFocusSpend(ctx.db.raw, r.costCents);
+              return r.text;
+            }
+            case "decide": {
+              const r = await decideForOwner(ctx.db.raw, n, opus());
+              recordFocusSpend(ctx.db.raw, r.costCents);
+              return r.text;
+            }
+            case "show": {
+              const p = getProposal(ctx.db.raw, n);
+              return p ? proposalDossier(p) : `No proposal #${args.n}.`;
+            }
+            case "publish_request":
+              return requestPublication(ctx.db.raw, n, String(args.name ?? ""), String(args.preview_url ?? ""));
+            default:
+              return `${describeProposalsForPrompt(ctx.db.raw)}\nAll: ${listProposals(ctx.db.raw).map((p) => `#${p.n} ${p.slug} [${p.status}]`).join(", ") || "none"}`;
+          }
+        } catch (err: any) {
+          return `proposal ${args.action} failed: ${String(err?.message ?? err).slice(0, 300)}`;
+        }
+      },
+    },
+    {
+      name: "frictions",
+      description:
+        "Find frustrations for free: for a theme (a profession and a task works best, e.g. \"plombiers devis\", \"Etsy sellers " +
+        "shipping\"), the runtime gathers public posts where people complain, ask for a tool or look for an alternative " +
+        "(Reddit, Ask HN, and the free web search), and the free models extract each frustration with who has it, a quote, " +
+        "the link, the date and how strong it is. Saved in the frictions dataset (dataset action search frictions ...). " +
+        "Start your proposals from here.",
+      category: "survival",
+      riskLevel: "safe",
+      parameters: {
+        type: "object",
+        properties: {
+          theme: { type: "string" },
+          lang: { type: "string", enum: ["fr", "en", "both"], description: "Default both" },
+        },
+        required: ["theme"],
+      },
+      execute: async (args, ctx) => {
+        const home = process.env.HOME || "/root";
+        try {
+          return await scanFrictions({ theme: String(args.theme ?? ""), lang: args.lang as "fr" | "en" | "both" | undefined }, {
+            db: ctx.db.raw,
+            extract: async (task, text) => {
+              const r = await harvest({ task, text, saveTo: "frictions", freeOnly: true }, {
+                db: ctx.db.raw, home, router: ctx.inferenceRouter, chat: (msgs, opts) => ctx.inference.chat(msgs, opts),
+                sessionId: ctx.db.getKV("session_id") || "default",
+              });
+              return { text: r.text, provider: r.provider };
+            },
+          });
+        } catch (err: any) {
+          return `frictions failed: ${String(err?.message ?? err).slice(0, 300)}`;
+        }
+      },
+    },
     {
       name: "record_experiment",
       description:
@@ -176,7 +291,16 @@ export function createMoneyLabTools(): AutomatonTool[] {
           metrics: linkedIdea ? { ...(metrics ?? {}), idea_id: linkedIdea } : metrics,
           result: optionalString(args.result),
         });
-        if (linkedIdea) markIdeaLaunched(ctx.db.raw, linkedIdea, exp.id);
+        if (linkedIdea) {
+          markIdeaLaunched(ctx.db.raw, linkedIdea, exp.id);
+          linkExperiment(ctx.db.raw, linkedIdea, exp.id);
+        }
+        markProgress(ctx.db.raw);
+        // A finished test keeps its lesson in the memory the next proposals are checked against.
+        if (existing && existing.status !== "finished" && exp.status === "finished" && exp.result) {
+          addMemory(ctx.db.raw, { title: exp.hypothesis.slice(0, 160), reason: `Test terminé : ${exp.result}`, by: "test", text: exp.hypothesis });
+          closeProposalForExperiment(ctx.db.raw, exp.id, exp.result);
+        }
         return `${decisionText}Experiment ${exp.id} recorded with status ${exp.status}.` +
           (decisionText && existing && exp.status === existing.status ? " Status unchanged: Opus did not decide to stop it; other fields saved." : "") +
           (ideaId && !linkedIdea ? ` idea_id "${ideaId}" ignored: only an approved idea can be linked.` : "");
@@ -257,7 +381,9 @@ export function createMoneyLabTools(): AutomatonTool[] {
               return `Critique failed: ${String(err?.message ?? err).slice(0, 300)}`;
             }
           }
-          case "shortlist": {
+          case "shortlist":
+            return "Shortlists are replaced by proposals: send your best idea as a dossier with the proposal tool; the owner chooses.";
+          case "legacy-shortlist": {
             if (!ctx.inferenceRouter) return "shortlist needs an Opus decision, which is not available in this runtime.";
             try {
               const result = await shortlistWithOpus(ctx.db.raw, {
@@ -273,6 +399,10 @@ export function createMoneyLabTools(): AutomatonTool[] {
           case "decide": {
             if (args.decision !== "approve" && args.decision !== "reject") return "decision must be approve or reject.";
             if (args.decision === "reject") return decideIdea(ctx.db.raw, id, "reject", String(args.note ?? ""));
+            if (ctx.config.moneyLab?.runtime === "self-hosted") {
+              return "Approvals now go through proposals: send the idea as a dossier with the proposal tool (action submit); " +
+                "Opus reviews it and the owner chooses what gets tested.";
+            }
             // Owner decision (2026-10-06): Opus decides approvals; the runtime applies its verdict.
             if (!ctx.inferenceRouter) return "Approval needs an Opus decision, which is not available in this runtime.";
             try {
@@ -616,6 +746,7 @@ export function createMoneyLabTools(): AutomatonTool[] {
             sessionId: ctx.db.getKV("session_id") || "default",
           });
           recordFocusSpend(ctx.db.raw, result.costCents);
+          if (args.final === true) recordReviewCheck(ctx.db.raw, url.toString(), result.text);
           return `${result.text}\nScreenshots reviewed:\n[[image:${check.screenshots.desktop}]]\n[[image:${check.screenshots.mobile}]]`;
         } catch (err: any) {
           return `Design review failed: ${String(err?.message ?? err).slice(0, 300)}`;
@@ -1165,6 +1296,10 @@ export function createMoneyLabTools(): AutomatonTool[] {
       },
       execute: async (args, ctx) => {
         if (ctx.identity.sandboxId) return "scaffold_site is only available on a self-hosted server.";
+        if (args.publish === true) {
+          const blocked = publishBlocker(ctx.db.raw, String(args.name ?? ""));
+          if (blocked) return `${blocked}\nScaffold without publish to build and test it locally first.`;
+        }
         return scaffoldSite({
           name: String(args.name ?? ""), template: args.template as "tool" | "landing" | undefined, theme: typeof args.theme === "string" ? args.theme : undefined,
           lang: args.lang as "fr" | "en" | undefined, title: String(args.title ?? ""), description: String(args.description ?? ""),
@@ -1201,10 +1336,13 @@ export function createMoneyLabTools(): AutomatonTool[] {
       execute: async (args, ctx) => {
         if (ctx.identity.sandboxId) return "test_site is only available on a self-hosted server.";
         try {
-          return await testSite({
+          const report = await testSite({
             url: String(args.url ?? ""), steps: Array.isArray(args.steps) ? (args.steps as any[]) : undefined,
             crawl: args.crawl !== false, maxPages: args.max_pages as number | undefined, mobile: args.mobile === true,
           }, { home: process.env.HOME || "/root" });
+          const verdict = /^test_site (PASS WITH WARNINGS|PASS|FAIL[^—]*)/.exec(report)?.[1]?.trim();
+          if (verdict) recordTestCheck(ctx.db.raw, String(args.url ?? ""), verdict);
+          return report;
         } catch (err: any) {
           return `test_site failed: ${String(err?.message ?? err).slice(0, 300)}`;
         }
@@ -1235,6 +1373,8 @@ export function createMoneyLabTools(): AutomatonTool[] {
         const count = Number(ctx.db.getKV(key) ?? "0");
         if (count >= 10) return "At most 10 deployments a day: test locally with test_site first.";
         ctx.db.setKV(key, String(count + 1));
+        const gate = publishBlocker(ctx.db.raw, String(args.name ?? ""));
+        if (gate) return gate;
         const result = await deploySite({ name: String(args.name ?? ""), dir: args.dir ? String(args.dir) : undefined }, { home: process.env.HOME || "/root" });
         if (/^Deployed /.test(result)) queueOwnerNotification(ctx.db.raw, `🚀 Site déployé sur Cloudflare Pages : ${result.split("\n")[1] ?? ""}`);
         return result;
@@ -1273,6 +1413,8 @@ export function createMoneyLabTools(): AutomatonTool[] {
         const count = Number(ctx.db.getKV(key) ?? "0");
         if (count >= 10) return "At most 10 deployments a day (Pages and Workers together): test locally first.";
         ctx.db.setKV(key, String(count + 1));
+        const workerGate = publishBlocker(ctx.db.raw, String(args.name ?? ""));
+        if (workerGate) return workerGate;
         const result = await deployWorker({
           name: String(args.name ?? ""), dir: args.dir ? String(args.dir) : undefined, kv: args.kv === true, d1: args.d1 === true,
           schema: args.schema ? String(args.schema) : undefined,

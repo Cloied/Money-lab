@@ -401,6 +401,18 @@
       "path": "src/money-lab/webtools.ts",
       "purpose": "Removes Anthropic's paid web_search/web_fetch from requests once Tavily and free models exist; prompt wording",
       "edit_when": "The free-first rule or its override changes"
+    },
+    {
+      "area": "Proposals and owner choice",
+      "path": "src/money-lab/proposals.ts",
+      "purpose": "Week plan, dossiers reviewed by Opus, memory of ideas set aside, owner commands (/go, /non, /stop), weekly quota and stall rules, publication gate, evening report, tools by phase",
+      "edit_when": "How the bot proposes, how the owner decides, or the discipline rules change"
+    },
+    {
+      "area": "Frustration finder",
+      "path": "src/money-lab/frictions.ts",
+      "purpose": "frictions tool: public posts gathered and read by free models into the frictions dataset",
+      "edit_when": "The sources or the extraction of frustrations change"
     }
   ],
   "bot_guards": {

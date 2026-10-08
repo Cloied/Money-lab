@@ -27,6 +27,7 @@ import { listProbes } from "./probes.js";
 import { listKits } from "./kits.js";
 import { configuredServices, servicesUsageToday } from "./services.js";
 import { pendingFinalists } from "./decisions.js";
+import { WEEKLY_QUOTA, acceptedThisWeek, listMemory, listProposals } from "./proposals.js";
 
 const EVENTS_KEY = "money_lab.health_events";
 const MAX_EVENTS = 200;
@@ -245,7 +246,12 @@ export function buildHealthReport(
   const help = listHelpRequests(db, "open").length;
   const pendingPosts = listPosts(db).filter((p) => p.status === "pending").length;
   lines.push("", "Travail :");
-  lines.push(`  Idées : ${ideas.length} (${scored} notées, ${approved} validées) — expériences actives : ${activeExperimentCount(db)}`);
+  const week = acceptedThisWeek(db, now).length;
+  const proposals = listProposals(db);
+  lines.push(`  Propositions : ${week}/${WEEKLY_QUOTA} cette semaine — ${proposals.length} au total, ` +
+    `${proposals.filter((p) => p.status === "chosen" || p.status === "publish_pending" || p.status === "live").length} en test, ` +
+    `${listMemory(db).length} idée(s) écartée(s) en mémoire (/memoire)`);
+  lines.push(`  Ancien pipeline d'idées : ${ideas.length} (${scored} notées, ${approved} validées) — expériences actives : ${activeExperimentCount(db)}`);
   const noProgress = getNoProgressCycles(db);
   if (lab.noProgressCycles && noProgress >= Math.max(1, lab.noProgressCycles - 2)) {
     watch.push(`il tourne en rond (${noProgress} cycles sans progrès sur ${lab.noProgressCycles} avant pause)`);
@@ -259,8 +265,10 @@ export function buildHealthReport(
   const failedKits = listKits(db).filter((k) => k.status === "failed" && nowMs - Date.parse(k.decidedAt ?? k.createdAt) < 86_400_000);
   if (failedKits.length) watch.push(`${failedKits.length} kit(s) non publié(s) par le programme (${failedKits.map((k) => k.id).join(", ")}) : vérifie la clé dev.to ou Mastodon`);
   const finalists = pendingFinalists(db, now);
-  if (help || pendingPosts || pendingKits || finalists.length) {
+  const waitingProposals = proposals.filter((p) => p.status === "pending" || p.status === "publish_pending").map((p) => `#${p.n}`);
+  if (help || pendingPosts || pendingKits || finalists.length || waitingProposals.length) {
     lines.push(`  En attente de toi : ${[
+      waitingProposals.length ? `proposition(s) ${waitingProposals.join(", ")} (/idees)` : "",
       help ? `${help} demande(s) d'aide (/aides)` : "",
       pendingPosts ? `${pendingPosts} publication(s) (/publications)` : "",
       pendingKits ? `${pendingKits} kit(s) à publier (/kits)` : "",

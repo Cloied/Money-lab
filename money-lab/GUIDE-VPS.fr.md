@@ -332,6 +332,52 @@ Sans compte : `france_data address` (adresses et communes, API Adresse de l'Éta
 Dans `/sante`, la ligne « Services gratuits (tes comptes) » montre ce qui est actif et combien d'appels
 ont été faits aujourd'hui.
 
+## Piloter le bot (depuis le 8 octobre 2026)
+
+**Son travail.** Le bot cherche des idées rentables qu'on peut tester à petit prix, et te les propose. Toi,
+tu choisis. Il ne construit et ne publie rien que tu n'aies choisi.
+
+**Sa semaine.**
+1. Il envoie son plan de la semaine (3 à 6 thèmes où chercher) ; Opus le vérifie.
+2. Il fouille gratuitement les frustrations : messages où des gens se plaignent ou cherchent un outil
+   (`frictions`), recherche web gratuite, avis sur les outils existants, chiffres de demande, données INSEE
+   et Légifrance.
+3. Il compare les pistes et en fait des **propositions** complètes : la frustration avec des preuves datées,
+   la concurrence et notre angle, pourquoi celle-là plutôt qu'une autre, qui paie et combien, où trouver
+   ces gens sans publicité, le plus petit test avec son chiffre de réussite, ce qui tuerait l'idée.
+4. Opus relit chaque proposition : il l'accepte (tu la reçois), la renvoie à retravailler, ou l'abandonne.
+5. Objectif : **3 propositions acceptées par semaine**. Sinon le bot est mis en pause (« il meurt ») et ne
+   repart que si tu envoies `/reprendre`. Il est aussi mis en pause s'il dépense pendant 48 h sans rien
+   produire (ni plan, ni proposition, ni test mis à jour).
+
+**Tes commandes sur Telegram** (`/aide` les rappelle) :
+- `/idees` — les propositions en attente ; `/idee 4` — lire la proposition 4 en entier ;
+- `/go 4` — la tester (ou accepter sa mise en ligne quand il te le demande) ;
+- `/non 4 raison` — l'écarter ; il garde la raison en mémoire et ne la reproposera pas sans fait nouveau ;
+- `/tests` — les tests en cours ; `/stop 1 raison` — arrêter un test, sans discussion ;
+- `/memoire` — les idées écartées et pourquoi ;
+- `/point` — où il en est ; `/sante` — le rapport détaillé ;
+- `/pause`, `/reprendre`, `/plafond`, `/fonds` comme avant ; les autres commandes sont dans `/aide plus`.
+
+Si tu ne réponds pas à une proposition sous 48 h, Opus décide à ta place et te prévient ; tu peux toujours
+l'arrêter avec `/stop`.
+
+**Chaque soir vers 21 h** (heure de Paris en été), un compte rendu court : ce qu'il a fait, ce qu'il a
+appris, ce qu'il prévoit demain, où en est la semaine, ce qui t'attend et l'argent. Le long rapport du
+matin n'est plus envoyé ; `/sante` le donne à la demande.
+
+**Avant toute mise en ligne.** Le bot doit avoir ton `/go` sur la proposition, un test complet du site
+(`test_site`) et une revue de design par Opus, puis il te demande l'accord de publier sous un nom neutre
+(jamais « money lab », « bot », « test » ou « demo ») ; tu réponds `/go` ou `/non raison`. Les outils de
+déploiement refusent tout le reste. Une limite : avec le jeton GitHub (`GH_TOKEN`), il peut techniquement
+pousser sur GitHub Pages depuis son terminal. Pour que la règle soit sans faille, retire la ligne `GH_TOKEN`
+de `/etc/money-lab.env` (puis `systemctl restart money-lab`) : Cloudflare Pages, contrôlé par le programme,
+reste disponible pour publier.
+
+**Plus léger.** Le bot ne voit que les outils de son étape : pour chercher, 46 au lieu de 85 ; ceux de
+construction et de publication n'apparaissent qu'après ton `/go`. Son mode d'emploi est deux fois plus
+court et son historique aussi, ce qui réduit le coût de chaque réveil.
+
 ## Tes interventions
 
 Pour gagner de l'argent, le bot te demandera (via `request_help`) : un nom de domaine (domaine
@@ -365,13 +411,14 @@ et donne les corrections ; quelques centimes). Le kit et les compétences se met
 
 **Trouver la bonne idée.** Le bot ne part plus d'une idée au hasard : `niche_scan` lui donne des catégories de besoins (métiers, démarches, moments de vie, obligations, données, tâches répétitives), il les développe en recherches concrètes avec les IA gratuites, puis mesure chaque niche avec des signaux comptés (suggestions Google, intention d'achat, audience, discussions, alternatives existantes) et une formule fixe ; les niches rejetées sont mémorisées avec la raison. Avant de construire un produit, il publie une **sonde** : une page utile faite en un jour, et Google Search Console dit après deux semaines si des gens la cherchent (`/sante` affiche les sondes en cours ; tu es prévenu sur Telegram quand une sonde réussit ou échoue). Les sondes exigent que Search Console soit configuré (point 5 ci-dessus).
 
-**Publier pour lui.** Le bot ne peut pas poster sur les annuaires, forums ou groupes : il te prépare des **kits de publication** complets (où poster exactement, le titre, le texte à coller, le lien suivi, l'image, les règles du lieu). Ils arrivent sur Telegram ; tu colles, tu publies en ton nom, puis `/publie <id> <lien>` (ou `/passe <id> [raison]`). `/kits` liste ceux en attente, `/kit <id>` en réaffiche un. Au plus 3 par jour. Avant de construire un produit, tu vois aussi chaque **idée finaliste** pendant 24 h : `/choisis <id>` pour la lancer, `/ecarte <id> [raison]` pour la refuser ; sans réponse, Opus décide.
+**Publier pour lui.** Le bot ne peut pas poster sur les annuaires, forums ou groupes : pour un test en ligne, il te prépare des **kits de publication** complets (où poster exactement, le titre, le texte à coller, le lien suivi, l'image, les règles du lieu). Ils arrivent sur Telegram ; tu colles, tu publies en ton nom, puis `/publie <id> <lien>` (ou `/passe <id> [raison]`). `/kits` liste ceux en attente, `/kit <id>` en réaffiche un. Au plus 3 par jour.
 
 **Gratuit en plus (sans compte, ou presque).** Le bot lit les pages web via Jina Reader (texte propre, même sur les sites en JavaScript ; une clé gratuite sur https://jina.ai → *API Keys* dans `JINA_API_KEY` passe de 20 à 500 lectures par minute, facultatif). Sa mémoire (`recall`) cherche par sens grâce aux embeddings gratuits de Gemini, Mistral ou Cloudflare, déjà configurés avec tes clés. `design_review` passe d'abord par Gemini (gratuit) et ne va chez Opus qu'au moment de publier. Chaque sonde publiée est signalée à Bing et ses partenaires (IndexNow, gratuit, sans compte). `free_services` lui trouve un service ou une API gratuite pour un besoin donné. Pour des statistiques de visite en plus de GoatCounter : sur https://dash.cloudflare.com → *Analytics & Logs → Web Analytics → Add a site* (sans proxy), copie le `token` du snippet dans `CF_WEB_ANALYTICS_TOKEN` ; les nouveaux sites l'incluent.
 
-**Les décisions importantes sont prises par Claude Opus 5.5**, et le programme les applique : approuver
-une idée (elle devient une expérience) et arrêter une expérience active. Le bot prépare le dossier,
-Opus tranche (environ 5 centimes par décision, compté dans le budget). Le rapport de santé indique les
+**Claude Opus 5.5 relit et tranche**, et le programme applique : il vérifie le plan de la semaine, relit
+chaque proposition avant qu'elle t'arrive, décide à ta place après 48 h sans réponse, et confirme ou non
+quand le bot veut arrêter un test (toi, tu arrêtes directement avec `/stop`). Environ 5 centimes par
+décision, comptés dans le budget. Le rapport de santé indique les
 décisions de la semaine. Le bilan hebdomadaire utilise aussi Opus pour ses 4 premiers tours, puis
 revient à Sonnet ; tout reste soumis aux mêmes plafonds.
 

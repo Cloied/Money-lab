@@ -6,7 +6,6 @@
  */
 
 import nodePath from "node:path";
-import { discoveryIncomplete } from "../money-lab/ideas.js";
 import { currentMode, maxSleepSeconds } from "../money-lab/modes.js";
 import { ulid } from "ulid";
 import type {
@@ -759,7 +758,7 @@ export function createBuiltinTools(sandboxId: string): AutomatonTool[] {
           },
           reason: {
             type: "string",
-            description: "Why you are sleeping",
+            description: "Why you are sleeping, and what you will do when you wake up (the owner reads it in the evening report)",
           },
         },
         required: ["duration_seconds"],
@@ -775,12 +774,10 @@ export function createBuiltinTools(sandboxId: string): AutomatonTool[] {
         if (ctx.config.moneyLab?.enabled) {
           const mode = currentMode(ctx.db.raw);
           const cap = maxSleepSeconds(ctx.db.raw, mode);
-          const discovery = discoveryIncomplete(ctx.db.raw);
           if (duration > cap) {
             duration = cap;
-            note = discovery && mode !== "build"
-              ? ` (capped at 3 h: your idea pipeline has ${discovery.scored} of ${discovery.needed} scored ideas; ` +
-                "spend your next sessions on discovery while you wait)"
+            note = mode === "discovery"
+              ? " (capped at 3 h: this week's proposals are not all accepted yet; spend your next session on them)"
               : ` (capped at ${cap / 3600} h: mode ${mode})`;
           }
         }

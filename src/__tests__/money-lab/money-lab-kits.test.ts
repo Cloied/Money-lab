@@ -170,7 +170,9 @@ describe("Owner window and shortlist", () => {
     expect(held.text).toContain("Opus shortlisted on 2026-10-01: idea-3, idea-7");
     expect(route).toHaveBeenCalledTimes(1);
     const block = buildMoneyLabPromptBlock(db.raw, lab);
-    expect(block).toContain("Decisions: shortlist by Opus on 2026-10-01: idea-3, idea-7; finalists waiting for the owner: none. Publication kits (publish_kit; the owner posts them): none yet.");
+    // 2026-10-08: the prompt carries the week's proposals and the memory instead of shortlists and finalists.
+    expect(block).not.toContain("Decisions: shortlist");
+    expect(block).toMatch(/THIS WEEK: 0\/3 accepted proposals[\s\S]*Memory \(ideas set aside/);
     db.close();
   });
 });
@@ -195,7 +197,8 @@ describe("Telegram commands for kits and finalists", () => {
     expect(channel.handleOwnerText("/choisis fin", 7)).toContain("n'est pas une finaliste proposée");
     expect(channel.handleOwnerText("/ecarte fin trop risqué", 8)).toBe("Idée fin écartée (trop risqué). Le bot ne la reprendra pas.");
     expect(wakes()).toContain("Idée fin écartée par le propriétaire");
-    expect(channel.handleOwnerText("/aide", 9)).toContain("/publie <id> [lien]");
+    expect(channel.handleOwnerText("/aide", 9)).toContain("/go <n>");
+    expect(channel.handleOwnerText("/aide plus", 10)).toContain("/publie <id> [lien]");
     const health = buildHealthReport(db.raw, vpsConfig().moneyLab!, { now: t0, home: tmp("h-") }).text;
     expect(health).not.toContain("kit(s) à publier");
     draftKit(db.raw, kitInput({ body: `Autre angle pour un autre lieu : ${kitInput().body}` }), new Date("2026-10-07T11:00:00Z"));

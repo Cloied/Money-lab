@@ -602,6 +602,26 @@ describe("Money Lab agent loop", () => {
     expect(inference.calls[0].options?.model).toBe("gpt-5-mini");
   });
 
+  it("hides building tools during discovery, but keeps a tool declared while the history still uses it", async () => {
+    // Owner meeting 2026-10-08: tools by phase. The API rejects a history that
+    // calls a tool the request does not declare, so a recently used tool stays.
+    const first = new MockInferenceClient([noToolResponse("done")]);
+    await run(first, labConfig({ payments: "allowed" }));
+    const offered = (first.calls[0].options?.tools ?? []).map((t: any) => t.function.name);
+    for (const name of ["proposal", "frictions", "harvest", "record_experiment"]) expect(offered, name).toContain(name);
+    for (const name of ["scaffold_site", "deploy_site", "design_review", "idea", "register_erc8004", "update_soul"]) expect(offered, name).not.toContain(name);
+    db.insertTurn({
+      id: "old-build-turn", timestamp: new Date().toISOString(), state: "running", thinking: "", input: "", inputSource: "agent",
+      toolCalls: [{ id: "c1", name: "scaffold_site", arguments: { name: "x" }, result: "ok", durationMs: 1 }],
+      tokenUsage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 }, costCents: 1,
+    } as any);
+    const second = new MockInferenceClient([noToolResponse("done")]);
+    await run(second, labConfig({ payments: "allowed" }));
+    const again = (second.calls[0].options?.tools ?? []).map((t: any) => t.function.name);
+    expect(again).toContain("scaffold_site");
+    expect(again).not.toContain("deploy_site");
+  });
+
   it("sleeps without a paid turn when the budget is exhausted", async () => {
     new InferenceBudgetTracker(db.raw, labConfig().modelStrategy!).recordCost({
       sessionId: "x", turnId: null, model: "gpt-5-mini", provider: "openai", inputTokens: 0,
@@ -751,7 +771,7 @@ describe("Money Lab journal", () => {
 
   it("agent tools cannot resolve help or write the ledger", () => {
     const names = createMoneyLabTools().map((t) => t.name);
-    expect(names).toEqual(["record_experiment", "idea", "request_help", "message_owner", "email_owner", "view_page", "browse", "audit_page", "check_design", "first_impression", "design_review", "ab_test", "check_domain", "render_image", "post_social", "publish_kit", "free_services", "free_search", "search_console", "bing_webmaster", "web_analytics", "delegate", "harvest", "repo_scout", "vendor_code", "scaffold_site", "test_site", "deploy_site", "deploy_worker", "code_review", "niche_scan", "probe", "market_signals", "france_data", "dataset", "monitor_site", "schedule_job", "recall", "set_budget_focus", "money_lab_status"]);
+    expect(names).toEqual(["proposal", "frictions", "record_experiment", "idea", "request_help", "message_owner", "email_owner", "view_page", "browse", "audit_page", "check_design", "first_impression", "design_review", "ab_test", "check_domain", "render_image", "post_social", "publish_kit", "free_services", "free_search", "search_console", "bing_webmaster", "web_analytics", "delegate", "harvest", "repo_scout", "vendor_code", "scaffold_site", "test_site", "deploy_site", "deploy_worker", "code_review", "niche_scan", "probe", "market_signals", "france_data", "dataset", "monitor_site", "schedule_job", "recall", "set_budget_focus", "money_lab_status"]);
   });
 
   it("separates funding, purchases, usage, estimated revenue and cash", () => {

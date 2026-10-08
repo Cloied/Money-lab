@@ -14,6 +14,7 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 import { validate } from "./validate.mjs";
+import Database from "better-sqlite3";
 
 const HERE = path.dirname(new URL(import.meta.url).pathname);
 const REPO = path.resolve(HERE, "..", "..");
@@ -71,7 +72,7 @@ function model(body) {
       const offered = new Set(body.tools.map((t) => t.name));
       for (const t of ["exec", "write_file", "record_experiment", "request_help", "message_owner", "sleep"]) if (!offered.has(t)) fail(`tool ${t} not offered`);
       for (const t of ["spawn_child", "expose_port", "create_sandbox", "topup_credits"]) if (offered.has(t)) fail(`tool ${t} offered`);
-      for (const t of ["web_search", "web_fetch", "view_page", "browse", "set_budget_focus", "idea", "delegate", "schedule_job", "recall", "audit_page", "ab_test", "check_domain", "render_image", "post_social", "harvest", "market_signals", "dataset", "monitor_site", "check_design", "first_impression", "design_review"]) if (!offered.has(t)) fail(`tool ${t} not offered`);
+      for (const t of ["web_search", "web_fetch", "view_page", "browse", "set_budget_focus", "proposal", "frictions", "delegate", "schedule_job", "recall", "audit_page", "ab_test", "check_domain", "render_image", "post_social", "harvest", "market_signals", "dataset", "monitor_site", "check_design", "first_impression", "design_review"]) if (!offered.has(t)) fail(`tool ${t} not offered`);
       const trailing = body.messages.at(-1).role === "system" ? body.messages.at(-1).content : "";
       if (!trailing.includes("SURVIVAL: balance")) fail("live state not sent as a trailing system message");
       if (body.system.map((b) => b.text).join("").includes("SURVIVAL: balance")) fail("live state still in the cached system prefix");
@@ -84,7 +85,7 @@ function model(body) {
       expectMemory(0, /index\.html/, "ls output");
       return respond([
         use("record_experiment", { status: "building", hypothesis: "Générateur de factures gratuit" }),
-        use("idea", { action: "update", id: "factures-artisans", title: "Factures pour artisans", problem: "Les artisans perdent du temps sur leurs factures" }),
+        use("proposal", { action: "show", n: 1 }),
         use("exec", { command: `nohup python3 -m http.server ${SITE_PORT} --directory ~/site > ~/site.log 2>&1 &` }),
         use("exec", { command: `python3 -m http.server ${PORT2} --directory ~/site &` }),
       ]);
@@ -93,7 +94,7 @@ function model(body) {
       if (Date.now() - stepTimes[1] > 8000) fail(`a server started with "&" held exec for ${Math.round((Date.now() - stepTimes[1]) / 1000)} s`);
       expectMemory(1, /./, "experiment + servers");
       if (!/only through an approved idea/.test(allText(body))) fail("an experiment became active without an approved idea");
-      if (!/factures-artisans\W{0,3} saved \(total incomplete\/100\)/.test(allText(body))) fail("idea not recorded");
+      if (!/Proposition #1 — Factures pour artisans \(choisie, en préparation\)/.test(allText(body))) fail("chosen proposal not shown");
       return respond([text("Je vérifie que les deux sites répondent."),
         use("exec", { command: `sleep 2; for p in ${SITE_PORT} ${PORT2} ${PORT2}; do curl -s -o /dev/null -w '%{http_code} ' localhost:$p; done` })]);
     case 3:
@@ -216,6 +217,20 @@ const run = (args) => execFileSync("node", args, { cwd: REPO, env, encoding: "ut
 console.log(`HOME=${HOME}`);
 console.log(run(["money-lab/vps/configure.mjs", "--chat-id", String(OWNER), "--vps-cost-per-month", "6", "--eur-usd", "1.08", "--daily-budget", "2"]).trim());
 console.log(run(["dist/index.js", "--money-lab", "ledger-add", "owner_funding", "1500", "depot-initial"]).trim());
+// Since 2026-10-08 the bot builds only what the owner chose: the scenario
+// starts after the owner answered /go 1 on a proposal (build phase).
+{
+  const now = new Date().toISOString();
+  const proposal = {
+    n: 1, slug: "factures-artisans", title: "Factures pour artisans", status: "chosen",
+    frustration: "Les artisans perdent du temps sur leurs factures", audience: "Artisans", evidence: [], competitors: [],
+    angle: "", whyThis: "", revenue: "", acquisition: [], prospects: "", test: "Une page en un jour", killers: "",
+    opusNote: "À tester", createdAt: now, deliveredAt: now, updatedAt: now, decidedBy: "owner", decidedAt: now,
+  };
+  const db = new Database(path.join(HOME, ".automaton", "state.db"));
+  db.prepare("INSERT OR REPLACE INTO kv (key, value) VALUES (?, ?)").run("money_lab.proposals", JSON.stringify({ seq: 1, items: [proposal] }));
+  db.close();
+}
 
 let child;
 let out = "";
@@ -240,7 +255,7 @@ const anthropicCount = () => log.filter((l) => l.kind === "anthropic").length;
 await until(() => step >= 5 && flags.longStart, DURATION_MS) || fail(`agent never reached the long command (step ${step})`);
 const asked = Date.now();
 tgSend(OWNER, "/aide");
-await until(() => tgOutbox.some((m) => /Commandes Money Lab/.test(m.text)), 14000)
+await until(() => tgOutbox.some((m) => /Money Lab — ce que tu peux faire/.test(m.text)), 14000)
   ? ok(`/aide answered in ${Math.round((Date.now() - asked) / 1000)} s while a 15 s command ran`)
   : fail("/aide not answered while a long command ran (event loop blocked)");
 await until(() => step >= 8, DURATION_MS) || fail(`agent stopped at step ${step} before waiting for the owner`);
@@ -274,7 +289,7 @@ try {
   const code = execFileSync("curl", ["-s", "-o", "/dev/null", "-w", "%{http_code}", `localhost:${SITE_PORT}`], { encoding: "utf-8" });
   code === "200" ? ok("autostart.sh restarted the site after a restart") : fail(`site after restart: ${code}`);
 } catch { fail("site not restarted by autostart.sh"); }
-if (tgOutbox.filter((m) => /Commandes Money Lab/.test(m.text)).length > 1) fail("Telegram update processed twice after restart");
+if (tgOutbox.filter((m) => /Money Lab — ce que tu peux faire/.test(m.text)).length > 1) fail("Telegram update processed twice after restart");
 tgSend(OWNER, "/reprendre");
 tgSend(OWNER, "Nouveau message : reprends.");
 await until(() => step >= 11, 60000) || fail(`no resume after /reprendre (step ${step})`);

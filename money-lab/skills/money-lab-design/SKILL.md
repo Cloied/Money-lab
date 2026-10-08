@@ -1,7 +1,7 @@
 ---
 name: money-lab-design
 description: Design web pages that look professional while staying simple, fast and original; the method, the kit in ~/library/design, free resources, and the checks before publishing
-auto-activate: true
+auto-activate: false
 ---
 # Money Lab design
 

@@ -90,6 +90,8 @@ export interface LedgerEntry {
 
 const KV_PAUSED = "money_lab.paused";
 const KV_NO_PROGRESS = "money_lab.no_progress_cycles";
+/** Last real progress (plan, proposal, publication request, experiment update): the stall rule reads it. */
+export const PROGRESS_KEY = "money_lab.progress_at";
 
 export function ensureMoneyLabSchema(db: DB): void {
   db.exec(`
@@ -507,6 +509,8 @@ export function resume(db: DB): boolean {
     deleteKV(db, KV_NO_PROGRESS);
     deleteKV(db, "sleep_until");
     deleteKV(db, "sleep_reason");
+    // A revived bot gets a fresh 48 hours before the stall rule looks again.
+    setKV(db, PROGRESS_KEY, now());
     if (wasPaused) {
       db.prepare("INSERT INTO wake_events (source, reason, payload) VALUES ('money_lab_operator', 'Operator resumed Money Lab', '{}')").run();
     }
