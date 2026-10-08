@@ -560,6 +560,14 @@ async function run(): Promise<void> {
     }
   }
   if (moneyLab) {
+    // Owner meeting (2026-10-08): a week below the quota of accepted
+    // proposals, or 48 h of spending without progress, pauses the bot.
+    const { disciplineTick } = await import("./money-lab/proposals.js");
+    every(60 * 60_000, "Discipline", async () => {
+      for (const event of disciplineTick(db.raw)) logger.info(`[MONEY LAB] Discipline : ${event}.`);
+    });
+  }
+  if (moneyLab) {
     const { backupStateDaily } = await import("./money-lab/backup.js");
     every(60 * 60_000, "Sauvegarde", async () => {
       const file = await backupStateDaily(db.raw);

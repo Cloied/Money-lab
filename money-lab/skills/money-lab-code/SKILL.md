@@ -1,7 +1,7 @@
 ---
 name: money-lab-code
 description: Build web tools fast and soundly; reuse permissively licensed code, scaffold from the kit, test in a real browser, review before publishing; a catalogue of proven libraries
-auto-activate: true
+auto-activate: false
 ---
 # Money Lab code workshop
 

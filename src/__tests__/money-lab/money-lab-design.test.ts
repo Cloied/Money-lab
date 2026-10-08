@@ -13,7 +13,7 @@ import path from "path";
 import type { AutomatonConfig, AutomatonDatabase, ToolContext } from "../../types.js";
 import { createDatabase } from "../../state/database.js";
 import { applyMoneyLabProfile } from "../../money-lab/profile.js";
-import { ensureMoneyLabSchema } from "../../money-lab/journal.js";
+import { ensureMoneyLabSchema, setKV } from "../../money-lab/journal.js";
 import { createMoneyLabTools } from "../../money-lab/tools.js";
 import { executeTool } from "../../agent/tools.js";
 import { PolicyEngine } from "../../agent/policy-engine.js";
@@ -153,7 +153,11 @@ describe("Design kit and skill", () => {
     const previous = process.env.MONEY_LAB_BROWSER;
     process.env.MONEY_LAB_BROWSER = browser ?? process.execPath;
     try {
-      expect(buildMoneyLabPromptBlock(db.raw, vpsConfig().moneyLab!)).toMatch(/money-lab-design skill[\s\S]*~\/library\/design[\s\S]*check_design/);
+      // 2026-10-08: the building half of the rules appears once the owner chose a proposal.
+      expect(buildMoneyLabPromptBlock(db.raw, vpsConfig().moneyLab!)).toMatch(/Building, design and publishing tools are hidden until the owner chooses/);
+      const at = new Date().toISOString();
+      setKV(db.raw, "money_lab.proposals", JSON.stringify({ seq: 1, items: [{ n: 1, slug: "p1", title: "P1", status: "chosen", deliveredAt: at, createdAt: at, updatedAt: at }] }));
+      expect(buildMoneyLabPromptBlock(db.raw, vpsConfig().moneyLab!)).toMatch(/money-lab-design\/SKILL\.md[\s\S]*~\/library\/design[\s\S]*check_design[\s\S]*design_review final: true/);
     } finally {
       if (previous === undefined) delete process.env.MONEY_LAB_BROWSER; else process.env.MONEY_LAB_BROWSER = previous;
       db.close();

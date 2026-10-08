@@ -128,6 +128,15 @@
 - Free-first web tools (2026-10-08): first live /sante after the update showed paid web_search still used
   and no free call; the paid web_search and web_fetch are now removed from requests when Tavily and
   free models are configured (override MONEY_LAB_WEB_TOOLS). Observe-mode cap reached again at 00:17 UTC.
+- Owner meeting (2026-10-08, after live /sante and /statut: 16.86 $ spent, 0 revenue, 60 % on research,
+  no proposal, observe mode sleeping on a 1 $/day cap): the bot is reoriented. Job: find profitable,
+  testable ideas and propose them; the owner chooses on Telegram (/idees, /go, /non, /stop, /memoire,
+  /point); Opus reviews the week plan and every dossier; 3 accepted proposals a week or a pause; 48 h of
+  spending without progress pauses too; memory of every idea set aside; publication only for a chosen
+  proposal after test_site, an Opus design review and the owner's /go, under a neutral name; tools by
+  phase, shorter mission and history (static part per turn 85k → 40k characters); frictions finder.
+  Evening report replaces the morning push. Owner actions: stop the invoice test (/tests, /stop 1),
+  optionally remove GH_TOKEN so publishing goes only through the gated Cloudflare tools. Not yet used live.
 - PR 6 done (Workers): deploy_worker publishes small free servers (Cloudflare Workers with KV or D1,
   code rules, no secrets, storage ids remembered), probes count Bing impressions next to Google when
   Bing Webmaster is configured, web_analytics reads Cloudflare Web Analytics. Owner's Cloudflare token

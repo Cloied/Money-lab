@@ -22,7 +22,7 @@ import { MockConwayClient, MockInferenceClient, createTestConfig, createTestIden
 import { chunkDocuments, configuredFreeProviders, freeAiUsageToday, harvest, resetFreeAiProbes } from "../../money-lab/freeai.js";
 import { marketSignals } from "../../money-lab/signals.js";
 import { deleteDataset, listDatasets, readDataset, saveRecord, searchDatasets } from "../../money-lab/datasets.js";
-import { listDecisions, parseDecision } from "../../money-lab/decisions.js";
+import { decideIdeaWithOpus, listDecisions, parseDecision } from "../../money-lab/decisions.js";
 import { CRITERIA, getIdea, upsertIdea } from "../../money-lab/ideas.js";
 import { addSite, checkSites, describeSites, monitoredSites, removeSite } from "../../money-lab/monitor.js";
 import { isOperatorWake } from "../../money-lab/cycle.js";
@@ -375,24 +375,30 @@ describe("Binding Opus decisions", () => {
       await call("idea", { action: "challenge", id: "a" });
       await call("idea", { action: "update", id: "a", response_to_critic: "Pris en compte." });
     };
-    return { db, call, routed, ready, full };
+    // Since 2026-10-08 the self-hosted bot proposes and the owner chooses; the
+    // Opus approval itself is unchanged and still decides on Conway.
+    const decide = (id: string, note: string) => decideIdeaWithOpus(db.raw, id, note, {
+      router: ctx.inferenceRouter!, chat: (msgs, opts) => ctx.inference.chat(msgs, opts), sessionId: "s", lab: ctx.config.moneyLab,
+    }).then((r) => r.text);
+    return { db, call, routed, ready, full, decide };
   }
 
   it("lets Opus approve, and sends it the full dossier with the agent's case", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-10-07T08:00:00Z"));
-    const { db, call, routed, ready } = setup(() => ({ content: "Decision: APPROVE\nReasons:\n- demande prouvée" }));
+    const { db, call, routed, ready, decide } = setup(() => ({ content: "Decision: APPROVE\nReasons:\n- demande prouvée" }));
     await ready();
-    expect(await call("idea", { action: "decide", id: "a", decision: "approve", note: "x" })).toMatch(/let it mature/);
+    expect(await call("idea", { action: "decide", id: "a", decision: "approve", note: "x" })).toMatch(/Approvals now go through proposals/);
+    expect(await decide("a", "x")).toMatch(/let it mature/);
     expect(routed.filter((r) => /investment committee/.test(r.messages[0].content))).toHaveLength(0);
     vi.setSystemTime(new Date("2026-10-07T15:00:00Z"));
     addLedgerEntry(db.raw, { kind: "owner_funding", amountCents: 2000, source: "operator", reference: "f" });
     // First request: the owner is told and gets 24 h; Opus is not asked yet.
-    expect(await call("idea", { action: "decide", id: "a", decision: "approve", note: "x" })).toMatch(/owner has been told about this finalist/);
+    expect(await decide("a", "x")).toMatch(/owner has been told about this finalist/);
     expect(routed.filter((r) => /investment committee/.test(r.messages[0].content))).toHaveLength(0);
     expect(pendingOwnerNotifications(db.raw).some((n) => /🏁 Finaliste : Idée a \(a\)/.test(n.text))).toBe(true);
     ownerWindowPassed(db, "a");
-    const result = await call("idea", { action: "decide", id: "a", decision: "approve", note: "Meilleure demande du pipeline, 3 sources." });
+    const result = await decide("a", "Meilleure demande du pipeline, 3 sources.");
     expect(result).toMatch(/Decision: APPROVE[\s\S]*binding[\s\S]*approved \(80\/100\)/);
     const request = routed.find((r) => /investment committee/.test(r.messages[0].content));
     expect(request.model).toBe("claude-opus-5-5");
@@ -412,20 +418,20 @@ describe("Binding Opus decisions", () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-10-07T08:00:00Z"));
     let content = "Decision: NOT YET\nConditions or missing evidence:\n- chiffres de recherche";
-    const { db, call, ready } = setup(() => ({ content }));
+    const { db, call, ready, decide } = setup(() => ({ content }));
     await ready();
     vi.setSystemTime(new Date("2026-10-07T15:00:00Z"));
     ownerWindowPassed(db, "a");
-    expect(await call("idea", { action: "decide", id: "a", decision: "approve", note: "dossier complet" })).toMatch(/Not yet: get the missing evidence/);
+    expect(await decide("a", "dossier complet")).toMatch(/Not yet: get the missing evidence/);
     expect(getIdea(db.raw, "a")!.status).toBe("candidate");
-    expect(await call("idea", { action: "decide", id: "a", decision: "approve", note: "encore" })).toMatch(/Nothing changed since Opus said NOT YET/);
+    expect(await decide("a", "encore")).toMatch(/Nothing changed since Opus said NOT YET/);
     vi.setSystemTime(new Date("2026-10-07T16:00:00Z"));
     await call("idea", { action: "update", id: "a", evidence: ["market_signals 2026-10-07: 56 fils HN"] });
     content = "Je pense que c'est bien.";
-    expect(await call("idea", { action: "decide", id: "a", decision: "approve", note: "preuves ajoutées" })).toMatch(/No decision line: nothing applied/);
+    expect(await decide("a", "preuves ajoutées")).toMatch(/No decision line: nothing applied/);
     expect(listDecisions(db.raw)).toHaveLength(1);
     content = "**Decision:** REJECT\nReasons:\n- concurrence gratuite";
-    expect(await call("idea", { action: "decide", id: "a", decision: "approve", note: "preuves ajoutées" })).toMatch(/rejected by Opus/);
+    expect(await decide("a", "preuves ajoutées")).toMatch(/rejected by Opus/);
     expect(getIdea(db.raw, "a")!.status).toBe("rejected");
     db.close();
   });
@@ -532,7 +538,7 @@ describe("Free model keys and the prompt", () => {
     const db = openDb();
     const prompt = buildMoneyLabPromptBlock(db.raw, vpsConfig().moneyLab!);
     expect(prompt).toMatch(/Models, cheapest first: harvest collects and extracts with free models \(none configured yet: it falls back to Haiku, paid\)/);
-    expect(prompt).toMatch(/Opus makes the binding calls/);
+    expect(prompt).toMatch(/Opus reviews your week plan and every proposal/);
     expect(prompt).toMatch(/Monitored sites: none/);
     expect(getKV(db.raw, "money_lab.freeai")).toBeUndefined();
     db.close();
@@ -610,7 +616,7 @@ describe("Lighter turns", () => {
 import { moneyLabHistoryWindow } from "../../agent/loop.js";
 
 describe("Cache-stable shortened history", () => {
-  it("keeps each request a prefix of the next, except when the window moves every 10 turns", () => {
+  it("keeps each request a prefix of the next, except when the window moves every 6 turns", () => {
     const big = `DEBUT ${"y".repeat(6000)} FIN`;
     const all = Array.from({ length: 60 }, (_, i) => ({
       id: `t${String(i).padStart(2, "0")}`, timestamp: new Date(Date.UTC(2026, 9, 7, 0, i)).toISOString(), state: "running" as const,
@@ -618,7 +624,7 @@ describe("Cache-stable shortened history", () => {
       tokenUsage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 }, costCents: 1,
     })) as any[];
     const render = (count: number) => {
-      const recent = all.slice(0, count).slice(-29);
+      const recent = all.slice(0, count).slice(-17);
       const w = moneyLabHistoryWindow(recent, count);
       const msgs = buildContextMessages("system", w.turns, undefined, { repeatByCall: true, shortResultTurnIds: w.shortResultTurnIds, oldResultChars: 1200, budget: { total: 1e9, systemPrompt: 1e9, recentTurns: 100_000, toolResults: 1e9, memoryRetrieval: 1e9 } as any });
       return { text: JSON.stringify(msgs.slice(1)), shortened: w.shortResultTurnIds.size, kept: w.turns.length };
@@ -629,17 +635,18 @@ describe("Cache-stable shortened history", () => {
       const after = render(count + 1).text;
       if (!after.startsWith(before)) {
         breaks++;
-        expect((count + 1) % 10).toBe(0); // only when the window moves
+        expect((count + 1) % 6).toBe(0); // only when the window moves
       }
     }
-    expect(breaks).toBe(3); // 40, 50 and 60
-    const fresh = render(40);
-    expect(fresh.kept).toBe(20);
-    expect(fresh.shortened).toBe(16);
-    const grown = render(49);
-    expect(grown.kept).toBe(29);
-    expect(grown.shortened).toBe(16);
-    expect(grown.text.length).toBeLessThan(29 * 6100 * 0.65);
+    // 2026-10-08: a 12-17 turn window (was 20-29), the newest 3 results whole.
+    expect(breaks).toBe(5); // 36, 42, 48, 54 and 60
+    const fresh = render(36);
+    expect(fresh.kept).toBe(12);
+    expect(fresh.shortened).toBe(9);
+    const grown = render(41);
+    expect(grown.kept).toBe(17);
+    expect(grown.shortened).toBe(9);
+    expect(grown.text.length).toBeLessThan(17 * 6100 * 0.65);
   });
 });
 
@@ -704,12 +711,17 @@ describe("Free provider pool", () => {
 });
 
 describe("Work modes", () => {
-  it("derives discovery, build and observe from the journal and caps sleep accordingly", () => {
+  it("derives discovery, build and observe from the week's proposals and the journal, and caps sleep accordingly", () => {
     const db = openDb();
     expect(currentMode(db.raw)).toBe("discovery");
     expect(maxSleepSeconds(db.raw, "discovery")).toBe(3 * 3600);
+    // Scored ideas no longer end discovery (2026-10-08): only the week's accepted proposals do.
     const scores = Object.fromEntries(CRITERIA.map((c) => [c, { score: 5, why: "fait vérifié et sourcé" }]));
     for (const id of ["a", "b", "c", "d", "e"]) upsertIdea(db.raw, { id, title: id, problem: "p", scores });
+    expect(currentMode(db.raw)).toBe("discovery");
+    const at = new Date().toISOString();
+    const item = (n: number, status: string) => ({ n, slug: `p${n}`, title: `P${n}`, status, deliveredAt: at, createdAt: at, updatedAt: at });
+    setKV(db.raw, "money_lab.proposals", JSON.stringify({ seq: 3, items: [item(1, "pending"), item(2, "pending"), item(3, "rejected")] }));
     expect(currentMode(db.raw)).toBe("observe");
     expect(maxSleepSeconds(db.raw, "observe")).toBe(24 * 3600);
     upsertExp(db.raw, { id: "x", hypothesis: "h", status: "building" } as any);
@@ -718,6 +730,9 @@ describe("Work modes", () => {
     // A build nobody touched for over a week is not a build any more.
     db.raw.prepare("UPDATE money_lab_experiments SET updated_at = '2026-09-01 00:00:00' WHERE id = 'x'").run();
     expect(currentMode(db.raw)).toBe("observe");
+    // A proposal the owner chose is a build.
+    setKV(db.raw, "money_lab.proposals", JSON.stringify({ seq: 3, items: [item(1, "chosen"), item(2, "pending"), item(3, "pending")] }));
+    expect(currentMode(db.raw)).toBe("build");
     db.close();
   });
 

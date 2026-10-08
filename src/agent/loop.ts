@@ -69,6 +69,7 @@ import { isIdleOnlyTool } from "./idle-only-tools.js";
 import { automaticTopupsAllowed, hasInferenceLimits, moneyLabDeniedTools } from "../money-lab/profile.js";
 import { seedAnthropicModels, survivalBalance } from "../money-lab/selfhosted.js";
 import { createMoneyLabTools } from "../money-lab/tools.js";
+import { hiddenTools } from "../money-lab/proposals.js";
 import { paidCallBlockReason } from "../money-lab/guard.js";
 import { recordHealthEvent } from "../money-lab/health.js";
 import { REVIEW_INSTRUCTIONS, REVIEW_MODEL, REVIEW_MODEL_TURNS, ensureReviewClock, isReviewDue, markReviewed } from "../money-lab/review.js";
@@ -85,13 +86,16 @@ const MONEY_LAB_IDLE_SLEEP_MS = 15 * 60_000;
 const MONEY_LAB_IDLE_SLEEP_SLOW_MS = 60 * 60_000;
 /** Paid-turn estimate used for the mode caps before the router's own check (about one Sonnet turn). */
 const MONEY_LAB_TURN_ESTIMATE_CENTS = 8;
-const MONEY_LAB_WINDOW = 20;
-const MONEY_LAB_WINDOW_STEP = 10;
+// Measured 2026-10-08: about 75k tokens read per turn, most of it history.
+// A shorter window (12-17 turns) halves it; the state that matters (week,
+// proposals, memory) is in the rules block, not in old turns.
+const MONEY_LAB_WINDOW = 12;
+const MONEY_LAB_WINDOW_STEP = 6;
 const MONEY_LAB_STORED_RESULT_CHARS = 20_000;
 /**
  * Money Lab history: the window grows by one turn per turn and drops its
- * oldest 10 turns every 10 turns, so the history is a stable, cacheable
- * prefix 9 turns out of 10. Tool results stay whole for the newest turns;
+ * oldest MONEY_LAB_WINDOW_STEP turns every MONEY_LAB_WINDOW_STEP turns, so
+ * the history is a stable, cacheable prefix most of the time. Tool results stay whole for the newest turns;
  * the older part of the window is shortened, and that boundary moves with
  * the window (once every MONEY_LAB_WINDOW_STEP turns), never in between.
  */
@@ -105,7 +109,7 @@ export function moneyLabHistoryWindow(recent: AgentTurn[], turnCount: number): {
 }
 
 /** Newest turns of a fresh window whose tool results stay whole; older results keep their start and end. */
-const MONEY_LAB_FULL_RESULT_TURNS = 4;
+const MONEY_LAB_FULL_RESULT_TURNS = 3;
 const MONEY_LAB_OLD_RESULT_CHARS = 1200;
 /** Tool names the Anthropic API accepts. */
 const VALID_TOOL_NAME = /^[a-zA-Z0-9_-]{1,64}$/;
@@ -159,8 +163,22 @@ export async function runAgentLoop(
   // Money Lab: every tool (including runtime-installed ones and the journal
   // tools) except replication and owner-denied tools.
   const deniedTools = moneyLab ? moneyLabDeniedTools(moneyLab) : undefined;
+  // Owner meeting (2026-10-08): the bot sees only the tools of what it is
+  // doing. Building and publishing tools appear once the owner chose a
+  // proposal, marketing tools once a test is live; agent-economy tools that
+  // have no use here are never shown (a hidden tool cannot be called).
+  const hiddenForPhase = moneyLab ? hiddenTools(db.raw) : new Set<string>();
+  if (moneyLab) {
+    // The API refuses a history holding a call to a tool the request does not
+    // declare: a tool still used in the history window stays declared until
+    // that turn leaves the window (the window only drops turns during a run).
+    for (const turn of db.getRecentTurns(MONEY_LAB_WINDOW + MONEY_LAB_WINDOW_STEP - 1)) {
+      for (const call of turn.toolCalls ?? []) hiddenForPhase.delete(call.name);
+    }
+  }
   const tools = moneyLab
-    ? usableToolList([...builtinTools, ...createMoneyLabTools(), ...loadInstalledTools(db)].filter((t) => !deniedTools!.has(t.name)))
+    ? usableToolList([...builtinTools, ...createMoneyLabTools(), ...loadInstalledTools(db)]
+      .filter((t) => !deniedTools!.has(t.name) && !hiddenForPhase.has(t.name)))
     : [...builtinTools, ...loadInstalledTools(db)];
   const toolContext: ToolContext = {
     identity,

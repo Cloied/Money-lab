@@ -71,7 +71,8 @@ import { gatherDocuments, htmlToText } from "../../money-lab/delegate.js";
 import { isOperatorWake } from "../../money-lab/cycle.js";
 import { auditPage, summarizeLighthouse } from "../../money-lab/audit.js";
 import { abVerdict } from "../../money-lab/abtest.js";
-import { CRITERIA, decideIdea, getIdea, listIdeas, upsertIdea } from "../../money-lab/ideas.js";
+import { CRITERIA, decideIdea, describePipeline, getIdea, listIdeas, upsertIdea } from "../../money-lab/ideas.js";
+import { decideIdeaWithOpus } from "../../money-lab/decisions.js";
 import { parseVerdict } from "../../money-lab/critic.js";
 import { checkDomains } from "../../money-lab/domain.js";
 import { challengeIdea } from "../../money-lab/critic.js";
@@ -231,9 +232,15 @@ describe("Self-hosted environment", () => {
     expect(pendingOwnerNotifications(db.raw).map((n) => n.text)).toContain("🤖 Premier client !");
 
     const prompt = buildMoneyLabPromptBlock(db.raw, config.moneyLab!);
-    expect(prompt).toContain("no expose_port");
-    expect(prompt).toContain("request_help to open that port");
+    expect(prompt).toContain("unprivileged user");
     expect(prompt).not.toContain("new sandboxes");
+    // Server and port instructions come with building (a proposal the owner chose).
+    const at = new Date().toISOString();
+    setJournalKV(db.raw, "money_lab.proposals", JSON.stringify({ seq: 1, items: [{ n: 1, slug: "p1", title: "P1", status: "chosen", deliveredAt: at, createdAt: at, updatedAt: at }] }));
+    const building = buildMoneyLabPromptBlock(db.raw, config.moneyLab!);
+    expect(building).toContain("no expose_port");
+    expect(building).toContain("request_help to open that port");
+    expect(building).not.toContain("new sandboxes");
     db.close();
   });
 });
@@ -430,7 +437,14 @@ describe("Telegram owner channel", () => {
     const { channel, sent } = telegram(db, [msg(20, 42, "/sante")]);
     await channel.tick(new Date("2026-10-04T08:00:00Z"));
     await channel.tick(new Date("2026-10-04T09:00:00Z"));
-    expect(sent.filter((t) => t.includes("Rapport de santé"))).toHaveLength(2); // /sante + the daily report
+    // 2026-10-08: the long report only on /sante; one short evening report a day.
+    expect(sent.filter((t) => t.includes("Rapport de santé"))).toHaveLength(1);
+    expect(sent.filter((t) => t.includes("Compte rendu du jour"))).toHaveLength(0);
+    await channel.tick(new Date("2026-10-04T19:05:00Z"));
+    await channel.tick(new Date("2026-10-04T20:00:00Z"));
+    const evening = sent.filter((t) => t.includes("Compte rendu du jour"));
+    expect(evening).toHaveLength(1);
+    expect(evening[0]).toMatch(/Fait : [\s\S]*Appris : [\s\S]*Demain : [\s\S]*Semaine : 0\/3 propositions[\s\S]*En attente de toi : rien[\s\S]*Argent : /);
     expect(sent.filter((t) => t.includes("RÉSUMÉ QUOTIDIEN"))).toHaveLength(0);
 
     const failing = new TelegramChannel("SECRET_TOKEN", 42, db, vpsConfig(), (async () =>
@@ -823,11 +837,14 @@ describe("Autonomy capabilities", () => {
       // Too few ideas to choose from: no long sleep, discovery first.
       const fingerprint = journalFingerprint(db.raw);
       const early = await executeTool("sleep", { duration_seconds: 604800, reason: "attente indexation" }, tools, toolCtx(db), engine, turnCtx(db));
-      expect(early.result).toMatch(/Entering sleep mode for 10800s \(capped at 3 h: your idea pipeline has 0 of 5 scored ideas/);
+      expect(early.result).toMatch(/Entering sleep mode for 10800s \(capped at 3 h: this week's proposals are not all accepted yet/);
       const scores = Object.fromEntries(CRITERIA.map((c) => [c, { score: 5, why: "fait vérifié et sourcé" }]));
       for (const id of ["a", "b", "c", "d", "e"]) upsertIdea(db.raw, { id, title: id, problem: "p", scores });
       expect(journalFingerprint(db.raw)).not.toBe(fingerprint);
-      // Pipeline scored, nothing being built: observation, a day at most.
+      // The week's three proposals accepted, nothing being built: observation, a day at most.
+      const at = new Date().toISOString();
+      const item = (n: number) => ({ n, slug: `p${n}`, title: `P${n}`, status: "pending", deliveredAt: at, createdAt: at, updatedAt: at });
+      db.setKV("money_lab.proposals", JSON.stringify({ seq: 3, items: [item(1), item(2), item(3)] }));
       const s = await executeTool("sleep", { duration_seconds: 604800, reason: "attente" }, tools, toolCtx(db), engine, turnCtx(db));
       expect(s.result).toMatch(/capped at 24 h: mode observe/);
       expect(new Date(db.getKV("sleep_until")!).getTime() - Date.now()).toBeLessThanOrEqual(24 * 3600 * 1000);
@@ -1254,7 +1271,14 @@ describe("Idea pipeline", () => {
     const tools = createMoneyLabTools();
     const engine = new PolicyEngine(db.raw, createDefaultRules());
     const turn = { inputSource: "agent" as const, turnToolCallCount: 0, sessionSpend: new SpendTracker(db.raw) };
-    const call = (name: string, args: Record<string, unknown>) => executeTool(name, args, tools, ctx, engine, turn).then((r) => r.result || r.error || "");
+    const tool = (name: string, args: Record<string, unknown>) => executeTool(name, args, tools, ctx, engine, turn).then((r) => r.result || r.error || "");
+    // Since 2026-10-08 the self-hosted bot proposes and the owner chooses (the
+    // idea tool redirects approvals); the gates and the Opus decision are unchanged.
+    const call = (name: string, args: Record<string, unknown>) => name === "idea" && args.action === "decide" && args.decision === "approve"
+      ? decideIdeaWithOpus(db.raw, String(args.id), String(args.note ?? ""), {
+        router: ctx.inferenceRouter!, chat: (msgs, opts) => ctx.inference.chat(msgs, opts), sessionId: "s", lab: ctx.config.moneyLab,
+      }).then((r) => r.text)
+      : tool(name, args);
     const scores = (n: number) => Object.fromEntries(CRITERIA.map((c) => [c, { score: n, why: `fait vérifié pour ${c}` }]));
     const full = (id: string, n: number) => call("idea", {
       action: "update", id, title: `Idée ${id}`, problem: "Un vrai problème", audience: "plombiers", solution: "outil",
@@ -1262,7 +1286,7 @@ describe("Idea pipeline", () => {
       evidence: ["forum A 2026-10", "recherche B", "fil C"], competitors: ["X (gratuit, daté)", "Y (29 €/mois)"],
       kill_criteria: "moins de 50 visites/semaine après 4 semaines", scores: scores(n),
     });
-    return { db, call, full, routed, setVerdict: (v: string) => { verdict = v; }, setDecision: (d: string) => { decision = d; } };
+    return { db, call, tool, full, routed, setVerdict: (v: string) => { verdict = v; }, setDecision: (d: string) => { decision = d; } };
   }
 
   afterEach(() => vi.useRealTimers());
@@ -1270,7 +1294,8 @@ describe("Idea pipeline", () => {
   it("lets an idea be approved only after comparison, critique, answer and a day of reflection", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-10-06T08:00:00Z"));
-    const { db, call, full, routed, setVerdict } = setup();
+    const { db, call, tool, full, routed, setVerdict } = setup();
+    expect(await tool("idea", { action: "decide", id: "x", decision: "approve", note: "x" })).toMatch(/Approvals now go through proposals/);
     expect(await call("idea", { action: "update", id: "x", title: "t", problem: "p", scores: { demand: { score: 11, why: "beaucoup trop haut" } } }))
       .toMatch(/integer 0-10/);
     expect(await call("idea", { action: "update", id: "y", title: "t", problem: "p", scores: { demand: { score: 8, why: "court" } } }))
@@ -1305,8 +1330,9 @@ describe("Idea pipeline", () => {
       .toMatch(/approved \(80\/100\)/);
     expect(getIdea(db.raw, "devis-plombiers")!.critiques.map((c) => c.verdict)).toEqual(["NO-GO", "GO"]);
     expect(await call("idea", { action: "list" })).toMatch(/^devis-plombiers — Idée devis-plombiers: 80\/100 \[approved\], critic GO/);
-    const prompt = buildMoneyLabPromptBlock(db.raw, vpsConfig().moneyLab!);
-    expect(prompt).toContain("Idea pipeline: 4 candidates, 1 approved");
+    expect(describePipeline(db.raw)).toContain("4 candidates, 1 approved");
+    // The prompt now carries the week's proposals, not the old pipeline line.
+    expect(buildMoneyLabPromptBlock(db.raw, vpsConfig().moneyLab!)).toMatch(/THIS WEEK: 0\/3 accepted proposals/);
     db.close();
   });
 
