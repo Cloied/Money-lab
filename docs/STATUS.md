@@ -1,6 +1,9 @@
 # Working status
 - Updated: 2026-10-08
 - Branch / commit: claude/money-lab-first-run-bezu7x (packs 5a and 5b on main a8b75bc, Likma adoption merged), on upstream Automaton d8f816881fd24b6f5e3d616e59edec387a447667 (0.2.1)
+- Likma 0.13.0 (2026-10-08): `project upgrade` refreshed the AGENTS.md Likma block (skill index with the rewritten
+  routing descriptions) and docs/LIKMA.md; documentation only, no source or check changed; `project audit` passes
+  with 0 failures and 0 warnings; feature evidence unaffected.
 - Security hardening (2026-10-08, Likma 0.12.0): removed the unused direct dependency simple-git (critical
   advisories fixed only in 4.x; nothing in the repository imports it); new `deps` check (`pnpm audit --prod
   --audit-level critical`: 0 critical, 9 high and 17 moderate remain, all transitive via lighthouse/puppeteer and
