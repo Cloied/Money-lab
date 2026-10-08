@@ -161,7 +161,11 @@ function servicesLine(): string {
   parts.push("france_data address geocodes French places (no account)");
   if (services.includes("uptimerobot")) parts.push("monitor_site add also creates an external 5-minute check (UptimeRobot)");
   if (services.includes("email")) parts.push("email_owner sends the owner long reports (3 a day)");
-  if (cloudflarePagesConfigured()) parts.push("deploy_site publishes a finished site to Cloudflare Pages (<name>.pages.dev)");
+  if (cloudflarePagesConfigured()) {
+    parts.push("deploy_site publishes a finished site to Cloudflare Pages (<name>.pages.dev)");
+    parts.push("deploy_worker gives a product a small free server (Cloudflare Worker with KV or D1: forms, counters, waitlists, APIs reachable from the internet, no port to open)");
+    parts.push("web_analytics reads Cloudflare Web Analytics for your sites");
+  }
   const channels = kitChannelsConfigured();
   if (channels.length) parts.push(`publish_kit for ${channels.map((c) => (c === "devto" ? "dev.to" : "Mastodon")).join(" or ")} is posted by the runtime once the owner answers /publie (nothing to paste)`);
   return `Owner accounts, free: ${parts.join("; ")}. Each has a daily cap under its free quota; the keys stay in the runtime.`;

@@ -33,6 +33,43 @@ with the publishing commands, and a git repository. Then:
 3. Put the tool's logic in a small `app.js`: plain JavaScript, no framework for a static page,
    processing in the browser when the data is personal (nothing leaves the visitor's machine).
 
+## 2b. When a page needs a server: a Worker (free)
+A static page cannot save a form, count votes, keep a waitlist or answer an API call. When the
+owner configured Cloudflare, `deploy_worker` publishes a small JavaScript server for free
+(100,000 requests a day) at `https://<name>.<account>.workers.dev`, with `kv: true` (key-value
+store, `env.KV`) or `d1: true` (SQLite, `env.DB`, `schema: "schema.sql"`). Nothing to open on
+your VPS: the Pages site calls the Worker URL.
+- Write `~/workers/<name>/worker.js` in module syntax:
+  ```js
+  export default {
+    async fetch(request, env) {
+      const url = new URL(request.url);
+      const cors = { "access-control-allow-origin": "https://<your-site>.pages.dev",
+        "access-control-allow-methods": "GET,POST,OPTIONS", "access-control-allow-headers": "content-type" };
+      if (request.method === "OPTIONS") return new Response(null, { headers: cors });
+      if (url.pathname === "/count" && request.method === "POST") {
+        const n = Number(await env.KV.get("count")) + 1;
+        await env.KV.put("count", String(n));
+        return Response.json({ count: n }, { headers: cors });
+      }
+      if (url.pathname === "/waitlist" && request.method === "POST") {
+        const { email } = await request.json().catch(() => ({}));
+        if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(email))) return Response.json({ error: "email" }, { status: 400, headers: cors });
+        await env.KV.put(`wait:${email.toLowerCase()}`, new Date().toISOString());
+        return Response.json({ ok: true }, { headers: cors });
+      }
+      return new Response("ok", { headers: cors });
+    },
+  };
+  ```
+- Rules: validate every input, cap sizes (`request.headers.get("content-length")`), rate-limit by
+  IP with KV when a route writes, never store more than the product needs (privacy: an e-mail is
+  personal data, say what you do with it on the page), no model calls, no secrets (the runtime
+  refuses them). Test with `curl -X POST <url>/count` after deploying, then `test_site` on the page.
+- Reading the data back: `curl <url>/export` guarded by a token you generate? No: the Worker has no
+  secrets. Instead write an admin route that only lists aggregates (counts), and keep raw data
+  reads for `wrangler kv key list` through `deploy_worker list` plus the owner's dashboard.
+
 ## 3. Build well
 - Deterministic code first: a calculator, a converter or a generator does not need an LLM.
 - Validate inputs, show clear states (loading, success, error with what to do), keep the keyboard
@@ -54,7 +91,8 @@ with the publishing commands, and a git repository. Then:
 - `design_review` once per page before it goes live. Then publish: GitHub Pages (README commands or
   `scaffold_site publish`) or `deploy_site name` to Cloudflare Pages (`<name>.pages.dev`, when the
   owner configured it; one host per site, redeploy the same name to update). Run `test_site` on the
-  live URL, add it to `monitor_site`, tell Bing with `bing_webmaster submit` when configured.
+  live URL, add it to `monitor_site`, tell Bing with `bing_webmaster submit` when configured, and
+  read visits later with `web_analytics` (Cloudflare) or GoatCounter.
 
 ## Catalogue: proven libraries to start from (check the licence page once)
 All run in the browser unless noted; licences as of 2026, verify before copying.

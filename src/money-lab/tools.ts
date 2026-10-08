@@ -52,6 +52,8 @@ import {
   tavilySearch, uptimeRobotCreate, uptimeRobotStatus,
 } from "./services.js";
 import { cloudflarePagesConfigured, deploySite } from "./deploy.js";
+import { deployWorker, describeWorkers } from "./workers.js";
+import { cfAnalyticsConfigured, webAnalytics } from "./cfanalytics.js";
 
 /** Marker the Anthropic client turns into an image block (recent results only). */
 export const SCREENSHOT_MARKER = /\[\[image:([^\]\s]+\.(?:png|jpe?g))\]\]/g;
@@ -928,6 +930,30 @@ export function createMoneyLabTools(): AutomatonTool[] {
       },
     },
     {
+      name: "web_analytics",
+      description:
+        "Read Cloudflare Web Analytics (owner's account) for a site that carries its beacon (scaffold_site places it): " +
+        "page views and visits over the last days, by page, referrer, country and device, plus the daily curve. A second " +
+        "measurement next to GoatCounter; kit visits show as referrers.",
+      category: "survival",
+      riskLevel: "safe",
+      parameters: {
+        type: "object",
+        properties: {
+          host: { type: "string", description: "Site hostname, e.g. devis.pages.dev (default: the first site)" },
+          days: { type: "integer", description: "1-90, default 28" },
+        },
+      },
+      execute: async (args) => {
+        if (!cfAnalyticsConfigured()) return "Cloudflare Web Analytics is not readable (token or account id missing): read GoatCounter, or ask the owner.";
+        try {
+          return await webAnalytics({ host: args.host ? String(args.host) : undefined, days: Number(args.days) || undefined });
+        } catch (err: any) {
+          return `Web Analytics error: ${String(err?.message ?? err).slice(0, 300)}`;
+        }
+      },
+    },
+    {
       name: "delegate",
       description:
         "Hand a simple task to a cheaper model: summarize long pages, extract or sort data, compare documents, " +
@@ -1215,6 +1241,47 @@ export function createMoneyLabTools(): AutomatonTool[] {
       },
     },
     {
+      name: "deploy_worker",
+      description:
+        "Give a product a small free server: deploy ~/workers/<name>/worker.js as a Cloudflare Worker " +
+        "(https://<name>.<account>.workers.dev, 100,000 requests a day) with the owner's token. kv: true adds a key-value " +
+        "store (env.KV: get, put, list, delete); d1: true adds a SQLite database (env.DB: prepare(sql).bind().all()/run()), " +
+        "schema applies a .sql file in the folder to it. Use it for forms, counters, waitlists, small APIs, webhooks your " +
+        "Pages site calls (set CORS). The runtime writes wrangler.toml, refuses code that calls model APIs or Telegram " +
+        "(a Worker serves visitors, it is never a copy of you) and sets no secrets. Redeploy the same name to update. " +
+        "Actions: deploy, list.",
+      category: "vm",
+      riskLevel: "caution",
+      parameters: {
+        type: "object",
+        properties: {
+          action: { type: "string", enum: ["deploy", "list"] },
+          name: { type: "string", description: "Worker name, lowercase letters, digits and dashes" },
+          dir: { type: "string", description: "Default ~/workers/<name>" },
+          kv: { type: "boolean" },
+          d1: { type: "boolean" },
+          schema: { type: "string", description: "e.g. schema.sql (inside the folder), applied to D1 before deploying" },
+        },
+        required: ["action"],
+      },
+      execute: async (args, ctx) => {
+        if (args.action !== "deploy") return describeWorkers(ctx.db.raw);
+        if (ctx.identity.sandboxId) return "deploy_worker is only available on a self-hosted server.";
+        if (!cloudflarePagesConfigured()) return "Cloudflare is not configured: ask the owner with request_help (guide, Cloudflare).";
+        const today = new Date().toISOString().slice(0, 10);
+        const key = `money_lab.deploys.${today}`;
+        const count = Number(ctx.db.getKV(key) ?? "0");
+        if (count >= 10) return "At most 10 deployments a day (Pages and Workers together): test locally first.";
+        ctx.db.setKV(key, String(count + 1));
+        const result = await deployWorker({
+          name: String(args.name ?? ""), dir: args.dir ? String(args.dir) : undefined, kv: args.kv === true, d1: args.d1 === true,
+          schema: args.schema ? String(args.schema) : undefined,
+        }, { home: process.env.HOME || "/root", db: ctx.db.raw });
+        if (/^Deployed Worker/.test(result)) queueOwnerNotification(ctx.db.raw, `🚀 Worker déployé sur Cloudflare : ${result.split("\n")[1] ?? ""}`);
+        return result;
+      },
+    },
+    {
       name: "code_review",
       description:
         "Have your code reviewed before you ship it: the free models (then Haiku if none answers) read the files and list " +
@@ -1321,7 +1388,7 @@ export function createMoneyLabTools(): AutomatonTool[] {
               windowDays: args.window_days as number | undefined, minImpressions: args.min_impressions as number | undefined,
             });
           case "check": {
-            const report = await checkProbes(ctx.db.raw);
+            const report = await checkProbes(ctx.db.raw, { db: ctx.db.raw });
             return report.length ? report.join("\n") : "No live probe.";
           }
           case "stop": return stopProbe(ctx.db.raw, String(args.id ?? ""), String(args.note ?? ""));

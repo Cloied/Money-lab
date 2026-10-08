@@ -301,13 +301,26 @@ Ne colle jamais une clé dans un chat.
 8. **UptimeRobot** — une surveillance externe de ses sites toutes les 5 minutes, en plus de la sienne
    (50 moniteurs gratuits). https://uptimerobot.com → compte → *Integrations & API → Main API key → Create*.
    Variable `UPTIMEROBOT_API_KEY`.
-9. **Cloudflare Pages** — un second hébergement gratuit (`<nom>.pages.dev`, bande passante illimitée,
-   500 déploiements par mois), déployé par le programme avec l'outil `deploy_site`. Sur
-   https://dash.cloudflare.com (le compte des IA gratuites convient) : *Profil → API Tokens → Create Token →
-   Custom token* : permission *Account → Cloudflare Pages → Edit*, uniquement ton compte → *Create*. Variable
-   `CLOUDFLARE_PAGES_TOKEN` (`CLOUDFLARE_ACCOUNT_ID` est déjà renseigné pour Workers AI). Sur le serveur, en
-   root, installe l'outil une fois : `npm install -g wrangler` (sinon le programme le télécharge à chaque
-   déploiement).
+9. **Cloudflare Pages et Workers** — un second hébergement gratuit (`<nom>.pages.dev`, bande passante
+   illimitée, 500 déploiements par mois) avec l'outil `deploy_site`, et des petits serveurs gratuits
+   (`<nom>.<compte>.workers.dev`, 100 000 requêtes par jour, stockage KV ou base D1) avec l'outil
+   `deploy_worker` : formulaires, compteurs, listes d'attente, petites API joignables depuis internet sans
+   rien ouvrir sur ton serveur. Le programme lit aussi les statistiques Web Analytics (`web_analytics`).
+   Sur https://dash.cloudflare.com (le compte des IA gratuites convient) : *Profil → API Tokens → Create
+   Token → Custom token*, nom « Money Lab Cloudflare », permissions (toutes sur *Account*, uniquement ton
+   compte) :
+   - *Cloudflare Pages → Edit*
+   - *Workers Scripts → Edit*
+   - *Workers KV Storage → Edit*
+   - *D1 → Edit*
+   - *Account Analytics → Read*
+   - *Account Settings → Read*
+
+   Si tu as déjà créé un jeton « Pages » seul, ouvre-le dans la liste (*Edit*) et ajoute les cinq autres
+   lignes : la valeur du jeton ne change pas. Variable `CLOUDFLARE_PAGES_TOKEN` (`CLOUDFLARE_ACCOUNT_ID`
+   est déjà renseigné pour Workers AI). Sur le serveur, en root, installe l'outil une fois :
+   `npm install -g wrangler`. Les Workers du bot ne peuvent pas appeler d'IA ni Telegram et n'ont aucune
+   clé : ce sont des pages de service, pas des copies du bot.
 
 Sans compte : `france_data address` (adresses et communes, API Adresse de l'État) marche d'office.
 Dans `/sante`, la ligne « Services gratuits (tes comptes) » montre ce qui est actif et combien d'appels

@@ -125,6 +125,10 @@
 - First live report after the cache fix (07:39 Paris) still read 85k tokens per turn, but that average
   counted cached tokens and turns before the update. /sante now shows the last 10 turns: tokens read,
   cost per turn and cache use.
+- PR 6 done (Workers): deploy_worker publishes small free servers (Cloudflare Workers with KV or D1,
+  code rules, no secrets, storage ids remembered), probes count Bing impressions next to Google when
+  Bing Webmaster is configured, web_analytics reads Cloudflare Web Analytics. Owner's Cloudflare token
+  needs the six permissions listed in the guide. Not yet used live.
 - Repository moved to the owner's organization moneylab-djib (2026-10-07); old URLs redirect.
 - PR 5b done (same branch and PR as 5a, rebuilt on main a8b75bc after the Likma adoption merge): free
   services with owner accounts, each env-keyed and capped per day (Tavily free_search, Bing Webmaster,

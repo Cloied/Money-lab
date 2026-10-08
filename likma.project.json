@@ -383,6 +383,18 @@
       "path": "src/money-lab/deploy.ts",
       "purpose": "deploy_site drives wrangler with the Pages token to publish ~/sites/<name>",
       "edit_when": "The deployment flow, token scope or wrangler lookup changes"
+    },
+    {
+      "area": "Cloudflare Workers deployment",
+      "path": "src/money-lab/workers.ts",
+      "purpose": "deploy_worker: code rules, wrangler.toml with KV or D1 bindings, storage created once, deploy and URL check",
+      "edit_when": "The Worker flow, bindings, forbidden patterns or wrangler commands change"
+    },
+    {
+      "area": "Cloudflare Web Analytics",
+      "path": "src/money-lab/cfanalytics.ts",
+      "purpose": "web_analytics: site lookup and GraphQL page-view groups for the bot's sites",
+      "edit_when": "The analytics query, dimensions or token scope change"
     }
   ],
   "bot_guards": {
