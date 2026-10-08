@@ -427,6 +427,22 @@ async function readyProviders(db: Database.Database, env: NodeJS.ProcessEnv, fet
   return { ready, resting };
 }
 
+/**
+ * Configured free providers that can answer right now: key present, daily
+ * quota not used up, not resting after an error. No network call: the
+ * local Ollama counts when its last probe found models.
+ */
+export function availableFreeProviders(db: Database.Database, env: NodeJS.ProcessEnv = withSecrets(), now = new Date()): string[] {
+  const state = loadState(db);
+  const day = now.toISOString().slice(0, 10);
+  return configuredFreeProviders(env).filter((id) => {
+    const spec = PROVIDERS.find((p) => p.id === id);
+    const used = state.usage[day]?.[id as FreeProviderId]?.calls ?? 0;
+    if (spec && used >= spec.dailyRequests) return false;
+    return (state.providers[id as FreeProviderId]?.cooldownUntil ?? 0) <= now.getTime();
+  });
+}
+
 /** Names of the configured free providers, for the prompt and /statut (no network for online ones). */
 export function configuredFreeProviders(env: NodeJS.ProcessEnv = withSecrets()): string[] {
   const names = PROVIDERS

@@ -260,8 +260,14 @@ puisse faire avec, c'est modifier ses propres dépôts ou lire ses propres stati
    185.199.108.153 à 185.199.111.153, et `www` en CNAME vers son organisation GitHub). Réponds `/ok <id>`
    à sa demande : il termine la configuration lui-même.
 
-La recherche web (outils Anthropic) est active d'office : environ 1 centime par recherche, compté dans
-son budget.
+La recherche web payante d'Anthropic (environ 1 centime par recherche, plus les pages lues au prix du bot) est
+active tant qu'il n'a rien de gratuit à la place. Dès que `TAVILY_API_KEY` est renseignée, la recherche
+payante est coupée (il cherche avec `free_search`) ; dès qu'une IA gratuite est configurée, la lecture
+payante de pages est coupée aussi (il lit avec `harvest` et `delegate`, gratuits). La règle est vérifiée à
+chaque requête : si Tavily a épuisé son quota du jour ou refuse la clé, ou si toutes les IA gratuites sont au
+repos, l'outil payant revient le temps que le gratuit soit de nouveau disponible. Le journal l'indique au
+démarrage (« Outils web payants : web_search coupé, web_fetch coupé »). Pour forcer :
+`MONEY_LAB_WEB_TOOLS=anthropic` dans `/etc/money-lab.env` ; pour tout couper : `MONEY_LAB_WEB_TOOLS=off`.
 
 ## Comptes gratuits qui augmentent le bot (facultatifs, un par un)
 

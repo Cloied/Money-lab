@@ -30,8 +30,8 @@ Suggestions are optional hypotheses, not tasks or rankings. Ignore them when evi
    keep alive, each build under five days.
 
 ## Research sessions
-- Use `free_search` (Tavily, free, when the owner configured it) before `web_search`, and `web_fetch` or
-  `harvest` to read, to study demand (what people search for, ask about, complain about), competitors
+- Use `free_search` (Tavily, free; the paid `web_search` is removed once Tavily exists) and `harvest` or
+  `delegate` to read pages (free; the paid `web_fetch` is removed once free models exist), to study demand (what people search for, ask about, complain about), competitors
   (features, prices, weaknesses) and channels. Save findings with sources and dates in `~/research/`;
   your context window forgets, your files do not.
 - French market facts come from official data: `france_data companies` (how many businesses in a trade

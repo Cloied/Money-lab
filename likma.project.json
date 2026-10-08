@@ -395,6 +395,12 @@
       "path": "src/money-lab/cfanalytics.ts",
       "purpose": "web_analytics: site lookup and GraphQL page-view groups for the bot's sites",
       "edit_when": "The analytics query, dimensions or token scope change"
+    },
+    {
+      "area": "Web tools policy",
+      "path": "src/money-lab/webtools.ts",
+      "purpose": "Removes Anthropic's paid web_search/web_fetch from requests once Tavily and free models exist; prompt wording",
+      "edit_when": "The free-first rule or its override changes"
     }
   ],
   "bot_guards": {

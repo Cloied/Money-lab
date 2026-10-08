@@ -125,6 +125,9 @@
 - First live report after the cache fix (07:39 Paris) still read 85k tokens per turn, but that average
   counted cached tokens and turns before the update. /sante now shows the last 10 turns: tokens read,
   cost per turn and cache use.
+- Free-first web tools (2026-10-08): first live /sante after the update showed paid web_search still used
+  and no free call; the paid web_search and web_fetch are now removed from requests when Tavily and
+  free models are configured (override MONEY_LAB_WEB_TOOLS). Observe-mode cap reached again at 00:17 UTC.
 - PR 6 done (Workers): deploy_worker publishes small free servers (Cloudflare Workers with KV or D1,
   code rules, no secrets, storage ids remembered), probes count Bing impressions next to Google when
   Bing Webmaster is configured, web_analytics reads Cloudflare Web Analytics. Owner's Cloudflare token
