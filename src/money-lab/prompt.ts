@@ -25,6 +25,7 @@ import { describeProbes } from "./probes.js";
 import { describeKitsForPrompt, kitChannelsConfigured } from "./kits.js";
 import { configuredServices } from "./services.js";
 import { cloudflarePagesConfigured } from "./deploy.js";
+import { describeWebTools, webToolsPolicy } from "./webtools.js";
 import { currentShortlist, pendingFinalists } from "./decisions.js";
 
 export const MONEY_LAB_GENESIS_PROMPT = `You operate Money Lab, a small economic experiment built on Automaton.
@@ -94,7 +95,7 @@ function cents(value: number | null): string {
 }
 
 /** What the owner has granted on this server (credentials are never shown). */
-function capabilityLines(): string {
+function capabilityLines(db: Database.Database): string {
   const cap = selfHostedCapabilities();
   return [
     cap.githubOrg
@@ -144,8 +145,7 @@ function capabilityLines(): string {
         : "Social: no account yet; ask the owner for a Bluesky account (request_help) once you have something worth sharing. ") +
         "Make visuals with render_image (link previews, square posts, banners).";
     })(),
-    "Research: the web_search and web_fetch tools search the web and read pages (about 1 cent per search plus " +
-      "the tokens read). Keep durable notes in ~/research/ (sources with dates): your context window forgets.",
+    describeWebTools(webToolsPolicy({ db })),
     servicesLine(),
   ].join(" ") + " ";
 }
@@ -207,7 +207,7 @@ export function buildMoneyLabPromptBlock(db: Database.Database, lab: MoneyLabCon
         " Below zero you die. Only confirmed revenue extends your life."
       : "",
     lab.runtime === "self-hosted"
-      ? capabilityLines() + revenueLine(lab) +
+      ? capabilityLines(db) + revenueLine(lab) +
         "Environment: your own Linux server (VPS), unprivileged user (no root, no sudo). Build and run software here. " +
         "Nothing you run is reachable from the internet until the owner opens it: there is no proxy and no expose_port. " +
         "Static sites go on GitHub Pages when you have publishing credentials. For a service that needs a " +
@@ -239,7 +239,7 @@ export function buildMoneyLabPromptBlock(db: Database.Database, lab: MoneyLabCon
       ? (() => {
         const free = configuredFreeProviders();
         const home = process.env.HOME || "/root";
-        return "Every page or file you read yourself (web_fetch, cat, read_file) is paid at your price and stays in " +
+        return "Every page or file you read yourself (web_fetch when available, curl, cat, read_file) is paid at your price and stays in " +
           "your history: read long material through harvest or delegate (free models first) and keep only their " +
           "answer. Print only the lines you need from files (grep, sed -n, head). " +
           "Models, cheapest first: harvest collects and extracts with free models (" +

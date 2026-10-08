@@ -36,7 +36,8 @@ interface InferenceClientOptions {
   /** Anthropic effort level (output_config.effort); omitted = model default. */
   anthropicEffort?: AnthropicEffort;
   /** Offer Anthropic's server-side web search and web fetch tools. */
-  anthropicWebTools?: boolean;
+  /** Anthropic server tools: true for both, which of web_search and web_fetch to attach, or a function deciding per request. */
+  anthropicWebTools?: boolean | { search: boolean; fetch: boolean } | (() => boolean | { search: boolean; fetch: boolean });
 }
 
 type AnthropicEffort = "low" | "medium" | "high" | "xhigh" | "max";
@@ -117,7 +118,7 @@ export function createInferenceClient(
         temperature: opts?.temperature,
         anthropicApiKey: anthropicApiKey as string,
         effort: options.anthropicEffort,
-        webTools: options.anthropicWebTools,
+        webTools: typeof options.anthropicWebTools === "function" ? options.anthropicWebTools() : options.anthropicWebTools,
         signal: (opts as { signal?: AbortSignal } | undefined)?.signal,
       });
     }
@@ -345,7 +346,7 @@ async function chatViaAnthropic(params: {
   temperature?: number;
   anthropicApiKey: string;
   effort?: AnthropicEffort;
-  webTools?: boolean;
+  webTools?: boolean | { search: boolean; fetch: boolean };
   signal?: AbortSignal;
 }): Promise<InferenceResponse> {
   const transformed = transformMessagesForAnthropic(params.messages);
@@ -379,10 +380,11 @@ async function chatViaAnthropic(params: {
   // Server tools first, so the cache breakpoint on the last client tool
   // covers the whole (stable) tool list.
   // Only agent turns (which carry client tools) get them, not summaries.
-  const serverTools = params.webTools && (params.tools?.length ?? 0) > 0 && ANTHROPIC_WEB_TOOL_MODELS.has(params.model)
+  const wanted = params.webTools === true ? { search: true, fetch: true } : params.webTools || { search: false, fetch: false };
+  const serverTools = (params.tools?.length ?? 0) > 0 && ANTHROPIC_WEB_TOOL_MODELS.has(params.model)
     ? [
-      { type: "web_search_20260209", name: "web_search", max_uses: WEB_SEARCH_MAX_USES },
-      { type: "web_fetch_20260209", name: "web_fetch", max_uses: WEB_FETCH_MAX_USES, max_content_tokens: WEB_FETCH_MAX_TOKENS },
+      ...(wanted.search ? [{ type: "web_search_20260209", name: "web_search", max_uses: WEB_SEARCH_MAX_USES }] : []),
+      ...(wanted.fetch ? [{ type: "web_fetch_20260209", name: "web_fetch", max_uses: WEB_FETCH_MAX_USES, max_content_tokens: WEB_FETCH_MAX_TOKENS }] : []),
     ]
     : [];
   const clientTools = (params.tools ?? []).map((tool, index, all) => ({

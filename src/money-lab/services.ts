@@ -89,6 +89,30 @@ export function takeServiceQuota(db: Database.Database | undefined, name: string
   return null;
 }
 
+const DOWN_KEY = "money_lab.services.down";
+
+/** Remembers that a service refused us (key rejected, rate limited) until the given time. */
+export function markServiceDown(db: Database.Database | undefined, name: string, untilMs: number, why: string): void {
+  if (!db) return;
+  let down: Record<string, { until: number; why: string }> = {};
+  try { down = JSON.parse(getKV(db, DOWN_KEY) ?? "{}"); } catch { /* fresh */ }
+  down[name] = { until: untilMs, why: why.slice(0, 120) };
+  setKV(db, DOWN_KEY, JSON.stringify(down));
+}
+
+/** Can this service answer now: configured, quota left today, not marked down. */
+export function serviceAvailable(db: Database.Database | undefined, name: string, env: NodeJS.ProcessEnv = withSecrets(), now = new Date()): boolean {
+  if (!serviceConfigured(name, env)) return false;
+  if (!db) return true;
+  const usage = loadUsage(db, now);
+  if ((usage.counts[name] ?? 0) >= (SERVICE_DAILY_CAPS[name] ?? 100)) return false;
+  try {
+    const down = JSON.parse(getKV(db, DOWN_KEY) ?? "{}") as Record<string, { until: number }>;
+    if (down[name] && down[name].until > now.getTime()) return false;
+  } catch { /* none */ }
+  return true;
+}
+
 export function servicesUsageToday(db: Database.Database, now = new Date()): string {
   const usage = loadUsage(db, now);
   const parts = Object.entries(usage.counts).map(([name, n]) => `${name} ${n}/${SERVICE_DAILY_CAPS[name] ?? "?"}`);
@@ -137,11 +161,21 @@ export async function tavilySearch(args: TavilyArgs, options: ServiceOptions = {
   };
   if (args.includeDomains?.length) body.include_domains = args.includeDomains.slice(0, 10);
   if (args.days && args.days > 0) { body.topic = "news"; body.days = Math.floor(args.days); }
-  const data = await call(options.fetchFn ?? fetch, "https://api.tavily.com/search", {
-    method: "POST",
-    headers: { "content-type": "application/json", authorization: `Bearer ${key}` },
-    body: JSON.stringify(body),
-  }, "Tavily");
+  let data: any;
+  try {
+    data = await call(options.fetchFn ?? fetch, "https://api.tavily.com/search", {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${key}` },
+      body: JSON.stringify(body),
+    }, "Tavily");
+  } catch (err: any) {
+    const now = (options.now ?? new Date()).getTime();
+    const status = Number(err?.status);
+    // A refused key or an exhausted plan: the paid web search comes back until midnight UTC; a rate limit: for an hour.
+    if (status === 401 || status === 403 || status === 432 || status === 433) markServiceDown(options.db, "tavily", Date.UTC(new Date(now).getUTCFullYear(), new Date(now).getUTCMonth(), new Date(now).getUTCDate() + 1), String(err?.message ?? err));
+    else if (status === 429) markServiceDown(options.db, "tavily", now + 3_600_000, String(err?.message ?? err));
+    throw err;
+  }
   const results: Array<{ title?: string; url?: string; content?: string; score?: number; published_date?: string }> = Array.isArray(data.results) ? data.results : [];
   const lines = [`Tavily search "${query}" (${body.search_depth}, ${results.length} results)`];
   if (data.answer) lines.push(`Answer: ${String(data.answer).slice(0, 800)}`);

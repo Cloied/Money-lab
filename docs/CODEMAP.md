@@ -53,6 +53,7 @@
 | Cloudflare Pages deployment | src/money-lab/deploy.ts | deploy_site drives wrangler with the Pages token to publish ~/sites/<name> | The deployment flow, token scope or wrangler lookup changes |
 | Cloudflare Workers deployment | src/money-lab/workers.ts | deploy_worker: code rules, wrangler.toml with KV or D1 bindings, storage created once, deploy and URL check | The Worker flow, bindings, forbidden patterns or wrangler commands change |
 | Cloudflare Web Analytics | src/money-lab/cfanalytics.ts | web_analytics: site lookup and GraphQL page-view groups for the bot's sites | The analytics query, dimensions or token scope change |
+| Web tools policy | src/money-lab/webtools.ts | Removes Anthropic's paid web_search/web_fetch from requests once Tavily and free models exist; prompt wording | The free-first rule or its override changes |
 
 Generated from likma.project.json; regenerate with `project map`.
 Keep entries short and tied to actual paths. Agents must confirm ownership before editing.

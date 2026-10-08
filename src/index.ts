@@ -38,6 +38,7 @@ import { randomUUID } from "crypto";
 import { keccak256, toHex } from "viem";
 import { applyMoneyLabProfile, automaticTopupsAllowed, MoneyLabConfigError } from "./money-lab/profile.js";
 import { installMoneyLabPaymentGuard } from "./money-lab/guard.js";
+import { webToolsPolicy } from "./money-lab/webtools.js";
 import { ensureMoneyLabSchema, getKV, getPauseState, journalFingerprint, queueOwnerNotification, setKV } from "./money-lab/journal.js";
 import { afterWakeCycle, inferenceCallCount, isOperatorWake } from "./money-lab/cycle.js";
 import { MONEY_LAB_WAKE_REASON_KEY } from "./money-lab/journal.js";
@@ -414,9 +415,14 @@ async function run(): Promise<void> {
     ollamaBaseUrl,
     getModelProvider: (modelId) => modelRegistry.get(modelId)?.provider,
     ...(moneyLab?.inference.effort ? { anthropicEffort: moneyLab.inference.effort } : {}),
-    // Self-hosted Money Lab researches the web through Anthropic's server tools.
-    ...(selfHosted ? { anthropicWebTools: true } : {}),
+    // Self-hosted Money Lab researches the web through Anthropic's server tools,
+    // unless the owner's free alternatives (Tavily, free models) are configured.
+    ...(selfHosted ? { anthropicWebTools: () => webToolsPolicy({ db: db.raw }) } : {}),
   });
+  if (selfHosted) {
+    const policy = webToolsPolicy({ db: db.raw });
+    if (!policy.search || !policy.fetch) logger.info(`[MONEY LAB] Outils web payants : web_search ${policy.search ? "actif" : "coupé"}, web_fetch ${policy.fetch ? "actif" : "coupé"} (${policy.reason}) ; ils reviennent d'eux-mêmes quand l'équivalent gratuit est indisponible.`);
+  }
 
   if (ollamaBaseUrl) {
     logger.info(`[${new Date().toISOString()}] Ollama backend: ${ollamaBaseUrl}`);
