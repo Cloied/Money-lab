@@ -1,6 +1,13 @@
 # Working status
-- Updated: 2026-10-07
+- Updated: 2026-10-08
 - Branch / commit: claude/money-lab-first-run-bezu7x (packs 5a and 5b on main a8b75bc, Likma adoption merged), on upstream Automaton d8f816881fd24b6f5e3d616e59edec387a447667 (0.2.1)
+- Security hardening (2026-10-08, Likma 0.12.0): removed the unused direct dependency simple-git (critical
+  advisories fixed only in 4.x; nothing in the repository imports it); new `deps` check (`pnpm audit --prod
+  --audit-level critical`: 0 critical, 9 high and 17 moderate remain, all transitive via lighthouse/puppeteer and
+  @solana/web3.js); TruffleHog secret scan in CI (.github/workflows/secrets.yml, pinned v3.97.0); Claude Code deny
+  rules for .claude/, .git/hooks/, .mcp.json, .env*; `agent_isolation` records that the Claude Code sandbox cannot
+  run in cloud containers (no bubblewrap, tested) or on Windows. Checks after the change: deps, types, build pass;
+  money-lab suite and upstream suite pass (likma project check); feature evidence unaffected (no scope changed).
 - Current goal: self-hosted VPS runtime (Claude Sonnet 5.5, Telegram, Stripe, survival goal); development only, no launch.
 - Accepted decisions:
   - Thin extension under src/money-lab/ plus narrow upstream patches; inert without a moneyLab block.
